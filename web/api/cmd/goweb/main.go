@@ -24,7 +24,7 @@ import (
 
 type command func(args []string, getenv func(string) string, stdout io.Writer) error
 
-// commands is the subcommand table. `user` registers itself in user.go; a later task adds `backup`.
+// commands is the subcommand table. `user` and `backup` register themselves in user.go and backup.go.
 var commands = map[string]command{
 	"serve": serve,
 }
