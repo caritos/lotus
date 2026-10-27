@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -299,10 +301,19 @@ func (a *api) getPhoto(w http.ResponseWriter, r *http.Request, uid, id string) {
 	}
 	f, err := a.st.Open(n.Photo)
 	if err != nil {
-		if errors.Is(err, storage.ErrInvalidName) {
-			serverError(w, err)
-		} else {
+		switch {
+		case errors.Is(err, os.ErrNotExist):
 			fail(w, http.StatusNotFound, "not found")
+		case errors.Is(err, storage.ErrInvalidName):
+			// The row names something Save could never have written: a data
+			// problem worth a warning, but to the client the photo just isn't there.
+			slog.Warn("note photo has an invalid stored name", "note", id)
+			fail(w, http.StatusNotFound, "not found")
+		default:
+			// Permissions, I/O and the like: a server fault, not a missing photo.
+			// Log the cause without the file name or path.
+			slog.Error("open note photo", "note", id, "err", pathless(err))
+			fail(w, http.StatusInternalServerError, "internal error")
 		}
 		return
 	}
@@ -324,6 +335,15 @@ func (a *api) getPhoto(w http.ResponseWriter, r *http.Request, uid, id string) {
 	h.Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, f)
+}
+
+// pathless drops the path from an *os.PathError so logs never carry file names.
+func pathless(err error) error {
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s: %w", pe.Op, pe.Err)
+	}
+	return err
 }
 
 func (a *api) deletePhoto(w http.ResponseWriter, r *http.Request, uid, id string) {
