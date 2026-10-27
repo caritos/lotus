@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test-fast:*)",
+      "Bash(make test:*)",
+      "Bash(make api:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -21,8 +21,8 @@
 # this run exit 3.
 #
 # Exit status: 0 all good; 1 something failed or the newest backup is stale;
-# 2 bad configuration; 3 another run holds the lock (no notification, so it is
-# distinguishable from "stale").
+# 2 bad configuration; 3 another run holds the lock (the lock itself raises no
+# notification, but the freshness alert still runs and may notify, see above).
 #
 # Environment:
 #   REMOTE      user@host; empty means REMOTE_DIR is a local path (tests)
