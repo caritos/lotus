@@ -20,7 +20,8 @@
 #   DATA_DIR        default $HOME/goweb/data
 #   SERVICE         systemd unit name, default goweb
 #   SYSTEMCTL       default "systemctl --user"
-#   GOWEB_BIN       default `goweb` on PATH, else <script dir>/../goweb
+#   GOWEB_BIN       must be the goweb executable FILE. Default: $HOME/goweb/current/goweb if it
+#                   exists, else `goweb` on PATH, else <script dir>/../goweb
 #   PORT            default 8080 (used by the default HEALTH_URL)
 #   HEALTH_URL      default http://127.0.0.1:$PORT/healthz
 #   HEALTH_CMD      shell command that exits 0 when healthy (default: curl HEALTH_URL)
@@ -41,14 +42,18 @@ die() { echo "restore: $*" >&2; exit 1; }
 
 if [ -n "${GOWEB_BIN:-}" ]; then
   :
+elif [ -f "$HOME/goweb/current/goweb" ] && [ -x "$HOME/goweb/current/goweb" ]; then
+  GOWEB_BIN="$HOME/goweb/current/goweb"
 elif command -v goweb >/dev/null 2>&1; then
   GOWEB_BIN="$(command -v goweb)"
-elif [ -x "$SCRIPT_DIR/../goweb" ]; then
+elif [ -f "$SCRIPT_DIR/../goweb" ] && [ -x "$SCRIPT_DIR/../goweb" ]; then
   GOWEB_BIN="$SCRIPT_DIR/../goweb"
 else
-  die "cannot find the goweb binary (set GOWEB_BIN)"
+  die "cannot find the goweb binary: set GOWEB_BIN to the path of the goweb executable file (for example \$HOME/goweb/current/goweb)"
 fi
-[ -x "$GOWEB_BIN" ] || die "GOWEB_BIN is not executable: $GOWEB_BIN"
+if [ ! -f "$GOWEB_BIN" ] || [ ! -x "$GOWEB_BIN" ]; then
+  die "GOWEB_BIN must be an executable file, not a directory or missing path: $GOWEB_BIN"
+fi
 
 # safe_rm_rf <path>: refuse (return 1) to recursively delete anything dangerous.
 safe_rm_rf() {

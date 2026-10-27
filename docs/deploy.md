@@ -38,22 +38,48 @@ never enables linger by itself.
 
 ## 2. Configure `.env`
 
-Copy `.env.example` to `~/goweb/.env` on the server and edit it. Production needs:
+Copy `.env.example` to `~/goweb/.env` on the server and edit it. The common part:
 
 ```
 APP_ENV=production
-ADDR=0.0.0.0:8080
 PUBLIC_ORIGIN=https://app.example.com
 SECURE_COOKIES=true
-TRUSTED_PROXY=127.0.0.1/32
 SESSION_SECRET=<output of: openssl rand -hex 32>
 ```
 
-Pick a free port; on a shared host check `ss -tln` first, because ports are not private
-to your user. Listen on `0.0.0.0`, not `127.0.0.1`, when a panel proxy reaches the app
-through the host's public address. Write values without quotes or spaces (systemd and
-`deploy.sh` both read the file line by line). Keep it private: `chmod 600 ~/goweb/.env`.
-`deploy.sh` never uploads this file.
+Then pick the case that matches how traffic reaches the app. Pick a free port; on a shared host
+check `ss -tln` first, because ports are not private to your user.
+
+**(a) Your own NGINX on the same host** (see [https.md](https.md)). Keep the app on loopback so plain HTTP
+is never exposed and TLS/HSTS cannot be bypassed:
+
+```
+ADDR=127.0.0.1:8080
+TRUSTED_PROXY=127.0.0.1/32
+```
+
+**(b) A hosting panel proxy** that connects to the app through the machine's public address. Loopback-only
+would give 502, so listen on all interfaces and trust that proxy's address:
+
+```
+ADDR=0.0.0.0:8080
+TRUSTED_PROXY=<the proxy's address, as /32>
+```
+
+To find the proxy's address, make a request through the public site and look at the `remote` address in
+the app log (`~/goweb/data/logs/`), or at the source of connections in `ss -tn` on the server. Leave
+`TRUSTED_PROXY` empty if you cannot tell, but then every request appears to come from the proxy, so
+per-IP limits (for example on sign-in attempts) are shared by all visitors. Restrict who can reach the port
+with the host's firewall if it offers one.
+
+Write values without quotes, spaces or a trailing carriage return (systemd and `deploy.sh` read the file
+line by line; `deploy.sh` refuses `DATA_DIR` and `ADDR` lines that contain them). Keep it private:
+`chmod 600 ~/goweb/.env`. `deploy.sh` never uploads this file.
+
+**DATA_DIR.** Leave it out of `.env`. If you set it, remember that systemd lets `EnvironmentFile=` values
+override the unit's `Environment=DATA_DIR=...`, so the `.env` value is what the service uses (a relative
+value is relative to `~/goweb/data`). `deploy.sh` resolves it the same way for the pre-deploy backup and the
+printed restore command, and refuses to continue if that directory has no `db/goweb.db`.
 
 ## 3. Install the units
 
@@ -83,7 +109,8 @@ service unit exist, and that the server has `curl` or `wget` and a sha256 tool.
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,
 default 8080), `HEALTH_TIMEOUT` (default 20 s), `VERSION` (default
 `git describe --tags --always --dirty`; a dirty tree is allowed and shows in the version),
-`SKIP_WEB_BUILD=1`, `KEEP_OLD`.
+`SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`. When `HEALTH_PORT` is not set the port is read
+from `ADDR` in the server's `.env` (default 8080).
 
 What a deploy does, in order:
 
@@ -91,16 +118,22 @@ What a deploy does, in order:
    instead of prompting for a password.
 2. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version and
    commit injected.
-3. If a release is active, runs `goweb backup` on the server with the running binary
+3. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
+   fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
+   over. The lock is released on exit, also after a failure or Ctrl-C.
+4. Resolves `DATA_DIR` and the app port from the server's `.env` as described above.
+5. If a release is active, runs `goweb backup` on the server with the running binary
    (the pre-deploy snapshot) and remembers its directory.
-4. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the
+6. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the
    local one (a mismatch aborts with nothing changed), then renames into place.
-5. Repoints `current` (an atomic rename when the server's `mv` supports `-T`, else
+7. Repoints `current` (an atomic rename when the server's `mv` supports `-T`, else
    `ln -sfn`, and it says so), restarts the unit and polls `/healthz` on the server's
-   loopback until it reports the new version.
-6. Keeps the active release, the previous one and up to three older ones; deletes the
-   rest inside `releases/`.
-7. When `PUBLIC_URL` is set, runs `deploy/smoke.sh` against it from your machine. A failing smoke
+   loopback until it reports exactly the new version (up to `HEALTH_TIMEOUT` seconds on the clock),
+   then probes once more after 3 seconds: a service that comes up and falls over again counts as failed.
+8. Keeps the active release, the previous one and up to three older ones; deletes the
+   rest inside `releases/` (never the active or previous release, and never an `*.uploading` directory
+   younger than 30 minutes).
+9. When `PUBLIC_URL` is set, runs `deploy/smoke.sh` against it from your machine. A failing smoke
    check makes the deploy exit 1 but does not roll back.
 
 ## Rollback and restore
@@ -114,11 +147,14 @@ If the new release is not healthy within the timeout:
 - **The release carries a migration**: the binary is **not** rolled back, because the
   previous binary may not work against the migrated schema. The deploy prints the exact
   commands to put the previous release back and restore the pre-deploy backup with
-  `restore.sh` (run on the server). `restore.sh` verifies the backup, stops the
+  `restore.sh` (run on the server, with `GOWEB_BIN` pointing at the previous release's binary file). `restore.sh` verifies the backup, stops the
   service, saves the live data as `pre-restore-*`, swaps the backup in, restarts and
   health-checks. See [backups.md](backups.md).
+- **Previous binary without `schema-version`** (a release from before that subcommand existed): treated
+  as "may have migrated", so no automatic rollback; the restore command is printed.
 - **First deploy**: there is no previous release; the deploy says so and exits non-zero.
-  Read the service log (`journalctl --user -u goweb`, and `~/goweb/data/logs/`).
+  Read the service log (`journalctl --user -u goweb`; check it first in every failure case, a migration may
+  still be running), and `~/goweb/data/logs/`).
 
 ### Release notes convention
 

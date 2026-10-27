@@ -29,10 +29,12 @@ in the privacy policy.
 
 ```sh
 # rehearsal: restores into a scratch directory, touches neither DATA_DIR nor the service
-deploy/restore.sh ~/goweb/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
+# (on the server every deploy refreshes ~/goweb/restore.sh; from a checkout use deploy/restore.sh)
+export GOWEB_BIN=$HOME/goweb/current/goweb      # must be the executable file, not a directory
+bash ~/goweb/restore.sh ~/goweb/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
 
-# real restore (on the server)
-DATA_DIR=$HOME/goweb/data deploy/restore.sh ~/goweb/data/backups/20261027T031500Z
+# real restore (on the server); DATA_DIR is the one the service really uses
+DATA_DIR=$HOME/goweb/data bash ~/goweb/restore.sh ~/goweb/data/backups/20261027T031500Z
 ```
 
 A real restore verifies the backup, stages a copy next to `DATA_DIR`, stops the service, saves the live data as

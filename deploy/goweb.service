@@ -7,6 +7,12 @@
 # release, goweb/data is DATA_DIR, goweb/.env holds the runtime configuration
 # (ADDR=0.0.0.0:<port>, APP_ENV, SESSION_SECRET, PUBLIC_ORIGIN, ...).
 #
+# DATA_DIR: values in goweb/.env OVERRIDE Environment= lines (systemd applies
+# EnvironmentFile= last). A DATA_DIR in .env therefore wins over the
+# Environment=DATA_DIR line below, and a relative value is relative to
+# WorkingDirectory. deploy.sh resolves it the same way for the pre-deploy backup.
+# Simplest: do not set DATA_DIR in .env at all.
+#
 # The sandboxing lines (NoNewPrivileges, ProtectSystem, ReadWritePaths, PrivateTmp)
 # need unprivileged user namespaces on some hosts. If `systemctl --user status goweb`
 # shows status=226/NAMESPACE or similar, delete those lines and restart; the app

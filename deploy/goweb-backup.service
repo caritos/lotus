@@ -1,6 +1,10 @@
 # systemd USER unit: one backup run, started by goweb-backup.timer.
 # Install both files in ~/.config/systemd/user/, then:
 #   systemctl --user daemon-reload && systemctl --user enable --now goweb-backup.timer
+#
+# DATA_DIR: a DATA_DIR in goweb/.env overrides the Environment= line below (systemd
+# applies EnvironmentFile= last; a relative value is relative to WorkingDirectory).
+# Keep one value, or leave DATA_DIR out of .env.
 [Unit]
 Description=goweb daily backup
 

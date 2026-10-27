@@ -58,11 +58,13 @@ else
   body="$(cat "$TMP/body")"
   if ! printf '%s' "$body" | grep -Eq '"status" *: *"ok"'; then
     fail "/healthz: status is not ok: $(snippet)"
-  elif ! printf '%s' "$body" | grep -Eq "\"version\" *: *\"$EXPECTED\""; then
-    observed="$(printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
-    fail "/healthz: version is '$observed', want '$EXPECTED'"
   else
-    pass "/healthz reports version $EXPECTED"
+    observed="$(printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+    if [ "$observed" != "$EXPECTED" ]; then
+      fail "/healthz: version is '$observed', want '$EXPECTED'"
+    else
+      pass "/healthz reports version $EXPECTED"
+    fi
   fi
 fi
 
@@ -72,7 +74,7 @@ if [ "$STATUS" != "200" ]; then
   fail "/: status $STATUS, want 200"
 elif ! grep -qi '<html' "$TMP/body"; then
   fail "/: not HTML: $(snippet)"
-elif ! grep -qi -- "$APP_NAME" "$TMP/body"; then
+elif ! grep -qiF -- "$APP_NAME" "$TMP/body"; then
   fail "/: home page does not contain '$APP_NAME'"
 else
   pass "/ is HTML and contains '$APP_NAME'"

@@ -23,7 +23,7 @@ server {
     server_name app.example.com;
     ssl_certificate     /etc/letsencrypt/live/app.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
-    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header Strict-Transport-Security "max-age=300" always;   # raise after verifying, see below
     client_max_body_size 8m;               # the app caps bodies at 8 MiB
 
     location / {
@@ -40,8 +40,9 @@ server {
 - `proxy_pass` points at the app's port (the port in `ADDR`).
 - `Host`, `X-Forwarded-For` and `X-Forwarded-Proto` let the app log real client addresses and
   build correct origins.
-- Add HSTS (`Strict-Transport-Security`) only once HTTPS works for every page: browsers remember it. Start
-  with a short `max-age` (for example 300) while testing, then raise it.
+- HSTS (`Strict-Transport-Security`) is remembered by browsers, so roll it out in stages. The example
+  ships `max-age=300` (five minutes). After you have checked that every page works over HTTPS, raise it
+  (for example to `86400`, then `31536000`) and reload NGINX.
 
 ## Certificates with certbot
 
@@ -74,9 +75,12 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
 - `PUBLIC_ORIGIN` must equal the origin users type, scheme included; the same-origin check on
   state-changing requests compares against it.
 - `SECURE_COOKIES=true` marks the session cookie Secure so browsers send it only over HTTPS.
+- `ADDR`: with NGINX on the same host use `ADDR=127.0.0.1:8080`, so the app is reachable only through
+  NGINX and plain HTTP is never exposed (a `0.0.0.0` listener would let anyone bypass TLS and HSTS by
+  using the port directly).
 - `TRUSTED_PROXY` is the address (CIDR) the proxy connects from. `X-Forwarded-For` is trusted only from
-  there; leave it empty to trust no one. When the proxy runs on the same machine and connects to `127.0.0.1`,
-  use `127.0.0.1/32`.
+  there; leave it empty to trust no one (then per-IP limits key on the proxy's address). With NGINX on
+  the same machine connecting to `127.0.0.1`, use `127.0.0.1/32`. For a hosting panel proxy see below.
 - Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`.
 
 ## Hosts with a panel proxy (HTTP/1.0)
@@ -85,8 +89,9 @@ Some hosting panels put their own proxy in front of the app and speak HTTP/1.0 t
 corrupt chunked or streamed static files. goweb serves its static assets with a known `Content-Length`
 (no streaming compression), which is what these proxies need. `deploy/smoke.sh` checks this: it fetches
 `/static/style.css` with `curl --http1.0 --compressed` and requires the bytes to equal the local file.
-Also listen on `0.0.0.0` in `ADDR` for panel proxies, which reach the app through the host's public
-address; a loopback-only app shows as 502 there. Where the panel manages the proxy and certificates, do not
+A panel proxy that reaches the app through the host's public address needs `ADDR=0.0.0.0:<port>` (a
+loopback-only app shows as 502 there) and `TRUSTED_PROXY=<the proxy's address>/32` instead of
+`127.0.0.1/32`; see "Configure `.env`" in [deploy.md](deploy.md) for how to find that address. Where the panel manages the proxy and certificates, do not
 add a second proxy file by hand: use one or the other.
 
 ## Variant: system-wide service (hosts with root)
