@@ -4,6 +4,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,9 +18,16 @@ import (
 type Deps struct {
 	DB   *sql.DB
 	Auth *auth.Service
+	// Logger receives request logs; nil falls back to slog.Default().
+	Logger *slog.Logger
 }
 
-// New returns the application handler.
+// maxBodyBytes is the global request body cap (the notes upload enforces its own).
+const maxBodyBytes = 8 << 20
+
+// New returns the application handler wrapped in the middleware chain
+// (outermost first): TrustedProxy, RequestLog, SecurityHeaders, SameOrigin, BodyLimit.
+// cfg must come from config.Load, which validates TRUSTED_PROXY.
 func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
@@ -31,7 +39,23 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	}
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())
-	return mux
+
+	logger := deps.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	// Load validated TrustedProxy; on a hand-built invalid Config fail closed
+	// by trusting no proxy.
+	proxy, err := TrustedProxy(cfg.TrustedProxy)
+	if err != nil {
+		proxy, _ = TrustedProxy("")
+	}
+	var h http.Handler = mux
+	h = BodyLimit(maxBodyBytes)(h)
+	h = SameOrigin(cfg.PublicOrigin)(h)
+	h = SecurityHeaders(cfg.SecureCookies)(h)
+	h = RequestLog(logger)(h)
+	return proxy(h)
 }
 
 func healthz(w http.ResponseWriter, r *http.Request) {

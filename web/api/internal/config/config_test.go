@@ -100,3 +100,23 @@ func TestDerivedPaths(t *testing.T) {
 		t.Errorf("BackupDir = %q, want %q", got, want)
 	}
 }
+
+func TestLoadRejectsInvalidTrustedProxy(t *testing.T) {
+	_, err := Load(env(map[string]string{"TRUSTED_PROXY": "10.0.0.0/8, nonsense"}))
+	if err == nil || !strings.Contains(err.Error(), "TRUSTED_PROXY") {
+		t.Fatalf("err = %v, want TRUSTED_PROXY error", err)
+	}
+	if _, err := Load(env(map[string]string{"TRUSTED_PROXY": "10.0.0.0/8, 192.0.2.1, ::1"})); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseTrustedProxy(t *testing.T) {
+	p, err := ParseTrustedProxy(" 10.0.0.0/8 , 192.0.2.1,")
+	if err != nil || len(p) != 2 {
+		t.Fatalf("p=%v err=%v", p, err)
+	}
+	if p, err := ParseTrustedProxy(""); err != nil || len(p) != 0 {
+		t.Fatalf("empty: p=%v err=%v", p, err)
+	}
+}

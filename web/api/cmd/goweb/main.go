@@ -16,7 +16,9 @@ import (
 	"goweb/internal/auth"
 	"goweb/internal/config"
 	"goweb/internal/db"
+	"goweb/internal/logging"
 	"goweb/internal/server"
+	"goweb/internal/version"
 )
 
 type command func(args []string, getenv func(string) string, stdout io.Writer) error
@@ -56,6 +58,13 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	logger, logCloser, err := logging.New(cfg.DataDir, 5<<20, 5)
+	if err != nil {
+		return err
+	}
+	defer logCloser.Close()
+	slog.SetDefault(logger)
+
 	d, err := db.Open(cfg.DBPath())
 	if err != nil {
 		return err
@@ -66,10 +75,10 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	}
 	svc := auth.NewService(d, cfg, time.Now)
 
-	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc}))
+	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc, Logger: logger}))
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("listening", "addr", cfg.Addr, "env", cfg.Env)
+	slog.Info("listening", "addr", cfg.Addr, "version", version.Version, "commit", version.Commit, "env", cfg.Env)
 
 	select {
 	case err := <-errc:

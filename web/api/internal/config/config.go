@@ -3,8 +3,10 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -48,6 +50,9 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		c.SecureCookies = b
 	}
+	if _, err := ParseTrustedProxy(c.TrustedProxy); err != nil {
+		return Config{}, fmt.Errorf("config: TRUSTED_PROXY: %w", err)
+	}
 	c.SessionTTL = 30 * 24 * time.Hour
 	if v := getenv("SESSION_TTL"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -81,3 +86,34 @@ func (c Config) StorageDir() string { return filepath.Join(c.DataDir, "storage")
 
 // BackupDir holds database snapshots.
 func (c Config) BackupDir() string { return filepath.Join(c.DataDir, "backups") }
+
+// ParseTrustedProxy parses a comma-separated list of CIDRs or single IPs.
+// An empty string means no trusted proxies.
+func ParseTrustedProxy(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(part); err == nil {
+			out = append(out, netip.PrefixFrom(p.Addr().Unmap(), unmapBits(p)).Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR or IP %q", part)
+		}
+		a = a.Unmap()
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
+}
+
+// unmapBits converts the prefix length of an IPv4-mapped IPv6 prefix to IPv4 terms.
+func unmapBits(p netip.Prefix) int {
+	if p.Addr().Is4In6() {
+		return max(p.Bits()-96, 0)
+	}
+	return p.Bits()
+}
