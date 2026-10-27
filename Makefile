@@ -4,8 +4,12 @@ LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/versio
 
 .PHONY: dev build test-fast test test-api e2e api
 
+# Go API on :8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
 dev:
-	@echo "not implemented yet (Task 8)"; exit 1
+	@trap 'kill 0' INT TERM EXIT; \
+	(cd web/api && DATA_DIR=.. PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run ./cmd/goweb serve) & \
+	(cd web && pnpm dev) & \
+	wait
 
 build:
 	@if [ -f web/package.json ]; then cd web && pnpm install --frozen-lockfile && pnpm build; \
@@ -14,9 +18,11 @@ build:
 
 test-fast:
 	cd web/api && go test -short ./...
+	cd web && pnpm test && pnpm typecheck
 
 test:
 	cd web/api && go test -race ./... && go vet ./...
+	cd web && pnpm test && pnpm typecheck
 	bash scripts/gen-api.test.sh
 
 test-api:
