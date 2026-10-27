@@ -1,0 +1,20 @@
+.superpowers/
+.env
+.DS_Store
+
+# build outputs
+web/node_modules/
+/goweb
+/bin/
+web/api/goweb
+web/api/internal/web/app/*
+!web/api/internal/web/app/.gitkeep
+
+# runtime data
+web/db/*
+!web/db/.gitkeep
+web/logs/*
+!web/logs/.gitkeep
+web/storage/*
+!web/storage/.gitkeep
+web/api/internal/db/*.db*
