@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { Footer } from "./Footer";
 import { RequireAuth } from "./RequireAuth";
 import { Login } from "./pages/Login";
 import { NoteEdit } from "./pages/NoteEdit";
@@ -19,6 +20,7 @@ export function App() {
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
+      <Footer />
     </SessionProvider>
   );
 }
