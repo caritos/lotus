@@ -29,8 +29,8 @@ type App struct {
 }
 
 // New opens the database under cfg.DataDir, applies migrations, removes upload
-// temp files older than an hour from storage/ and builds the handler. The caller owns logger (nil falls back to slog.Default()) and must
-// call Close.
+// temp files older than an hour from storage/ and builds the handler. The caller
+// owns logger (nil falls back to slog.Default()) and must call Close.
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if cfg.DataDir == "" {
 		return nil, errors.New("app: DataDir is required")

@@ -4,14 +4,21 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"goweb/internal/app"
+	"goweb/internal/auth"
 	"goweb/internal/config"
 )
+
+func TestMain(m *testing.M) {
+	auth.UseFastHashingForTests()
+	os.Exit(m.Run())
+}
 
 // syncBuffer is a goroutine-safe log sink.
 type syncBuffer struct {
@@ -115,9 +122,14 @@ func TestMaintenanceRunsOnceImmediatelyWithALongInterval(t *testing.T) {
 	a, uid := newApp(t)
 	addSession(t, a, uid, "expired", time.Now().Add(-time.Minute))
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go a.RunMaintenance(ctx, slog.New(slog.DiscardHandler), time.Hour)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.RunMaintenance(ctx, slog.New(slog.DiscardHandler), time.Hour)
+	}()
 	waitFor(t, "the start-up purge", func() bool { return sessionIDs(t, a) == "" })
+	cancel()
+	<-done
 }
 
 func TestMaintenanceLogsErrorsAndKeepsRunning(t *testing.T) {
