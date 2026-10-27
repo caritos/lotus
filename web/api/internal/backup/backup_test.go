@@ -3,11 +3,14 @@ package backup
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -53,6 +56,11 @@ func TestBackupIntegrityOK(t *testing.T) {
 	}
 }
 
+func isBusy(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "SQLITE_BUSY") || strings.Contains(m, "database is locked")
+}
+
 func TestBackupWhileWriting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "live.db")
 	d, err := db.Open(path)
@@ -69,8 +77,17 @@ func TestBackupWhileWriting(t *testing.T) {
 	}
 	defer d2.Close()
 	seedNote(t, d, "seed", nil)
+	// Enough rows that VACUUM INTO takes a measurable time.
+	if _, err := d.Exec(`WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c WHERE i < 5000)
+		INSERT INTO notes (id, user_id, title, body, created_at, updated_at) SELECT 'bulk'||i, 'u1', 't', hex(randomblob(64)), 1, 1 FROM c`); err != nil {
+		t.Fatal(err)
+	}
 
+	var inserts, busy atomic.Int64
+	var fatal atomic.Value
 	stop := make(chan struct{})
+	ready := make(chan struct{})
+	var once sync.Once
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -81,16 +98,35 @@ func TestBackupWhileWriting(t *testing.T) {
 				return
 			default:
 			}
-			d2.Exec(`INSERT INTO notes (id, user_id, title, created_at, updated_at) VALUES (?, 'u1', 't', 1, 1)`, fmt.Sprintf("w%d", i))
+			_, err := d2.Exec(`INSERT INTO notes (id, user_id, title, created_at, updated_at) VALUES (?, 'u1', 't', 1, 1)`, fmt.Sprintf("w%d", i))
+			switch {
+			case err == nil:
+				inserts.Add(1)
+				once.Do(func() { close(ready) })
+			case isBusy(err):
+				busy.Add(1)
+			default:
+				fatal.Store(err)
+				once.Do(func() { close(ready) })
+				return
+			}
 		}
 	}()
-	time.Sleep(20 * time.Millisecond)
-	dataDir := t.TempDir()
-	res, err := Run(context.Background(), d, dataDir, 5, t0)
+	<-ready // the writer is demonstrably active before the backup starts
+
+	before := inserts.Load()
+	res, err := Run(context.Background(), d, t.TempDir(), 5, t0)
+	after := inserts.Load()
 	close(stop)
 	wg.Wait()
+	if f := fatal.Load(); f != nil {
+		t.Fatalf("writer failed: %v", f)
+	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	if after <= before {
+		t.Fatalf("no inserts landed while Run executed (before=%d after=%d busy=%d)", before, after, busy.Load())
 	}
 	if err := Verify(res.Dir); err != nil {
 		t.Fatalf("Verify: %v", err)
@@ -150,6 +186,9 @@ func names(t *testing.T, dir string) []string {
 	}
 	var out []string
 	for _, e := range es {
+		if e.Name() == ".lock" {
+			continue
+		}
 		out = append(out, e.Name())
 	}
 	return out
@@ -323,5 +362,102 @@ func TestVerifyDetectsCorruptDB(t *testing.T) {
 func TestVerifyMissingDB(t *testing.T) {
 	if err := Verify(t.TempDir()); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func holdLock(t *testing.T, dataDir string) {
+	t.Helper()
+	root := filepath.Join(dataDir, "backups")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(root, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+}
+
+func TestRunFailsWhenAnotherBackupHoldsLock(t *testing.T) {
+	d := testutil.NewDB(t)
+	dataDir := t.TempDir()
+	holdLock(t, dataDir)
+	_, err := Run(context.Background(), d, dataDir, 5, t0)
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+	if got := names(t, filepath.Join(dataDir, "backups")); len(got) != 0 {
+		t.Fatalf("entries = %v", got)
+	}
+}
+
+func TestStalePartialCleanedOnlyWhileLockHeld(t *testing.T) {
+	d := testutil.NewDB(t)
+	dataDir := t.TempDir()
+	b := filepath.Join(dataDir, "backups")
+	writeFile(t, filepath.Join(b, "20261027T110000Z.partial", "goweb.db"), "in flight elsewhere")
+	holdLock(t, dataDir)
+	if _, err := Run(context.Background(), d, dataDir, 5, t0); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(b, "20261027T110000Z.partial")); err != nil {
+		t.Fatalf("partial removed without the lock: %v", err)
+	}
+}
+
+func TestConcurrentRunsSameSecond(t *testing.T) {
+	d := testutil.NewDB(t)
+	seedNote(t, d, "n1", nil)
+	dataDir := t.TempDir()
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = Run(context.Background(), d, dataDir, 5, t0)
+		}()
+	}
+	wg.Wait()
+	ok := 0
+	for _, e := range errs {
+		if e == nil {
+			ok++
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("errs = %v, want exactly one success", errs)
+	}
+	var sets []string
+	for _, n := range names(t, filepath.Join(dataDir, "backups")) {
+		if setName.MatchString(n) {
+			sets = append(sets, n)
+		}
+		if strings.HasSuffix(n, ".partial") {
+			t.Fatalf("partial left behind: %s", n)
+		}
+	}
+	if len(sets) != 1 {
+		t.Fatalf("sets = %v", sets)
+	}
+	if err := Verify(filepath.Join(dataDir, "backups", sets[0])); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunRefusesExistingFinalSet(t *testing.T) {
+	d := testutil.NewDB(t)
+	dataDir := t.TempDir()
+	if _, err := Run(context.Background(), d, dataDir, 5, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), d, dataDir, 5, t0); err == nil {
+		t.Fatal("want error for same-second collision")
+	}
+	if err := Verify(filepath.Join(dataDir, "backups", t0.Format(stampLayout))); err != nil {
+		t.Fatalf("existing set damaged: %v", err)
 	}
 }

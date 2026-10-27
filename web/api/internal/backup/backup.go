@@ -31,6 +31,9 @@ var (
 	partialName = regexp.MustCompile(`^(\d{8}T\d{6}Z)\.partial$`)
 )
 
+// ErrBusy is returned when another backup run holds the lock.
+var ErrBusy = errors.New("backup: another backup is running")
+
 // Result describes a completed backup set.
 type Result struct {
 	Dir   string // the backup set directory
@@ -57,15 +60,26 @@ func Run(ctx context.Context, d *sql.DB, dataDir string, keep int, now time.Time
 	if err := os.Chmod(root, 0o700); err != nil {
 		return Result{}, fmt.Errorf("backup: chmod %s: %w", root, err)
 	}
+	// One run at a time: the lock covers building, finalizing and pruning, so a
+	// concurrent run can never clear or finalize our .partial directory.
+	lock, err := os.OpenFile(filepath.Join(root, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Result{}, fmt.Errorf("backup: open lock: %w", err)
+	}
+	defer lock.Close() // closing releases the flock
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return Result{}, ErrBusy
+		}
+		return Result{}, fmt.Errorf("backup: lock: %w", err)
+	}
 	stamp := now.UTC().Format(stampLayout)
 	final := filepath.Join(root, stamp)
 	partial := final + ".partial"
 	if _, err := os.Lstat(final); err == nil {
 		return Result{}, fmt.Errorf("backup: %s already exists", final)
 	}
-	if err := os.RemoveAll(partial); err != nil {
-		return Result{}, fmt.Errorf("backup: clear %s: %w", partial, err)
-	}
+	// Mkdir (no prior RemoveAll) fails if a same-stamp partial exists.
 	if err := os.Mkdir(partial, 0o700); err != nil {
 		return Result{}, fmt.Errorf("backup: create %s: %w", partial, err)
 	}
