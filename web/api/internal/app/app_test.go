@@ -1,11 +1,13 @@
 package app_test
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"goweb/internal/app"
 	"goweb/internal/config"
@@ -46,5 +48,33 @@ func TestNewFailsOnUnwritableDataDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
 	if _, err := app.New(config.Config{DataDir: filepath.Join(parent, "data")}, nil); err == nil {
 		t.Fatal("expected error for unwritable DataDir")
+	}
+}
+
+func TestNewSweepsStaleUploadTempFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	st := filepath.Join(dataDir, "storage")
+	if err := os.MkdirAll(st, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	for _, name := range []string{".upload-stale", ".upload-fresh"} {
+		if err := os.WriteFile(filepath.Join(st, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(filepath.Join(st, ".upload-stale"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	a, err := app.New(config.Config{DataDir: dataDir, Env: "development"}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := os.Stat(filepath.Join(st, ".upload-stale")); !os.IsNotExist(err) {
+		t.Errorf("stale temp file still there (err %v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(st, ".upload-fresh")); err != nil {
+		t.Errorf("fresh temp file removed: %v", err)
 	}
 }

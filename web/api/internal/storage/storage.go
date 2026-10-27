@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
+	"time"
 
 	"goweb/internal/uid"
 )
@@ -134,4 +136,36 @@ func (s *Store) Delete(name string) error {
 		return fmt.Errorf("storage: delete: %w", err)
 	}
 	return nil
+}
+
+// SweepTemp removes leftover upload temp files (".upload-*", from a crash or
+// kill in the middle of Save) whose modification time is older than maxAge. It
+// looks only directly inside the storage directory: it never recurses, never
+// follows symlinks and never touches any other name. A missing directory is not
+// an error. It returns how many files it removed.
+func (s *Store) SweepTemp(maxAge time.Duration) (int, error) {
+	entries, err := os.ReadDir(s.dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("storage: sweep: %w", err)
+	}
+	cutoff := time.Now().Add(-maxAge)
+	n := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".upload-") || !e.Type().IsRegular() {
+			continue
+		}
+		p := filepath.Join(s.dir, e.Name())
+		fi, err := os.Lstat(p)
+		if err != nil || !fi.Mode().IsRegular() || !fi.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return n, fmt.Errorf("storage: sweep: %w", err)
+		}
+		n++
+	}
+	return n, nil
 }
