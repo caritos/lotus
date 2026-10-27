@@ -22,4 +22,4 @@ e2e:
 	@echo "not implemented yet (Task 11)"; exit 1
 
 api:
-	@echo "not implemented yet (Task 4)"; exit 1
+	bash scripts/gen-api.sh

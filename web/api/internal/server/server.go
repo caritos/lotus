@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"goweb/internal/apigen"
 	"goweb/internal/auth"
 	"goweb/internal/config"
 	"goweb/internal/version"
@@ -60,11 +61,7 @@ func New(cfg config.Config, deps Deps) http.Handler {
 
 func healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
-		Commit  string `json:"commit"`
-	}{"ok", version.Version, version.Commit})
+	_ = json.NewEncoder(w).Encode(apigen.Health{Status: "ok", Version: version.Version, Commit: version.Commit})
 }
 
 // NewHTTPServer returns an http.Server with every timeout set.

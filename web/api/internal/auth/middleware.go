@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"goweb/internal/apigen"
 )
 
 const cookieName = "goweb_session"
@@ -45,7 +47,7 @@ func Middleware(s *Service) func(http.Handler) http.Handler {
 					r = r.WithContext(context.WithValue(r.Context(), userKey, u))
 				case !errors.Is(err, ErrUnauthenticated):
 					slog.Error("session lookup failed", "err", err)
-					writeJSON(w, http.StatusInternalServerError, errorBody{"internal error"})
+					writeJSON(w, http.StatusInternalServerError, apigen.Error{Error: "internal error"})
 					return
 				}
 			}
@@ -58,7 +60,7 @@ func Middleware(s *Service) func(http.Handler) http.Handler {
 func Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := FromContext(r.Context()); !ok {
-			writeJSON(w, http.StatusUnauthorized, errorBody{"unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, apigen.Error{Error: "unauthorized"})
 			return
 		}
 		next.ServeHTTP(w, r)

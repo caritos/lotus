@@ -8,21 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-)
 
-// Small explicit wire types; a later task replaces them with generated models.
-type (
-	loginRequest struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	userBody struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-	}
-	errorBody struct {
-		Error string `json:"error"`
-	}
+	"goweb/internal/apigen"
 )
 
 const maxBodyBytes = 1 << 14
@@ -67,10 +54,10 @@ func clientIP(r *http.Request) string {
 }
 
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
+	var req apigen.LoginRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody{"invalid request"})
+		writeJSON(w, http.StatusBadRequest, apigen.Error{Error: "invalid request"})
 		return
 	}
 	token, u, err := s.Login(r.Context(), req.Email, req.Password, clientIP(r))
@@ -79,15 +66,15 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	case errors.As(err, &te):
 		secs := int((te.RetryAfter + time.Second - 1) / time.Second)
 		w.Header().Set("Retry-After", strconv.Itoa(max(secs, 1)))
-		writeJSON(w, http.StatusTooManyRequests, errorBody{"too many attempts, try again later"})
+		writeJSON(w, http.StatusTooManyRequests, apigen.Error{Error: "too many attempts, try again later"})
 	case errors.Is(err, ErrBadCredentials):
-		writeJSON(w, http.StatusUnauthorized, errorBody{"invalid email or password"})
+		writeJSON(w, http.StatusUnauthorized, apigen.Error{Error: "invalid email or password"})
 	case err != nil:
 		slog.Error("login failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, errorBody{"internal error"})
+		writeJSON(w, http.StatusInternalServerError, apigen.Error{Error: "internal error"})
 	default:
 		http.SetCookie(w, s.sessionCookie(token, int(s.cfg.SessionTTL/time.Second)))
-		writeJSON(w, http.StatusOK, userBody{ID: u.ID, Email: u.Email})
+		writeJSON(w, http.StatusOK, apigen.User{ID: u.ID, Email: u.Email})
 	}
 }
 
@@ -103,5 +90,5 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 
 func me(w http.ResponseWriter, r *http.Request) {
 	u, _ := FromContext(r.Context())
-	writeJSON(w, http.StatusOK, userBody{ID: u.ID, Email: u.Email})
+	writeJSON(w, http.StatusOK, apigen.User{ID: u.ID, Email: u.Email})
 }
