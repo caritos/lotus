@@ -59,6 +59,18 @@ func (c *counter) blockedFor(key string, now time.Time) time.Duration {
 	return 0
 }
 
+// undo gives back one counted attempt, dropping the entry at zero.
+func (c *counter) undo(key string) {
+	e, ok := c.m[key]
+	if !ok {
+		return
+	}
+	en := e.Value.(*entry)
+	if en.count--; en.count <= 0 {
+		c.remove(e)
+	}
+}
+
 func (c *counter) add(key string, now time.Time) {
 	c.expire(now)
 	if e, ok := c.m[key]; ok {
@@ -100,41 +112,46 @@ func ipKey(ip string) string {
 	return a.String()
 }
 
-// check returns the retry delay and false when the attempt must be refused.
-func (t *throttle) check(email, ip string) (time.Duration, bool) {
+// attempt atomically checks all three counters and, when the attempt is
+// allowed, records it in each. Doing both in one critical section (before the
+// slow bcrypt compare) stops parallel requests from all passing the check. It
+// returns the retry delay and false when the attempt must be refused; refused
+// attempts are not counted.
+func (t *throttle) attempt(email, ip string) (time.Duration, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.now()
 	ip = ipKey(ip)
+	pk := email + "\x00" + ip
 	var worst time.Duration
 	for _, d := range []time.Duration{
-		t.pair.blockedFor(email+"\x00"+ip, now),
+		t.pair.blockedFor(pk, now),
 		t.email.blockedFor(email, now),
 		t.ip.blockedFor(ip, now),
 	} {
 		worst = max(worst, d)
 	}
-	return worst, worst == 0
-}
-
-func (t *throttle) fail(email, ip string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := t.now()
-	ip = ipKey(ip)
-	t.pair.add(email+"\x00"+ip, now)
+	if worst > 0 {
+		return worst, false
+	}
+	t.pair.add(pk, now)
 	t.email.add(email, now)
 	t.ip.add(ip, now)
+	return 0, true
 }
 
-// success clears the (email, ip) counter only.
+// success undoes the attempt after a correct password: the (email, ip) counter
+// is cleared, while the per-email and per-ip counters only give back this one
+// attempt, so a success can never reset failures made by anyone else.
 func (t *throttle) success(email, ip string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	key := email + "\x00" + ipKey(ip)
-	if e, ok := t.pair.m[key]; ok {
+	ip = ipKey(ip)
+	if e, ok := t.pair.m[email+"\x00"+ip]; ok {
 		t.pair.remove(e)
 	}
+	t.email.undo(email)
+	t.ip.undo(ip)
 }
 
 // size is the total number of tracked entries (for tests).

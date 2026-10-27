@@ -256,17 +256,17 @@ func TestThrottlePerIPAndPerEmailLimits(t *testing.T) {
 	th := newThrottle(clk.Now)
 	// 20 failures against one email from 20 distinct IPs blocks the email.
 	for i := 0; i < 20; i++ {
-		th.fail("v@x.y", "10.0.0."+string(rune('a'+i)))
+		th.attempt("v@x.y", "10.0.0."+string(rune('a'+i)))
 	}
-	if _, ok := th.check("v@x.y", "10.9.9.9"); ok {
+	if _, ok := th.attempt("v@x.y", "10.9.9.9"); ok {
 		t.Error("email limit not enforced")
 	}
 	// 50 failures from one IP across distinct emails blocks the IP.
 	th = newThrottle(clk.Now)
 	for i := 0; i < 50; i++ {
-		th.fail("u"+string(rune('a'+i))+"@x.y", "9.9.9.9")
+		th.attempt("u"+string(rune('a'+i))+"@x.y", "9.9.9.9")
 	}
-	if _, ok := th.check("fresh@x.y", "9.9.9.9"); ok {
+	if _, ok := th.attempt("fresh@x.y", "9.9.9.9"); ok {
 		t.Error("ip limit not enforced")
 	}
 }
@@ -275,12 +275,12 @@ func TestThrottleGroupsIPv6By64(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
 	th := newThrottle(clk.Now)
 	for i := 0; i < 5; i++ {
-		th.fail("a@b.c", "2001:db8:1:2::"+string(rune('1'+i)))
+		th.attempt("a@b.c", "2001:db8:1:2::"+string(rune('1'+i)))
 	}
-	if _, ok := th.check("a@b.c", "2001:db8:1:2:ffff::9"); ok {
+	if _, ok := th.attempt("a@b.c", "2001:db8:1:2:ffff::9"); ok {
 		t.Error("same /64 not grouped")
 	}
-	if _, ok := th.check("a@b.c", "2001:db8:1:3::1"); !ok {
+	if _, ok := th.attempt("a@b.c", "2001:db8:1:3::1"); !ok {
 		t.Error("different /64 should not be blocked")
 	}
 }
@@ -289,13 +289,13 @@ func TestThrottleBoundedAndExpires(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
 	th := newThrottle(clk.Now)
 	for i := 0; i < maxThrottleEntries+500; i++ {
-		th.fail("e"+itoa(i)+"@x.y", "1.1.1."+itoa(i%250))
+		th.attempt("e"+itoa(i)+"@x.y", "1.1.1."+itoa(i%250))
 	}
 	if n := th.size(); n > 3*maxThrottleEntries {
 		t.Fatalf("size = %d, not bounded", n)
 	}
 	clk.Advance(throttleWindow + time.Second)
-	th.fail("last@x.y", "8.8.8.8")
+	th.attempt("last@x.y", "8.8.8.8")
 	if n := th.size(); n > 3 {
 		t.Fatalf("expired entries not dropped, size = %d", n)
 	}
@@ -500,5 +500,88 @@ func TestRequireAndMiddleware(t *testing.T) {
 	}
 	if _, ok := FromContext(context.Background()); ok {
 		t.Error("user in empty context")
+	}
+}
+
+func TestParallelWrongPasswordsCannotBypassThrottle(t *testing.T) {
+	s, _ := newService(t, config.Config{})
+	ctx := context.Background()
+	if _, err := s.CreateUser(ctx, "a@b.c", "password1"); err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, errs[i] = s.Login(ctx, "a@b.c", "wrongpass1", "1.2.3.4")
+		}()
+	}
+	wg.Wait()
+	bad, throttled := 0, 0
+	for _, err := range errs {
+		switch {
+		case errors.Is(err, ErrBadCredentials):
+			bad++
+		case errors.Is(err, ErrThrottled):
+			throttled++
+		default:
+			t.Fatalf("unexpected err %v", err)
+		}
+	}
+	if bad > pairLimit || bad+throttled != n {
+		t.Fatalf("bad=%d throttled=%d, want bad <= %d", bad, throttled, pairLimit)
+	}
+}
+
+func TestSuccessDoesNotResetEmailOrIPCounters(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	th := newThrottle(clk.Now)
+	// 19 failures on one email from distinct IPs, then a success from another IP.
+	for i := 0; i < 19; i++ {
+		th.attempt("v@x.y", "10.0.0."+itoa(i))
+	}
+	th.attempt("v@x.y", "10.1.1.1")
+	th.success("v@x.y", "10.1.1.1")
+	if _, ok := th.attempt("v@x.y", "10.2.2.2"); !ok {
+		t.Fatal("19 failures should not block yet")
+	}
+	if _, ok := th.attempt("v@x.y", "10.3.3.3"); ok {
+		t.Fatal("success reset the per-email counter")
+	}
+}
+
+func TestLoginRejectsPasswordsOver72Bytes(t *testing.T) {
+	s, _ := newService(t, config.Config{})
+	ctx := context.Background()
+	pw := strings.Repeat("p", 72)
+	if _, err := s.CreateUser(ctx, "a@b.c", pw); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Login(ctx, "a@b.c", pw+"x", "1.2.3.4"); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("73-byte err = %v", err)
+	}
+	if _, _, err := s.Login(ctx, "a@b.c", pw, "1.2.3.4"); err != nil {
+		t.Fatalf("exact 72-byte password: %v", err)
+	}
+}
+
+func TestLoginOversizedEmailIsNotAThrottleKey(t *testing.T) {
+	s, _ := newService(t, config.Config{})
+	huge := strings.Repeat("a", 10*1024) + "@b.c"
+	if _, _, err := s.Login(context.Background(), huge, "password1", "1.2.3.4"); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, c := range []*counter{s.throttle.pair, s.throttle.email, s.throttle.ip} {
+		for k := range c.m {
+			if len(k) > 300 {
+				t.Fatalf("throttle key of %d bytes", len(k))
+			}
+		}
+	}
+	if s.throttle.size() == 0 {
+		t.Error("failure not recorded against the fixed key")
 	}
 }

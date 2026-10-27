@@ -38,6 +38,12 @@ type User struct {
 	Email string
 }
 
+const (
+	maxEmailBytes = 254
+	// oversizedEmailKey is the fixed throttle key for emails too long to track.
+	oversizedEmailKey = "(oversized)"
+)
+
 // devSessionKey is a DEVELOPMENT-ONLY HMAC key used when SESSION_SECRET is
 // empty. Config refuses an empty secret in production, so it is never used there.
 const devSessionKey = "goweb-development-only-session-key-do-not-use-in-production"
@@ -120,8 +126,20 @@ func (s *Service) dummy() string {
 // Login verifies credentials and starts a session, returning the raw cookie token.
 func (s *Service) Login(ctx context.Context, email, password, ip string) (string, User, error) {
 	email = normalizeEmail(email)
-	if wait, ok := s.throttle.check(email, ip); !ok {
+	// An oversized email must never become a throttle map key.
+	oversized := len(email) > maxEmailBytes
+	key := email
+	if oversized {
+		key = oversizedEmailKey
+	}
+	// Record the attempt before the slow bcrypt compare so parallel requests
+	// cannot all slip past the limit; success gives it back below.
+	if wait, ok := s.throttle.attempt(key, ip); !ok {
 		return "", User{}, &ThrottleError{RetryAfter: wait}
+	}
+	if oversized || len(password) > maxPasswordBytes {
+		CheckPassword(s.dummy(), password)
+		return "", User{}, ErrBadCredentials
 	}
 	var u User
 	var hash string
@@ -131,13 +149,11 @@ func (s *Service) Login(ctx context.Context, email, password, ip string) (string
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		CheckPassword(s.dummy(), password)
-		s.throttle.fail(email, ip)
 		return "", User{}, ErrBadCredentials
 	case err != nil:
 		return "", User{}, fmt.Errorf("auth: look up user: %w", err)
 	}
 	if !CheckPassword(hash, password) {
-		s.throttle.fail(email, ip)
 		return "", User{}, ErrBadCredentials
 	}
 	var raw [32]byte
@@ -156,7 +172,7 @@ func (s *Service) Login(ctx context.Context, email, password, ip string) (string
 	if err != nil {
 		return "", User{}, fmt.Errorf("auth: insert session: %w", err)
 	}
-	s.throttle.success(email, ip)
+	s.throttle.success(key, ip)
 	return token, u, nil
 }
 
