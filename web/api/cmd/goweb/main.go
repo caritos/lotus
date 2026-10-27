@@ -13,13 +13,15 @@ import (
 	"syscall"
 	"time"
 
+	"goweb/internal/auth"
 	"goweb/internal/config"
+	"goweb/internal/db"
 	"goweb/internal/server"
 )
 
 type command func(args []string, getenv func(string) string, stdout io.Writer) error
 
-// commands is the subcommand table. Later tasks register `user create` and `backup` here.
+// commands is the subcommand table. `user` registers itself in user.go; a later task adds `backup`.
 var commands = map[string]command{
 	"serve": serve,
 }
@@ -54,7 +56,17 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{}))
+	d, err := db.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := db.Migrate(ctx, d); err != nil {
+		return err
+	}
+	svc := auth.NewService(d, cfg, time.Now)
+
+	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc}))
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("listening", "addr", cfg.Addr, "env", cfg.Env)

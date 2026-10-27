@@ -1,15 +1,25 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"goweb/internal/auth"
 	"goweb/internal/config"
+	"goweb/internal/testutil"
 	"goweb/internal/version"
 )
+
+func TestMain(m *testing.M) {
+	auth.UseFastHashingForTests()
+	os.Exit(m.Run())
+}
 
 func TestHealthz(t *testing.T) {
 	version.Version, version.Commit = "v1.2.3", "abc123"
@@ -68,5 +78,43 @@ func TestServesPublicPagesAndStaticAnd404(t *testing.T) {
 		if rec.Code != want {
 			t.Errorf("%s: status = %d, want %d", path, rec.Code, want)
 		}
+	}
+}
+
+func TestAuthRoutesMountedWhenServiceProvided(t *testing.T) {
+	d := testutil.NewDB(t)
+	svc := auth.NewService(d, config.Config{SessionTTL: time.Hour}, time.Now)
+	if _, err := svc.CreateUser(context.Background(), "a@b.c", "password1"); err != nil {
+		t.Fatal(err)
+	}
+	h := New(config.Config{}, Deps{DB: d, Auth: svc})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous /api/me = %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"a@b.c","password":"password1"}`))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || len(rec.Result().Cookies()) != 1 {
+		t.Fatalf("login = %d", rec.Code)
+	}
+	rec2 := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(rec.Result().Cookies()[0])
+	h.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("authed /api/me = %d", rec2.Code)
+	}
+}
+
+func TestAuthRoutesAbsentWithoutService(t *testing.T) {
+	h := New(config.Config{}, Deps{})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("/api/me without auth = %d", rec.Code)
 	}
 }

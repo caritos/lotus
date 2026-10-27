@@ -2,22 +2,33 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"time"
 
+	"goweb/internal/auth"
 	"goweb/internal/config"
 	"goweb/internal/version"
 	"goweb/internal/web"
 )
 
 // Deps carries the server's collaborators; it grows as features are added.
-type Deps struct{}
+type Deps struct {
+	DB   *sql.DB
+	Auth *auth.Service
+}
 
 // New returns the application handler.
 func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	if deps.Auth != nil {
+		api := auth.Middleware(deps.Auth)(auth.Handlers(deps.Auth))
+		for _, p := range []string{"/api/login", "/api/logout", "/api/me"} {
+			mux.Handle(p, api)
+		}
+	}
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())
 	return mux
