@@ -19,7 +19,7 @@ make_copy() {
   local dest="$1"
   mkdir -p "$dest"
   (cd "$REPO" && git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf -) | tar -xf - -C "$dest" || return 1
-  (cd "$dest" && git init -q && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m base) || return 1
+  (cd "$dest" && git init -q && git add -A && git -c gc.auto=0 -c maintenance.auto=false -c user.email=t@example.com -c user.name=t commit -q -m base) || return 1
 }
 
 BASE="$ROOT/base"
