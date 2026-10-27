@@ -9,7 +9,7 @@ help:
 	@echo "make build        build the frontend, then the single binary ./goweb"
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
-	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename"
+	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id"
 	@echo "make e2e-install  download Chromium for Playwright (once)"
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
@@ -36,12 +36,13 @@ test:
 	bash scripts/gen-api.test.sh
 	$(MAKE) test-scripts
 
-# Shell tests for the deploy, generator, hook and rename scripts (need sqlite3 and go).
+# Shell tests for the deploy, generator, hook, rename and build-id scripts (need sqlite3 and go).
 test-scripts:
 	bash deploy/test.sh
 	bash scripts/gen-api-preflight.test.sh
 	bash .claude/hooks/post-edit.test.sh
 	bash scripts/rename.test.sh
+	bash scripts/build-id.test.sh
 
 test-api:
 	bash scripts/gen-api.test.sh

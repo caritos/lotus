@@ -99,6 +99,8 @@ jobs:
         run: bash .claude/hooks/post-edit.test.sh
       - name: Rename script test
         run: bash scripts/rename.test.sh
+      - name: Build id script test
+        run: bash scripts/build-id.test.sh
 
   e2e:
     runs-on: ubuntu-latest
