@@ -81,7 +81,8 @@ restore. See [docs/backups.md](docs/backups.md).
 ## HTTPS
 
 NGINX server block, certificates, redirect, HSTS and the matching `.env` settings:
-[docs/https.md](docs/https.md).
+[docs/https.md](docs/https.md). The proxy sets HSTS; the app never sends it, so the proxy's staged
+rollout is the one browsers see.
 
 ## Rename it
 

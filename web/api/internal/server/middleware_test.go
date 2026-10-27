@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"goweb/internal/auth"
+	"goweb/internal/config"
 )
 
 var ok = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +29,7 @@ func do(h http.Handler, method, target string, hdr map[string]string) *httptest.
 }
 
 func TestSecurityHeadersPresent(t *testing.T) {
-	rec := do(SecurityHeaders(false)(ok), "GET", "/", nil)
+	rec := do(SecurityHeaders()(ok), "GET", "/", nil)
 	want := map[string]string{
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",
@@ -42,14 +43,24 @@ func TestSecurityHeadersPresent(t *testing.T) {
 		}
 	}
 	if rec.Header().Get("Strict-Transport-Security") != "" {
-		t.Error("HSTS must not be set when not secure")
+		t.Error("HSTS must never be set by the app")
 	}
 }
 
-func TestSecurityHeadersHSTSOnlyWhenSecure(t *testing.T) {
-	rec := do(SecurityHeaders(true)(ok), "GET", "/", nil)
-	if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
-		t.Fatalf("HSTS = %q", got)
+// The reverse proxy owns HSTS (staged max-age rollout, docs/https.md); a second
+// header from the app would win in the browser and defeat that rollout.
+func TestAppNeverSendsHSTS(t *testing.T) {
+	for _, cfg := range []config.Config{
+		{PublicOrigin: "https://app.example", Env: "production", SecureCookies: true, SessionSecret: "s"},
+		{PublicOrigin: "http://localhost:5173", Env: "development"},
+	} {
+		h := New(cfg, Deps{Logger: slog.New(slog.DiscardHandler)})
+		for _, target := range []string{"/healthz", "/", "/nope"} {
+			rec := do(h, "GET", target, nil)
+			if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+				t.Errorf("env %s, GET %s: Strict-Transport-Security = %q, want none", cfg.Env, target, got)
+			}
+		}
 	}
 }
 

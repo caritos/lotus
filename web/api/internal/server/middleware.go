@@ -16,8 +16,10 @@ import (
 // Middleware wraps a handler.
 type Middleware = func(http.Handler) http.Handler
 
-// SecurityHeaders sets the baseline response headers; HSTS only when secure.
-func SecurityHeaders(secure bool) Middleware {
+// SecurityHeaders sets the baseline response headers. It never sets
+// Strict-Transport-Security: the reverse proxy that terminates TLS owns HSTS, so
+// its staged max-age rollout (docs/https.md) is the only one browsers see.
+func SecurityHeaders() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
@@ -26,9 +28,6 @@ func SecurityHeaders(secure bool) Middleware {
 			h.Set("Referrer-Policy", "same-origin")
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 			h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
-			if secure {
-				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-			}
 			next.ServeHTTP(w, r)
 		})
 	}

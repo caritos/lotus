@@ -63,7 +63,7 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	var h http.Handler = mux
 	h = BodyLimit(maxBodyBytes)(h)
 	h = SameOrigin(cfg.PublicOrigin)(h)
-	h = SecurityHeaders(cfg.SecureCookies)(h)
+	h = SecurityHeaders()(h)
 	h = RequestLog(logger)(h)
 	return proxy(h)
 }

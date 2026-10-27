@@ -25,8 +25,9 @@ server {
     ssl_certificate     /etc/letsencrypt/live/app.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
 
-    # HSTS: browsers remember it. Start short (300 s), raise it (for example to 31536000)
-    # only after every page works over HTTPS. See docs/https.md.
+    # HSTS is set here, by the proxy; the app never sends it. Browsers remember it, so
+    # start short (300 s) and raise it (for example to 31536000) only after every page
+    # works over HTTPS. See docs/https.md.
     add_header Strict-Transport-Security "max-age=300" always;
 
     # Photo uploads: the app caps request bodies at 8 MiB; keep this at or above that.

@@ -40,9 +40,11 @@ server {
 - `proxy_pass` points at the app's port (the port in `ADDR`).
 - `Host`, `X-Forwarded-For` and `X-Forwarded-Proto` let the app log real client addresses and
   build correct origins.
-- HSTS (`Strict-Transport-Security`) is remembered by browsers, so roll it out in stages. The example
-  ships `max-age=300` (five minutes). After you have checked that every page works over HTTPS, raise it
-  (for example to `86400`, then `31536000`) and reload NGINX.
+- HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: goweb sends no HSTS header
+  at all, so the proxy's value is the only one browsers see. HSTS is remembered by browsers, so roll it
+  out in stages. The example ships `max-age=300` (five minutes). After you have checked that every page
+  works over HTTPS, raise it (for example to `86400`, then `31536000`) and reload NGINX. If you use a
+  hosting panel proxy instead, turn HSTS on there (or accept that there is none); the app will not add it.
 
 ## Certificates with certbot
 

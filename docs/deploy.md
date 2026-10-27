@@ -51,7 +51,7 @@ Then pick the case that matches how traffic reaches the app. Pick a free port; o
 check `ss -tln` first, because ports are not private to your user.
 
 **(a) Your own NGINX on the same host** (see [https.md](https.md)). Keep the app on loopback so plain HTTP
-is never exposed and TLS/HSTS cannot be bypassed:
+is never exposed and TLS/HSTS cannot be bypassed (the proxy sets HSTS; the app never sends it):
 
 ```
 ADDR=127.0.0.1:8080

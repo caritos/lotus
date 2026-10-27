@@ -38,3 +38,4 @@ binary, with backups, deploy scripts and tests.
    is gitignored.
 7. Do not add dependencies without a reason; do not store absolute file paths in the database.
 8. Keep docs, the public pages and `.env.example` in step with behavior changes.
+9. The reverse proxy sets HSTS; the app never sends `Strict-Transport-Security`.

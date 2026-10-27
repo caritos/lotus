@@ -64,6 +64,8 @@ If the full suite is slow, run it in the background and wait for the result.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
   `go vet` clean, API responses are typed structs with explicit `json` tags.
 - Web: TypeScript `strict`, no `any`, pnpm only (never npm, yarn, Jest or Bun).
+- HTTPS and HSTS belong to the reverse proxy: the app never sends `Strict-Transport-Security`
+  (see `docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
 - Public pages (`/`, `/faq`, `/privacy`, `/terms`, `/support`) are plain static HTML; keep them
   true to the behavior, including every third-party network call.
 
