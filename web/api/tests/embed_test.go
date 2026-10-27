@@ -52,12 +52,18 @@ func TestEmbeddedMigrationsPresent(t *testing.T) {
 	}
 }
 
-// builtIndex returns the on-disk React build's index.html, or skips.
+// builtIndex returns the on-disk React build's index.html. Locally it skips when
+// the app has not been built; with CI set (as CI services do) a missing build is
+// a failure, so the check can never be skipped silently there.
 func builtIndex(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "internal", "web", "app", "index.html"))
 	if err != nil {
-		t.Skip("React app not built (internal/web/app/index.html missing); run `make build` first")
+		msg := "React app not built (internal/web/app/index.html missing); run `make build` first"
+		if os.Getenv("CI") != "" {
+			t.Fatal(msg + " (CI is set, so this is a failure, not a skip)")
+		}
+		t.Skip(msg)
 	}
 	return b
 }

@@ -77,7 +77,9 @@ grep -q "SHOP_BIN" "$R/deploy/restore.sh" && ok "env var prefix renamed" || bad 
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 
 if command -v go >/dev/null 2>&1; then
-  if (cd "$R/web/api" && go build ./... && go vet ./... && go test -short ./... ) >"$ROOT/go.log" 2>&1; then ok "go build, vet and test -short pass in the copy"; else bad "go checks in the copy: $(tail -20 "$ROOT/go.log")"; fi
+  # The copy has no frontend build (it is gitignored), so the embed tests must skip
+  # here even on a CI runner, where CI=true would turn the skip into a failure.
+  if (cd "$R/web/api" && go build ./... && go vet ./... && env -u CI go test -short ./... ) >"$ROOT/go.log" 2>&1; then ok "go build, vet and test -short pass in the copy"; else bad "go checks in the copy: $(tail -20 "$ROOT/go.log")"; fi
 else skip "go not on PATH"; fi
 
 if command -v pnpm >/dev/null 2>&1; then

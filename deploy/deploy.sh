@@ -163,7 +163,7 @@ preflight() {
     0) ;;
     11) die "missing \$HOME/$B/data on the server; see docs/deploy.md (prepare the server)" ;;
     12) die "missing \$HOME/$B/.env on the server (it is never uploaded); create it from .env.example, see docs/deploy.md" ;;
-    13) die "systemd user unit '$SERVICE' is not installed on the server; install deploy/goweb.service, see docs/deploy.md" ;;
+    13) die "systemd user unit '$SERVICE' is not installed on the server, or 'systemctl --user' cannot reach the user manager: install deploy/goweb.service (see docs/deploy.md). If it is installed, a non-interactive SSH session may lack XDG_RUNTIME_DIR for the user bus; check on the server with: loginctl show-user \$(id -un)   (Linger=yes, State=active or lingering) and: systemctl --user status   (it must not say 'Failed to connect to bus')" ;;
     14) die "neither curl nor wget is available on the server (needed for the health check)" ;;
     15) die "no sha256sum or shasum on the server" ;;
     *) die "server layout check failed (exit $rc)" ;;

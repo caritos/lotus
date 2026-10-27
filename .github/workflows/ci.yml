@@ -32,6 +32,11 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+      # The embed tests run in every tier and fail (rather than skip) when CI is set
+      # and the app is not built, so build it first.
+      - name: Build the frontend and populate the embed directory
+        working-directory: web
+        run: pnpm build
       - name: Go unit tests (short)
         working-directory: web/api
         run: go test -short ./...
@@ -69,7 +74,15 @@ jobs:
         working-directory: web/api
         run: go vet ./...
       - name: Generated code is up to date
-        run: bash scripts/gen-api.sh && git diff --exit-code
+        # status --porcelain also catches new untracked generated files, which diff misses.
+        run: |
+          bash scripts/gen-api.sh
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            git diff
+            echo "generated code is stale or new files appeared: run 'make api' and commit" >&2
+            exit 1
+          fi
       - name: Embedded app and migrations are present
         working-directory: web/api
         run: go test ./tests -run 'Embedded' -count=1

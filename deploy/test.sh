@@ -598,6 +598,7 @@ EOS
   cat > "$T/rbin/systemctl" <<'EOS'
 #!/bin/sh
 echo "systemctl $*" >> "$DCALLS"
+if [ -n "${FAKE_NO_UNIT:-}" ] && [ "$2" = cat ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
 EOS
   cat > "$T/rbin/loginctl" <<'EOS'
 #!/bin/sh
@@ -638,7 +639,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT
 }
 
 # make_release <name> <schema> [active]
@@ -1321,6 +1322,16 @@ test_pull_ignores_labeled_sets_for_copy_keep_and_staleness() {
   assert_false "labeled set not quarantined" test -e "$T/dest/failed/20261027T120000Z-predeploy"
 }
 
+test_deploy_missing_unit_hint_mentions_the_user_bus() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_NO_UNIT=1 deploy deploy@host.example.com --check
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "not installed" "says the unit is missing"
+  assert_contains "$(cat "$T/err")" "XDG_RUNTIME_DIR" "mentions the user bus"
+  assert_contains "$(cat "$T/err")" "loginctl show-user" "how to check linger and the session"
+  assert_contains "$(cat "$T/err")" "systemctl --user status" "how to check the user manager"
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -1405,7 +1416,8 @@ for t in \
   test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY \
   test_deploy_takes_a_labeled_predeploy_backup_with_its_own_retention \
   test_restore_accepts_a_labeled_set \
-  test_pull_ignores_labeled_sets_for_copy_keep_and_staleness
+  test_pull_ignores_labeled_sets_for_copy_keep_and_staleness \
+  test_deploy_missing_unit_hint_mentions_the_user_bus
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash deploy/test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
