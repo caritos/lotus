@@ -89,7 +89,7 @@ who knows an email can lock that account out for 15 minutes with 20 wrong passwo
 lock out every user for 15 minutes. Set `TRUSTED_PROXY` correctly; a restart clears the counters.
 
 Write values without quotes, spaces or a trailing carriage return (systemd and `deploy.sh` read the file
-line by line; `deploy.sh` refuses `DATA_DIR` and `ADDR` lines that contain them). Keep it private:
+line by line; `deploy.sh` refuses `APP_ENV`, `DATA_DIR` and `ADDR` lines that contain them). Keep it private:
 `chmod 600 ~/goweb/.env`. `deploy.sh` never uploads this file.
 
 **DATA_DIR.** Leave it out of `.env`. If you set it, remember that systemd lets `EnvironmentFile=` values
