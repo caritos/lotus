@@ -53,3 +53,20 @@ func TestHTTPServerTimeouts(t *testing.T) {
 		t.Errorf("MaxHeaderBytes = %d", s.MaxHeaderBytes)
 	}
 }
+
+func TestServesPublicPagesAndStaticAnd404(t *testing.T) {
+	h := New(config.Config{}, Deps{})
+	for path, want := range map[string]int{
+		"/":                 http.StatusOK,
+		"/privacy":          http.StatusOK,
+		"/static/style.css": http.StatusOK,
+		"/nope":             http.StatusNotFound,
+		"/healthz":          http.StatusOK,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Errorf("%s: status = %d, want %d", path, rec.Code, want)
+		}
+	}
+}

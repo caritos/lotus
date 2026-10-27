@@ -8,6 +8,7 @@ import (
 
 	"goweb/internal/config"
 	"goweb/internal/version"
+	"goweb/internal/web"
 )
 
 // Deps carries the server's collaborators; it grows as features are added.
@@ -17,6 +18,8 @@ type Deps struct{}
 func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
+	mux.Handle("/", web.Handler())
 	return mux
 }
 
