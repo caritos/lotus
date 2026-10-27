@@ -13,8 +13,12 @@
 # A set whose timestamp is more than 1 day in the future is invalid (it would hide
 # staleness): it is quarantined in DEST/failed/ with a notification.
 #
-# Overlapping runs are prevented with a lock directory DEST/.lock (holding the
-# owner's PID; a lock whose PID is dead is taken over).
+# Overlapping runs are prevented with a lock directory DEST/.lock holding the
+# owner's PID and start time. A lock is live only if that PID is alive AND its
+# command line contains "pull-backups" AND it is younger than LOCK_MAX_AGE_SECONDS
+# (default 21600, six hours); otherwise it is stale (killed run, reboot, reused
+# PID) and is taken over. The staleness alert runs even when a live lock makes
+# this run exit 3.
 #
 # Exit status: 0 all good; 1 something failed or the newest backup is stale;
 # 2 bad configuration; 3 another run holds the lock (no notification, so it is
@@ -33,6 +37,7 @@
 #   STALE_DAYS  default 3
 #   RSYNC       default rsync (GNU 3.x and macOS openrsync both work)
 #   SQLITE3     default sqlite3
+#   LOCK_MAX_AGE_SECONDS  a lock older than this is stale whatever its PID (default 21600)
 #   NOW_EPOCH   override "now" (seconds since the epoch); for tests
 set -uo pipefail
 umask 077
@@ -47,6 +52,7 @@ STALE_DAYS="${STALE_DAYS:-3}"
 RSYNC="${RSYNC:-rsync}"
 SQLITE3="${SQLITE3:-sqlite3}"
 
+LOCK_MAX_AGE_SECONDS="${LOCK_MAX_AGE_SECONDS:-21600}"
 RC=0
 SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 PATTERN='^[0-9]{8}T[0-9]{6}Z$'
@@ -127,27 +133,83 @@ fi
 mkdir -p "$DEST/failed" || { echo "pull-backups: cannot create $DEST" >&2; exit 2; }
 chmod 700 "$DEST" "$DEST/failed" 2>/dev/null || true
 
-# Lock (mkdir is atomic). A lock whose PID is gone is stale and taken over.
+# Freshness: alert when the newest verified, non-future snapshot is too old or
+# missing. Read-only, so it is safe to run even when another run holds the lock.
+check_freshness() {
+  local newest="" n age
+  for n in $(local_sets "$DEST"); do
+    if ! is_future "$n"; then newest="$n"; fi
+  done
+  if [ -z "$newest" ]; then
+    fail "no backup is held in $DEST"
+  else
+    age=$(($(now_epoch) - $(epoch_of "$newest")))
+    if [ "$age" -gt $((STALE_DAYS * 86400)) ]; then
+      fail "newest backup $newest is stale (older than $STALE_DAYS days)"
+    fi
+  fi
+}
+
+# Lock (mkdir is atomic). Live = PID alive, command line is this script, and not
+# older than LOCK_MAX_AGE_SECONDS. A stale lock is renamed away atomically, then
+# a fresh one is created; losing that race means someone else holds it (exit 3).
 LOCK="$DEST/.lock"
 HAVE_LOCK=0
-acquire_lock() {
-  local tries=0 pid
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -z "$pid" ]; then sleep 1; pid="$(cat "$LOCK/pid" 2>/dev/null || true)"; fi  # owner may be mid-creation
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      echo "pull-backups: another run is already running (pid $pid, lock $LOCK)" >&2
-      exit 3
-    fi
-    tries=$((tries + 1))
-    if [ "$tries" -gt 3 ]; then
-      echo "pull-backups: cannot take the lock $LOCK" >&2
-      exit 3
-    fi
-    rm -rf -- "$LOCK"
-  done
+
+lock_busy() {
+  echo "pull-backups: another run is already running ($1, lock $LOCK)" >&2
+  check_freshness
+  exit 3
+}
+
+write_lock() {
   HAVE_LOCK=1
   echo "$$" > "$LOCK/pid"
+  now_epoch > "$LOCK/started"
+}
+
+acquire_lock() {
+  if mkdir "$LOCK" 2>/dev/null; then write_lock; return; fi
+  local pid started cmd age
+  pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  started="$(cat "$LOCK/started" 2>/dev/null || true)"
+  if [ -z "$pid" ] || [ -z "$started" ]; then   # owner may be mid-creation
+    sleep 1
+    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    started="$(cat "$LOCK/started" 2>/dev/null || true)"
+  fi
+  local why=""
+  if [ -z "$pid" ] || [ -z "$started" ]; then
+    why="lock has no owner information"
+  elif ! kill -0 "$pid" 2>/dev/null; then
+    why="pid $pid is not running"
+  else
+    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    case "$cmd" in
+      *pull-backups*) ;;
+      *) why="pid $pid is not a pull-backups run" ;;
+    esac
+    case "$started" in *[!0-9]*) why="unreadable lock start time" ;; esac
+    if [ -z "$why" ]; then
+      age=$(($(now_epoch) - started))
+      if [ "$age" -gt "$LOCK_MAX_AGE_SECONDS" ]; then why="lock is $age seconds old"; fi
+    fi
+  fi
+  if [ -z "$why" ]; then lock_busy "pid $pid"; fi
+
+  echo "pull-backups: taking over stale lock $LOCK ($why)" >&2
+  local gone="$LOCK.stale.$$"
+  if mv "$LOCK" "$gone" 2>/dev/null; then
+    # If a racing run had already replaced the stale lock, we just moved its live
+    # lock: put it back and yield.
+    if [ "$(cat "$gone/pid" 2>/dev/null || true)" != "$pid" ]; then
+      mv "$gone" "$LOCK" 2>/dev/null || true
+      lock_busy "lost the take-over race"
+    fi
+    safe_rm_rf "$gone"
+  fi
+  if mkdir "$LOCK" 2>/dev/null; then write_lock; return; fi
+  lock_busy "lost the take-over race"
 }
 release_lock() { if [ "$HAVE_LOCK" -eq 1 ]; then rm -rf -- "$LOCK"; fi; }
 acquire_lock
@@ -245,15 +307,5 @@ if [ -n "$MIRROR_DIR" ] && [ -d "$MIRROR_DIR" ]; then
   prune_dir "$MIRROR_DIR"
 fi
 
-# Freshness.
-newest="$(local_sets "$DEST" | tail -n 1)"
-if [ -z "$newest" ]; then
-  fail "no backup is held in $DEST"
-else
-  age=$(($(now_epoch) - $(epoch_of "$newest")))
-  if [ "$age" -gt $((STALE_DAYS * 86400)) ]; then
-    fail "newest backup $newest is stale (older than $STALE_DAYS days)"
-  fi
-fi
-
+check_freshness
 exit "$RC"

@@ -151,7 +151,9 @@ rollback() {
 
 on_exit() {
   local rc=$?
-  trap - EXIT INT TERM
+  # Ignore further signals so a second Ctrl-C, TERM or HUP cannot abort recovery.
+  trap '' INT TERM HUP
+  trap - EXIT
   set +e
   if [ "$STOPPED" -eq 1 ] && [ "$OK" -ne 1 ]; then
     [ "$rc" -ne 0 ] || rc=1
@@ -177,7 +179,9 @@ on_exit() {
   exit "$rc"
 }
 trap on_exit EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 if [ "$DRILL" -eq 1 ]; then
   verify "$BACKUP" || die "backup failed verification: $BACKUP"

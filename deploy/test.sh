@@ -74,6 +74,7 @@ EOS
 # TRUNC_CP_DST truncates the copied file after a successful copy.
 last=; for a in "$@"; do last=$a; done
 case "$last" in ${FAIL_CP_DST:-__none__}) echo "fake cp: injected failure for $last" >&2; exit 1 ;; esac
+case "$last" in ${SLOW_CP_DST:-__none__}) : > "$SLOW_MARKER"; sleep 2 ;; esac
 /bin/cp "$@" || exit $?
 case "$last" in ${TRUNC_CP_DST:-__none__}) head -c 100 "$last" > "$last.t" && /bin/mv "$last.t" "$last" ;; esac
 EOS
@@ -263,6 +264,29 @@ test_restore_rolls_back_when_swap_fails_midway() {
   assert_contains "$(cat "$T/err")" "rolled back to the previous data; service is healthy" "stderr"
 }
 
+# A second TERM and a HUP while the recovery handler runs must not abort it.
+test_restore_recovery_survives_repeated_signals() {
+  setup_live
+  export HEALTH_CMD="$LIVE_HEALTH" FAIL_MV_DST="*/data/storage"
+  export SLOW_CP_DST="*/data/db/goweb.db" SLOW_MARKER="$T/slow-started"
+  local b; b="$(new_backup 20261027T120000Z)"
+  PATH="$T/bin:$PATH" bash "$SCRIPT_DIR/restore.sh" "$b" >"$T/out" 2>"$T/err" &
+  local pid=$! i
+  for i in $(seq 1 100); do [ -e "$SLOW_MARKER" ] && break; sleep 0.1; done
+  assert_true "rollback reached the slow step" test -e "$SLOW_MARKER"
+  kill -TERM "$pid" 2>/dev/null
+  sleep 0.3
+  kill -TERM "$pid" 2>/dev/null
+  kill -HUP "$pid" 2>/dev/null
+  wait "$pid"; local rc=$?
+  assert_false "exit status must be nonzero" test "$rc" -eq 0
+  assert_eq "$(live_email)" "live@example.com" "db restored"
+  assert_eq "$(cat "$T/data/storage/$PHOTO")" "img-live@example.com" "storage restored"
+  assert_eq "$(tail -1 "$CALLS")" "start goweb" "service started"
+  assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
+  assert_contains "$(cat "$T/err")" "rolled back to the previous data; service is healthy" "completed"
+}
+
 test_restore_reports_when_rollback_copy_fails() {
   setup_live
   export HEALTH_CMD="false" FAIL_CP_DST="*/data/db/goweb.db"
@@ -391,19 +415,60 @@ EOS
 }
 
 # #6: overlapping runs.
-test_pull_exits_3_when_another_run_holds_the_lock() {
+# plant_lock <pid> <started-epoch>
+plant_lock() {
+  mkdir -p "$T/dest/.lock"
+  echo "$1" > "$T/dest/.lock/pid"
+  echo "$2" > "$T/dest/.lock/started"
+}
+
+test_pull_takes_over_lock_whose_pid_is_an_unrelated_live_process() {
   make_fakes; pull_env
   remote_set 20261027T120000Z
-  mkdir -p "$T/dest/.lock" "$T/dest/20261027T110000Z.pulling"
   sleep 30 & local pid=$!
-  echo "$pid" > "$T/dest/.lock/pid"
+  plant_lock "$pid" "$NOW_EPOCH_FIXED"
   pull
   local rc=$?
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  assert_eq "$rc" "0" "exit status"
+  assert_contains "$(cat "$T/err")" "taking over stale lock" "message"
+  assert_true "pulled" test -f "$T/dest/20261027T120000Z/goweb.db"
+}
+
+test_pull_takes_over_an_old_lock_even_if_the_pid_is_alive() {
+  make_fakes; pull_env
+  remote_set 20261027T120000Z
+  sleep 30 & local pid=$!
+  plant_lock "$pid" $((NOW_EPOCH_FIXED - 7 * 3600))
+  pull
+  local rc=$?
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  assert_eq "$rc" "0" "exit status"
+  assert_contains "$(cat "$T/err")" "taking over stale lock" "message"
+}
+
+test_pull_exits_3_for_a_real_running_pull_but_still_alerts_when_stale() {
+  make_fakes; pull_env
+  remote_set 20261027T120000Z
+  mkdir -p "$T/dest"
+  cp -R "$MASTER_BACKUP" "$T/dest/20261020T120000Z"   # stale newest snapshot
+  cat > "$T/slow-rsync" <<'EOS'
+#!/bin/sh
+/usr/bin/rsync "$@" || exit $?
+sleep 4
+EOS
+  chmod +x "$T/slow-rsync"
+  RSYNC="$T/slow-rsync" bash "$SCRIPT_DIR/pull-backups.sh" >"$T/out1" 2>"$T/err1" &
+  local pid=$! i
+  for i in $(seq 1 50); do [ -e "$T/dest/.lock/pid" ] && [ -d "$T/dest/20261027T120000Z.pulling" ] && break; sleep 0.1; done
+  assert_true "first run holds the lock" test -d "$T/dest/.lock"
+  pull
+  local rc=$?
   assert_eq "$rc" "3" "exit status"
   assert_contains "$(cat "$T/err")" "already running" "message"
-  assert_true ".pulling untouched" test -d "$T/dest/20261027T110000Z.pulling"
-  assert_eq "$(cat "$NOTIFIED")" "" "no notification"
+  assert_contains "$(cat "$NOTIFIED")" "stale" "stale alert not silenced by the lock"
+  assert_true ".pulling untouched" test -d "$T/dest/20261027T120000Z.pulling"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
 }
 
 test_pull_takes_over_a_stale_lock_and_releases_its_own() {
@@ -482,6 +547,7 @@ for t in \
   test_restore_catches_corrupt_copy_before_swap \
   test_restore_restarts_service_when_safety_copy_fails \
   test_restore_rolls_back_when_swap_fails_midway \
+  test_restore_recovery_survives_repeated_signals \
   test_restore_reports_when_rollback_copy_fails \
   test_pull_rejects_corrupt_snapshot_into_failed \
   test_pull_alerts_when_newest_backup_is_stale \
@@ -490,7 +556,9 @@ for t in \
   test_pull_prunes_to_KEEP \
   test_pull_skips_partial_sets \
   test_pull_mirror_cleans_leftovers_and_rejects_corrupt_copy \
-  test_pull_exits_3_when_another_run_holds_the_lock \
+  test_pull_takes_over_lock_whose_pid_is_an_unrelated_live_process \
+  test_pull_takes_over_an_old_lock_even_if_the_pid_is_alive \
+  test_pull_exits_3_for_a_real_running_pull_but_still_alerts_when_stale \
   test_pull_takes_over_a_stale_lock_and_releases_its_own \
   test_pull_quarantines_future_dated_sets_and_still_alerts_stale \
   test_pull_quarantines_future_dated_sets_already_held_locally \
