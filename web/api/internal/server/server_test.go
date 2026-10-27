@@ -12,6 +12,7 @@ import (
 
 	"goweb/internal/auth"
 	"goweb/internal/config"
+	"goweb/internal/storage"
 	"goweb/internal/testutil"
 	"goweb/internal/version"
 )
@@ -116,5 +117,45 @@ func TestAuthRoutesAbsentWithoutService(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("/api/me without auth = %d", rec.Code)
+	}
+}
+
+func TestNotesRoutesMountedOnlyWithAllDeps(t *testing.T) {
+	d := testutil.NewDB(t)
+	svc := auth.NewService(d, config.Config{SessionTTL: time.Hour}, time.Now)
+	if _, err := svc.CreateUser(context.Background(), "a@b.c", "password1"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(config.Config{}, Deps{DB: d, Auth: svc, Storage: st})
+	get := func(h http.Handler, path string, c *http.Cookie) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if c != nil {
+			req.AddCookie(c)
+		}
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, p := range []string{"/api/notes", "/api/notes/00000000-0000-4000-8000-000000000000/photo"} {
+		if rec := get(h, p, nil); rec.Code != http.StatusUnauthorized {
+			t.Errorf("anonymous %s = %d", p, rec.Code)
+		}
+	}
+	tok, _, err := svc.Login(context.Background(), "a@b.c", "password1", "1.2.3.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := get(h, "/api/notes", &http.Cookie{Name: "goweb_session", Value: tok})
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("authed list = %d %q", rec.Code, rec.Body)
+	}
+	// Without Storage the routes are not mounted: falls through to the web handler.
+	h2 := New(config.Config{}, Deps{DB: d, Auth: svc})
+	if rec := get(h2, "/api/notes", nil); rec.Code == http.StatusUnauthorized || rec.Code == http.StatusOK {
+		t.Errorf("unmounted /api/notes = %d", rec.Code)
 	}
 }

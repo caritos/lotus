@@ -11,6 +11,8 @@ import (
 	"goweb/internal/apigen"
 	"goweb/internal/auth"
 	"goweb/internal/config"
+	"goweb/internal/notes"
+	"goweb/internal/storage"
 	"goweb/internal/version"
 	"goweb/internal/web"
 )
@@ -19,6 +21,8 @@ import (
 type Deps struct {
 	DB   *sql.DB
 	Auth *auth.Service
+	// Storage holds uploaded photos; the notes routes need it, DB and Auth.
+	Storage *storage.Store
 	// Logger receives request logs; nil falls back to slog.Default().
 	Logger *slog.Logger
 }
@@ -37,6 +41,11 @@ func New(cfg config.Config, deps Deps) http.Handler {
 		for _, p := range []string{"/api/login", "/api/logout", "/api/me"} {
 			mux.Handle(p, api)
 		}
+	}
+	if deps.Auth != nil && deps.DB != nil && deps.Storage != nil {
+		h := auth.Middleware(deps.Auth)(auth.Require(notes.Handlers(notes.NewStore(deps.DB), deps.Storage)))
+		mux.Handle("/api/notes", h)
+		mux.Handle("/api/notes/", h)
 	}
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())

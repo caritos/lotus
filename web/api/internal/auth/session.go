@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"goweb/internal/config"
+	"goweb/internal/uid"
 )
 
 var (
@@ -71,16 +72,6 @@ func NewService(d *sql.DB, cfg config.Config, now func() time.Time) *Service {
 
 func normalizeEmail(e string) string { return strings.ToLower(strings.TrimSpace(e)) }
 
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
-}
-
 func (s *Service) tokenHash(token string) string {
 	m := hmac.New(sha256.New, s.key)
 	m.Write([]byte(token))
@@ -100,7 +91,7 @@ func (s *Service) CreateUser(ctx context.Context, email, password string) (User,
 	if err != nil {
 		return User{}, fmt.Errorf("auth: hash password: %w", err)
 	}
-	id, err := newUUID()
+	id, err := uid.New()
 	if err != nil {
 		return User{}, fmt.Errorf("auth: new id: %w", err)
 	}
@@ -161,7 +152,7 @@ func (s *Service) Login(ctx context.Context, email, password, ip string) (string
 		return "", User{}, fmt.Errorf("auth: token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw[:])
-	id, err := newUUID()
+	id, err := uid.New()
 	if err != nil {
 		return "", User{}, fmt.Errorf("auth: new id: %w", err)
 	}

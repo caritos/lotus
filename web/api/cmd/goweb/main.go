@@ -18,6 +18,7 @@ import (
 	"goweb/internal/db"
 	"goweb/internal/logging"
 	"goweb/internal/server"
+	"goweb/internal/storage"
 	"goweb/internal/version"
 )
 
@@ -74,8 +75,12 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 		return err
 	}
 	svc := auth.NewService(d, cfg, time.Now)
+	st, err := storage.New(cfg.StorageDir())
+	if err != nil {
+		return err
+	}
 
-	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc, Logger: logger}))
+	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc, Storage: st, Logger: logger}))
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("listening", "addr", cfg.Addr, "version", version.Version, "commit", version.Commit, "env", cfg.Env)
