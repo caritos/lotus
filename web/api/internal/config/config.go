@@ -2,8 +2,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,10 +36,17 @@ func Load(getenv func(string) string) (Config, error) {
 	c := Config{
 		Addr:          str("ADDR", ":8080"),
 		DataDir:       str("DATA_DIR", "."),
-		PublicOrigin:  getenv("PUBLIC_ORIGIN"),
+		PublicOrigin:  strings.TrimSpace(getenv("PUBLIC_ORIGIN")),
 		SessionSecret: getenv("SESSION_SECRET"),
 		Env:           str("APP_ENV", "development"),
 		TrustedProxy:  getenv("TRUSTED_PROXY"),
+	}
+	if c.PublicOrigin != "" {
+		o, err := NormalizeOrigin(c.PublicOrigin)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: PUBLIC_ORIGIN must be a bare origin such as https://example.com (scheme and host, optional port, nothing else), got %q: %w", c.PublicOrigin, err)
+		}
+		c.PublicOrigin = o
 	}
 	if c.Env != "development" && c.Env != "production" {
 		return Config{}, fmt.Errorf("config: APP_ENV must be development or production, got %q", c.Env)
@@ -73,6 +82,49 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	return c, nil
+}
+
+// NormalizeOrigin validates an http(s) origin and returns it in the form browsers
+// send in the Origin header: lowercase scheme and host, no default port (:80 for
+// http, :443 for https), no trailing slash. Paths, queries, fragments and user
+// info are rejected; a single trailing "/" is tolerated.
+func NormalizeOrigin(raw string) (string, error) {
+	if strings.ContainsAny(raw, "?#") {
+		if strings.Contains(raw, "#") {
+			return "", errors.New("a fragment is not allowed")
+		}
+		return "", errors.New("a query is not allowed")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", errors.New("the scheme must be http or https")
+	}
+	if u.Opaque != "" || u.Hostname() == "" {
+		return "", errors.New("a host is required")
+	}
+	if u.User != nil {
+		return "", errors.New("user info is not allowed")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", errors.New("a path is not allowed")
+	}
+	host := strings.ToLower(u.Host)
+	port := u.Port()
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("invalid port %q", port)
+		}
+	}
+	host = strings.TrimSuffix(host, ":")
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		host = strings.TrimSuffix(host, ":"+port)
+	}
+	return scheme + "://" + host, nil
 }
 
 // DBPath is the SQLite database file.

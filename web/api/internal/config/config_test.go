@@ -120,3 +120,69 @@ func TestParseTrustedProxy(t *testing.T) {
 		t.Fatalf("empty: p=%v err=%v", p, err)
 	}
 }
+
+func TestLoadNormalizesPublicOrigin(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"https://example.com", "https://example.com"},
+		{"https://Example.com/", "https://example.com"},
+		{"HTTPS://EXAMPLE.COM", "https://example.com"},
+		{"https://example.com:443", "https://example.com"},
+		{"http://example.com:80/", "http://example.com"},
+		{"https://example.com:8443", "https://example.com:8443"},
+		{"http://example.com:443", "http://example.com:443"},
+		{"http://localhost:5173", "http://localhost:5173"},
+		{"http://127.0.0.1:8080", "http://127.0.0.1:8080"},
+		{"http://[::1]:8080", "http://[::1]:8080"},
+		{"https://[2001:DB8::1]:443", "https://[2001:db8::1]"},
+		{" https://example.com ", "https://example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			c, err := Load(env(map[string]string{"PUBLIC_ORIGIN": tt.in}))
+			if err != nil {
+				t.Fatalf("Load(%q): %v", tt.in, err)
+			}
+			if c.PublicOrigin != tt.want {
+				t.Fatalf("PublicOrigin = %q, want %q", c.PublicOrigin, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidPublicOrigin(t *testing.T) {
+	tests := []struct{ in, why string }{
+		{"example.com", "scheme"},
+		{"ftp://x", "scheme"},
+		{"https://", "host"},
+		{"https://:443", "host"},
+		{"https://example.com/app", "path"},
+		{"https://example.com//", "path"},
+		{"https://example.com?x=1", "query"},
+		{"https://example.com/?", "query"},
+		{"https://example.com#top", "fragment"},
+		{"https://user:pw@example.com", "user"},
+		{"https://example.com:99999", "PUBLIC_ORIGIN"},
+		{"//example.com", "scheme"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			for _, appEnv := range []string{"development", "production"} {
+				_, err := Load(env(map[string]string{"APP_ENV": appEnv, "SESSION_SECRET": "s", "PUBLIC_ORIGIN": tt.in}))
+				if err == nil {
+					t.Fatalf("%s: Load(%q) succeeded, want error", appEnv, tt.in)
+				}
+				msg := err.Error()
+				if !strings.Contains(msg, "PUBLIC_ORIGIN") || !strings.Contains(msg, tt.why) {
+					t.Fatalf("%s: err = %q, want mention of PUBLIC_ORIGIN and %q", appEnv, msg, tt.why)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadProductionStillRequiresPublicOrigin(t *testing.T) {
+	_, err := Load(env(map[string]string{"APP_ENV": "production", "SESSION_SECRET": "s", "PUBLIC_ORIGIN": "  "}))
+	if err == nil || !strings.Contains(err.Error(), "PUBLIC_ORIGIN") {
+		t.Fatalf("err = %v, want PUBLIC_ORIGIN required", err)
+	}
+}

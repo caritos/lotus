@@ -74,8 +74,12 @@ TRUSTED_PROXY=127.0.0.1/32
 SESSION_SECRET=<generate: openssl rand -hex 32>
 ```
 
-- `PUBLIC_ORIGIN` must equal the origin users type, scheme included; the same-origin check on
-  state-changing requests compares against it.
+- `PUBLIC_ORIGIN` is the origin users type: scheme and host (and a port only if it is not the default),
+  nothing else. The same-origin check on state-changing requests compares the browser's `Origin` header
+  against it. The app normalizes it at startup (lowercase, a trailing `/` and a default `:443`/`:80` are
+  dropped) and refuses to start when it has a path, query, fragment, user info or a scheme other than
+  `http`/`https`, so `https://app.example.com/app` is an error rather than a site where every sign-in is
+  refused with 403.
 - `SECURE_COOKIES=true` marks the session cookie Secure so browsers send it only over HTTPS.
 - `ADDR`: with NGINX on the same host use `ADDR=127.0.0.1:8080`, so the app is reachable only through
   NGINX and plain HTTP is never exposed (a `0.0.0.0` listener would let anyone bypass TLS and HSTS by
