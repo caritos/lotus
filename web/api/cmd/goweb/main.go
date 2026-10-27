@@ -37,7 +37,12 @@ func main() {
 }
 
 // run dispatches to a subcommand; serve is the default when none is given.
+// Every subcommand runs under umask 077, so the database, its WAL and SHM files,
+// logs, uploads and backups are owner-only whichever command creates them first.
+// The previous umask is restored on return (it matters only to tests, which call
+// run in-process).
 func run(args []string, getenv func(string) string, stdout io.Writer) error {
+	defer syscall.Umask(syscall.Umask(0o077))
 	name := "serve"
 	if len(args) > 0 {
 		name, args = args[0], args[1:]
@@ -54,7 +59,6 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	if err != nil {
 		return err
 	}
-	syscall.Umask(0o077)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
