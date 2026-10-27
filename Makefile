@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/version.Commit=$(COMMIT)
 
-.PHONY: dev build test-fast test test-api e2e api
+.PHONY: dev build test-fast test test-api e2e e2e-install api
 
 # Go API on :8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
 dev:
@@ -28,8 +28,12 @@ test:
 test-api:
 	bash scripts/gen-api.test.sh
 
+# Playwright against the built binary (not part of test/test-fast; needs `make e2e-install` once).
 e2e:
-	@echo "not implemented yet (Task 11)"; exit 1
+	cd web && pnpm exec playwright test -c e2e/playwright.config.ts
+
+e2e-install:
+	cd web && pnpm exec playwright install chromium
 
 api:
 	bash scripts/gen-api.sh

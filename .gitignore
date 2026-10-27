@@ -4,6 +4,8 @@
 
 # build outputs
 web/node_modules/
+web/e2e/test-results/
+web/e2e/playwright-report/
 /goweb
 /bin/
 web/api/goweb
