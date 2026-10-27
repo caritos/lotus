@@ -29,12 +29,13 @@ func New(dataDir string, maxBytes int64, keep int) (*slog.Logger, io.Closer, err
 }
 
 type rotatingWriter struct {
-	mu   sync.Mutex
-	path string
-	max  int64
-	keep int
-	f    *os.File
-	size int64
+	mu     sync.Mutex
+	path   string
+	max    int64
+	keep   int
+	f      *os.File
+	size   int64
+	closed bool
 }
 
 func (w *rotatingWriter) open() error {
@@ -54,11 +55,14 @@ func (w *rotatingWriter) open() error {
 func (w *rotatingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.f == nil {
+	if w.closed {
 		return 0, os.ErrClosed
 	}
-	if w.size > 0 && w.size+int64(len(p)) > w.max {
-		if err := w.rotate(); err != nil {
+	if w.f != nil && w.size > 0 && w.size+int64(len(p)) > w.max {
+		w.rotate()
+	}
+	if w.f == nil { // a previous rotation or reopen failed; try again
+		if err := w.open(); err != nil {
 			return 0, err
 		}
 	}
@@ -67,27 +71,25 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (w *rotatingWriter) rotate() error {
-	if err := w.f.Close(); err != nil {
-		return err
-	}
+// rotate shifts generations best-effort. A failure never stops logging: the
+// file is reopened for append (and may then exceed max), or Write retries.
+func (w *rotatingWriter) rotate() {
+	_ = w.f.Close()
 	w.f = nil
 	_ = os.Remove(fmt.Sprintf("%s.%d", w.path, w.keep))
 	for i := w.keep - 1; i >= 1; i-- {
-		if err := os.Rename(fmt.Sprintf("%s.%d", w.path, i), fmt.Sprintf("%s.%d", w.path, i+1)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+		// Missing generations (ErrNotExist) and other failures are skipped.
+		_ = os.Rename(fmt.Sprintf("%s.%d", w.path, i), fmt.Sprintf("%s.%d", w.path, i+1))
 	}
-	if err := os.Rename(w.path, w.path+".1"); err != nil {
-		return err
-	}
-	return w.open()
+	_ = os.Rename(w.path, w.path+".1")
+	_ = w.open() // on failure f stays nil and the next Write retries
 }
 
 // Close closes the log file.
 func (w *rotatingWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	if w.f == nil {
 		return nil
 	}
