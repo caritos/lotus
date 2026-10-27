@@ -3,15 +3,19 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"html"
 	"io/fs"
 	"mime"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+
+	"goweb/internal/version"
 )
 
 //go:embed pages/*.html static/* all:app
@@ -31,22 +35,39 @@ var pageRoutes = map[string]string{
 	"/support": "pages/support.html",
 }
 
-const notFoundHTML = `<!doctype html>
+const (
+	// pagePlaceholder marks where the build id goes in every page source under pages/
+	// and in the generated 404 and 503 pages. It is replaced once, at startup.
+	pagePlaceholder = "@@BUILD_ID@@"
+	// appPlaceholder is the build id in web/index.html (the React app's meta tag).
+	appPlaceholder = "__BUILD_ID__"
+)
+
+// footerHTML is the footer of the pages generated in Go; the static pages carry the same
+// markup in their source files.
+const footerHTML = `<footer class="site-footer"><p><span class="build-id">Build ` + pagePlaceholder + `</span></p></footer>`
+
+var notFoundHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main><h1>Page not found</h1><p>We could not find that page. <a href="/">Go to the home page</a>.</p></main></body></html>
+<body><main><h1>Page not found</h1><p>We could not find that page. <a href="/">Go to the home page</a>.</p></main>
+` + footerHTML + `</body></html>
 `
 
-const notBuiltHTML = `<!doctype html>
+var notBuiltHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>App not built</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main><h1>The web app is not built yet</h1><p>This binary was compiled without the React frontend. Run <code>pnpm build</code> in the <code>web/</code> directory, then rebuild the Go binary (or use the Vite dev server during development).</p><p><a href="/">Back to the home page</a></p></main></body></html>
+<body><main><h1>The web app is not built yet</h1><p>This binary was compiled without the React frontend. Run <code>pnpm build</code> in the <code>web/</code> directory, then rebuild the Go binary (or use the Vite dev server during development).</p><p><a href="/">Back to the home page</a></p></main>
+` + footerHTML + `</body></html>
 `
 
 type handler struct {
-	app    fs.FS
-	pages  map[string]asset // by URL path
-	static map[string]asset // by URL path
+	app      fs.FS
+	pages    map[string]asset // by URL path
+	static   map[string]asset // by URL path
+	index    *asset           // the React app's index.html with the build id, nil when not built
+	notFound asset
+	notBuilt asset
 }
 
 type asset struct {
@@ -57,6 +78,13 @@ type asset struct {
 
 // Handler serves the public site, /static/* and /app/* from the embedded files.
 func Handler() http.Handler { return NewHandler(appFS()) }
+
+// injectBuildID returns b with the first occurrence of placeholder replaced by id,
+// HTML-escaped (the id comes from -ldflags, but it ends up inside markup). It is the only
+// templating in this package. The replacement is not re-scanned.
+func injectBuildID(b []byte, placeholder, id string) []byte {
+	return bytes.Replace(b, []byte(placeholder), []byte(html.EscapeString(id)), 1)
+}
 
 // AppBuilt reports whether the embedded React build contains index.html.
 func AppBuilt() bool {
@@ -75,10 +103,20 @@ func appFS() fs.FS {
 // NewHandler is Handler with an injectable React build FS (rooted at the
 // build output, i.e. containing index.html and assets/). Pages and static
 // files are always the embedded ones.
-func NewHandler(app fs.FS) http.Handler {
+func NewHandler(app fs.FS) http.Handler { return NewHandlerWithBuildID(app, version.BuildID) }
+
+// NewHandlerWithBuildID is NewHandler with an explicit build id, which is substituted once
+// (before ETags and lengths are computed) into the page footers and the app's index.html.
+func NewHandlerWithBuildID(app fs.FS, buildID string) http.Handler {
 	h := &handler{app: app, pages: map[string]asset{}, static: map[string]asset{}}
 	for route, file := range pageRoutes {
-		h.pages[route] = mustLoad(file)
+		h.pages[route] = mustLoad(file, buildID)
+	}
+	h.notFound = newAsset("404.html", injectBuildID([]byte(notFoundHTML), pagePlaceholder, buildID))
+	h.notBuilt = newAsset("503.html", injectBuildID([]byte(notBuiltHTML), pagePlaceholder, buildID))
+	if b, err := fs.ReadFile(app, "index.html"); err == nil {
+		a := newAsset("index.html", injectBuildID(b, appPlaceholder, buildID))
+		h.index = &a
 	}
 	entries, err := fs.ReadDir(content, "static")
 	if err != nil {
@@ -86,16 +124,20 @@ func NewHandler(app fs.FS) http.Handler {
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
-			h.static["/static/"+e.Name()] = mustLoad("static/" + e.Name())
+			h.static["/static/"+e.Name()] = mustLoad("static/"+e.Name(), "")
 		}
 	}
 	return h
 }
 
-func mustLoad(name string) asset {
+// mustLoad reads an embedded file; for the HTML pages (buildID non-empty) it fills in the footer.
+func mustLoad(name, buildID string) asset {
 	b, err := content.ReadFile(name)
 	if err != nil {
 		panic(err)
+	}
+	if strings.HasPrefix(name, "pages/") {
+		b = injectBuildID(b, pagePlaceholder, buildID)
 	}
 	return newAsset(name, b)
 }
@@ -140,20 +182,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if a, ok := h.static[p]; ok {
 			serve(w, r, http.StatusOK, a, cacheRevalidate)
 		} else {
-			notFound(w, r)
+			h.notFoundPage(w, r)
 		}
 	}
 }
 
 func (h *handler) serveApp(w http.ResponseWriter, r *http.Request, rel string) {
-	index, err := fs.ReadFile(h.app, "index.html")
-	if err != nil {
-		serve(w, r, http.StatusServiceUnavailable, asset{body: []byte(notBuiltHTML), ctype: contentType("x.html")}, cacheRevalidate)
+	if h.index == nil {
+		serve(w, r, http.StatusServiceUnavailable, h.notBuilt, cacheRevalidate)
 		return
 	}
 	rel = path.Clean("/" + rel)[1:] // collapses "..", never leaves the tree
 	inAssets := strings.HasPrefix(rel, "assets/")
-	if rel != "" {
+	if rel != "" && rel != "index.html" { // index.html is served below, with the build id
 		if info, err := fs.Stat(h.app, rel); err == nil && !info.IsDir() {
 			if b, err := fs.ReadFile(h.app, rel); err == nil {
 				cc := cacheRevalidate
@@ -165,15 +206,15 @@ func (h *handler) serveApp(w http.ResponseWriter, r *http.Request, rel string) {
 			}
 		}
 		if inAssets {
-			notFound(w, r)
+			h.notFoundPage(w, r)
 			return
 		}
 	}
-	serve(w, r, http.StatusOK, newAsset("index.html", index), cacheRevalidate)
+	serve(w, r, http.StatusOK, *h.index, cacheRevalidate)
 }
 
-func notFound(w http.ResponseWriter, r *http.Request) {
-	serve(w, r, http.StatusNotFound, asset{body: []byte(notFoundHTML), ctype: contentType("x.html")}, cacheRevalidate)
+func (h *handler) notFoundPage(w http.ResponseWriter, r *http.Request) {
+	serve(w, r, http.StatusNotFound, h.notFound, cacheRevalidate)
 }
 
 // serve writes a fully buffered response with an explicit Content-Length (the

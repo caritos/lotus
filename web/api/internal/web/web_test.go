@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"goweb/internal/version"
 )
 
 var builtApp = fstest.MapFS{
@@ -237,5 +240,181 @@ func TestDefaultHandlerAndAppBuilt(t *testing.T) {
 	}
 	if rec := get(h, http.MethodGet, "/app/"); rec.Code != want {
 		t.Errorf("/app/ status = %d, want %d (AppBuilt=%v)", rec.Code, want, AppBuilt())
+	}
+}
+
+// ---------------------------------------------------------------- build id footer
+
+const testBuildID = "20261027-abc1234"
+
+var builtAppWithMeta = fstest.MapFS{
+	"index.html":        {Data: []byte(`<!doctype html><html><head><meta name="build-id" content="__BUILD_ID__" /></head><body><div id="root">SPA-INDEX</div></body></html>`)},
+	"assets/index-a.js": {Data: []byte(`const s = "__BUILD_ID__";`)},
+	"favicon.svg":       {Data: []byte(`<svg>__BUILD_ID__</svg>`)},
+}
+
+var pageFiles = func() []string {
+	var files []string
+	for _, f := range pageRoutes {
+		files = append(files, f)
+	}
+	return files
+}()
+
+func TestEveryEmbeddedPageSourceHasTheFooterPlaceholderOnce(t *testing.T) {
+	entries, err := content.ReadDir("pages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routed := map[string]bool{}
+	for _, f := range pageFiles {
+		routed[f] = true
+	}
+	for _, e := range entries {
+		name := "pages/" + e.Name()
+		if !routed[name] {
+			t.Errorf("%s is embedded but has no route in pageRoutes", name)
+		}
+		b, err := content.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		if n := strings.Count(src, pagePlaceholder); n != 1 {
+			t.Errorf("%s contains %q %d times, want exactly 1", name, pagePlaceholder, n)
+		}
+		if !strings.Contains(src, `<footer class="site-footer">`) || !strings.Contains(src, `class="build-id"`) {
+			t.Errorf("%s lacks the site-footer element with a build-id span", name)
+		}
+	}
+}
+
+func TestServedPagesShowTheInjectedBuildID(t *testing.T) {
+	h := NewHandlerWithBuildID(builtApp, testBuildID)
+	for route := range pageRoutes {
+		body := get(h, http.MethodGet, route).Body.String()
+		if !strings.Contains(body, "Build "+testBuildID) {
+			t.Errorf("%s: no %q in footer", route, "Build "+testBuildID)
+		}
+		if strings.Contains(body, pagePlaceholder) {
+			t.Errorf("%s: placeholder left in the served page", route)
+		}
+	}
+}
+
+func TestDefaultHandlerUsesVersionBuildID(t *testing.T) {
+	body := get(Handler(), http.MethodGet, "/").Body.String()
+	if !strings.Contains(body, "Build "+version.BuildID) {
+		t.Errorf("home page lacks Build %s", version.BuildID)
+	}
+	if body2 := get(NewHandler(builtApp), http.MethodGet, "/").Body.String(); body2 != body {
+		t.Errorf("NewHandler and Handler disagree on the home page")
+	}
+}
+
+func TestPageETagAndLengthFollowTheBuildID(t *testing.T) {
+	a := get(NewHandlerWithBuildID(builtApp, "20261027-aaaaaaa"), http.MethodGet, "/faq")
+	b := get(NewHandlerWithBuildID(builtApp, "20261028-bbbbbbb"), http.MethodGet, "/faq")
+	if a.Header().Get("ETag") == "" || a.Header().Get("ETag") == b.Header().Get("ETag") {
+		t.Errorf("ETag does not change with the id: %q vs %q", a.Header().Get("ETag"), b.Header().Get("ETag"))
+	}
+	if cl := a.Header().Get("Content-Length"); cl != strconv.Itoa(a.Body.Len()) {
+		t.Errorf("Content-Length = %q, body %d", cl, a.Body.Len())
+	}
+}
+
+func TestBuildIDIsHTMLEscaped(t *testing.T) {
+	evil := `1"><script>alert(1)</script>&`
+	h := NewHandlerWithBuildID(builtAppWithMeta, evil)
+	for _, p := range []string{"/", "/app/", "/nope"} {
+		body := get(h, http.MethodGet, p).Body.String()
+		if strings.Contains(body, "<script>alert") {
+			t.Errorf("%s: unescaped id in %q", p, body)
+		}
+		if p != "/nope" && !strings.Contains(body, "&lt;script&gt;") && !strings.Contains(body, "&lt;script") {
+			t.Errorf("%s: escaped id not present", p)
+		}
+	}
+}
+
+func TestInjectBuildIDReplacesOnlyTheFirstPlaceholder(t *testing.T) {
+	got := string(injectBuildID([]byte("a @@X@@ b @@X@@"), "@@X@@", "ID"))
+	if got != "a ID b @@X@@" {
+		t.Errorf("got %q", got)
+	}
+	if got := string(injectBuildID([]byte("no placeholder"), "@@X@@", "ID")); got != "no placeholder" {
+		t.Errorf("got %q", got)
+	}
+	// the replacement text is never re-scanned
+	if got := string(injectBuildID([]byte("@@X@@"), "@@X@@", "@@X@@")); got != "@@X@@" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestNotFoundAndNotBuiltPagesHaveTheFooter(t *testing.T) {
+	cases := []struct {
+		name, path string
+		app        fs.FS
+		status     int
+	}{
+		{"404", "/nope", builtApp, http.StatusNotFound},
+		{"404 asset", "/app/assets/nope.js", builtApp, http.StatusNotFound},
+		{"503", "/app/", unbuiltApp, http.StatusServiceUnavailable},
+	}
+	for _, c := range cases {
+		rec := get(NewHandlerWithBuildID(c.app, testBuildID), http.MethodGet, c.path)
+		body := rec.Body.String()
+		if rec.Code != c.status {
+			t.Errorf("%s: status %d", c.name, rec.Code)
+		}
+		if !strings.Contains(body, `<footer class="site-footer">`) || !strings.Contains(body, `<span class="build-id">Build `+testBuildID+`</span>`) {
+			t.Errorf("%s: no footer with the build id in %q", c.name, body)
+		}
+		if strings.Contains(body, pagePlaceholder) {
+			t.Errorf("%s: placeholder left", c.name)
+		}
+		if cl := rec.Header().Get("Content-Length"); cl != strconv.Itoa(rec.Body.Len()) {
+			t.Errorf("%s: Content-Length %q vs body %d", c.name, cl, rec.Body.Len())
+		}
+	}
+}
+
+func TestAppIndexGetsTheBuildIDAndOtherFilesAreUntouched(t *testing.T) {
+	h := NewHandlerWithBuildID(builtAppWithMeta, testBuildID)
+	for _, p := range []string{"/app/", "/app/index.html", "/app/notes/1"} {
+		rec := get(h, http.MethodGet, p)
+		body := rec.Body.String()
+		if !strings.Contains(body, `<meta name="build-id" content="`+testBuildID+`" />`) {
+			t.Errorf("%s: meta not replaced: %q", p, body)
+		}
+		if strings.Contains(body, appPlaceholder) {
+			t.Errorf("%s: placeholder left", p)
+		}
+		if cl := rec.Header().Get("Content-Length"); cl != strconv.Itoa(rec.Body.Len()) {
+			t.Errorf("%s: Content-Length = %q, body %d", p, cl, rec.Body.Len())
+		}
+	}
+	for p, want := range map[string]string{
+		"/app/assets/index-a.js": `const s = "__BUILD_ID__";`,
+		"/app/favicon.svg":       `<svg>__BUILD_ID__</svg>`,
+	} {
+		if got := get(h, http.MethodGet, p).Body.String(); got != want {
+			t.Errorf("%s was modified: %q", p, got)
+		}
+	}
+}
+
+func TestAppIndexETagChangesWithTheBuildID(t *testing.T) {
+	a := get(NewHandlerWithBuildID(builtAppWithMeta, "20261027-aaaaaaa"), http.MethodGet, "/app/")
+	b := get(NewHandlerWithBuildID(builtAppWithMeta, "20261028-bbbbbbb"), http.MethodGet, "/app/")
+	if a.Header().Get("ETag") == "" || a.Header().Get("ETag") == b.Header().Get("ETag") {
+		t.Errorf("ETag does not change with the id: %q vs %q", a.Header().Get("ETag"), b.Header().Get("ETag"))
+	}
+	h := NewHandlerWithBuildID(builtAppWithMeta, "20261027-aaaaaaa")
+	if rec := get(h, http.MethodGet, "/app/", "If-None-Match", a.Header().Get("ETag")); rec.Code != http.StatusNotModified {
+		t.Errorf("conditional request status = %d, want 304", rec.Code)
+	}
+	if rec := get(h, http.MethodGet, "/app/", "If-None-Match", b.Header().Get("ETag")); rec.Code != http.StatusOK {
+		t.Errorf("stale ETag status = %d, want 200", rec.Code)
 	}
 }

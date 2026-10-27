@@ -39,6 +39,7 @@ a { color: var(--accent); }
 .site-header .brand { font-weight: 700; font-size: 1.15rem; color: var(--fg); text-decoration: none; }
 .site-header nav, .site-footer nav { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
 .site-footer { border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; margin-top: 2rem; }
+.site-footer .build-id { font-size: 0.8rem; color: var(--muted); }
 
 h1 { font-size: 1.9rem; line-height: 1.2; margin: 1rem 0; }
 h2 { font-size: 1.25rem; margin-top: 2rem; }
