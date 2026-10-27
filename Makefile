@@ -2,7 +2,17 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/version.Commit=$(COMMIT)
 
-.PHONY: dev build test-fast test test-api e2e e2e-install api
+.PHONY: help dev build test-fast test test-scripts test-api e2e e2e-install api
+
+help:
+	@echo "make dev          Go API on :8080 plus the Vite dev server on :5173"
+	@echo "make build        build the frontend, then the single binary ./goweb"
+	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
+	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
+	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename"
+	@echo "make e2e-install  download Chromium for Playwright (once)"
+	@echo "make e2e          Playwright against the built binary"
+	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
 
 # Go API on :8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
 dev:
@@ -12,8 +22,7 @@ dev:
 	wait
 
 build:
-	@if [ -f web/package.json ]; then cd web && pnpm install --frozen-lockfile && pnpm build; \
-	else echo "skipping web build: web/package.json not found (frontend arrives in a later task)"; fi
+	cd web && pnpm install --frozen-lockfile && pnpm build
 	cd web/api && go build -ldflags "$(LDFLAGS)" -o ../../goweb ./cmd/goweb
 
 test-fast:
@@ -24,6 +33,14 @@ test:
 	cd web/api && go test -race ./... && go vet ./...
 	cd web && pnpm test && pnpm typecheck
 	bash scripts/gen-api.test.sh
+	$(MAKE) test-scripts
+
+# Shell tests for the deploy, generator, hook and rename scripts (need sqlite3 and go).
+test-scripts:
+	bash deploy/test.sh
+	bash scripts/gen-api-preflight.test.sh
+	bash .claude/hooks/post-edit.test.sh
+	bash scripts/rename.test.sh
 
 test-api:
 	bash scripts/gen-api.test.sh
