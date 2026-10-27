@@ -13,12 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"goweb/internal/auth"
+	"goweb/internal/app"
 	"goweb/internal/config"
-	"goweb/internal/db"
 	"goweb/internal/logging"
 	"goweb/internal/server"
-	"goweb/internal/storage"
 	"goweb/internal/version"
 )
 
@@ -66,21 +64,13 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	defer logCloser.Close()
 	slog.SetDefault(logger)
 
-	d, err := db.Open(cfg.DBPath())
+	a, err := app.New(cfg, logger)
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	if err := db.Migrate(ctx, d); err != nil {
-		return err
-	}
-	svc := auth.NewService(d, cfg, time.Now)
-	st, err := storage.New(cfg.StorageDir())
-	if err != nil {
-		return err
-	}
+	defer a.Close()
 
-	srv := server.NewHTTPServer(cfg, server.New(cfg, server.Deps{DB: d, Auth: svc, Storage: st, Logger: logger}))
+	srv := server.NewHTTPServer(cfg, a.Handler)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("listening", "addr", cfg.Addr, "version", version.Version, "commit", version.Commit, "env", cfg.Env)

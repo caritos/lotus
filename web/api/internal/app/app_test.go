@@ -1,0 +1,50 @@
+package app_test
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"goweb/internal/app"
+	"goweb/internal/config"
+)
+
+func TestNewBuildsHandlerAndMigrates(t *testing.T) {
+	cfg := config.Config{DataDir: t.TempDir(), Env: "development"}
+	a, err := app.New(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	rec := httptest.NewRecorder()
+	a.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("healthz = %d", rec.Code)
+	}
+	var n int
+	if err := a.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&n); err != nil || n == 0 {
+		t.Fatalf("migrations recorded = %d, err %v", n, err)
+	}
+}
+
+func TestNewFailsOnMissingDataDir(t *testing.T) {
+	if _, err := app.New(config.Config{}, nil); err == nil {
+		t.Fatal("expected error for empty DataDir")
+	}
+}
+
+func TestNewFailsOnUnwritableDataDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	if _, err := app.New(config.Config{DataDir: filepath.Join(parent, "data")}, nil); err == nil {
+		t.Fatal("expected error for unwritable DataDir")
+	}
+}
