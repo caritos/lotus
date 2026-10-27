@@ -30,7 +30,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign in and start a session */
+        /**
+         * Sign in and start a session
+         * @description A JSON body larger than 16 KiB is answered 400 (it is read with a 16 KiB cap), not 413; bodies over the global 8 MiB limit get 413 before the handler runs.
+         */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -197,6 +200,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Cross-origin request refused: the Origin header does not match PUBLIC_ORIGIN (or, without Origin, Sec-Fetch-Site is not same-origin or none). Applies to every POST, PUT, PATCH and DELETE. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description No such resource. */
         NotFound: {
             headers: {
@@ -206,7 +218,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The request body is too large. */
+        /** @description The request body is too large (over the 8 MiB global limit, or the operation's own limit). */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -289,6 +301,8 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -308,6 +322,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Forbidden"];
         };
     };
     getMe: {
@@ -376,6 +391,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             413: components["responses"]["PayloadTooLarge"];
         };
     };
@@ -422,6 +438,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -451,6 +468,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
         };
@@ -513,6 +531,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
@@ -537,6 +556,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

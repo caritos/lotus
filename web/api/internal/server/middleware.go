@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"goweb/internal/apigen"
 	"goweb/internal/auth"
 	"goweb/internal/config"
 )
@@ -48,9 +50,7 @@ func SameOrigin(publicOrigin string) Middleware {
 				return
 			}
 			if !sameOriginOK(publicOrigin, r) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = w.Write([]byte(`{"error":"cross-origin request refused"}` + "\n"))
+				writeError(w, http.StatusForbidden, "cross-origin request refused")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -74,13 +74,20 @@ func sameOriginOK(publicOrigin string, r *http.Request) bool {
 	return err == nil && u.Host != "" && u.Host == r.Host
 }
 
-// BodyLimit caps request bodies at n bytes: 413 up front when Content-Length
-// is larger, and http.MaxBytesReader for everything else.
+// writeError writes a JSON error body in the API's Error shape.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(apigen.Error{Error: msg})
+}
+
+// BodyLimit caps request bodies at n bytes: 413 (JSON Error body) up front when
+// Content-Length is larger, and http.MaxBytesReader for everything else.
 func BodyLimit(n int64) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.ContentLength > n {
-				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, n)

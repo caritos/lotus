@@ -149,6 +149,13 @@ func TestBodyLimit413(t *testing.T) {
 	if rec.Code != 413 {
 		t.Fatalf("declared length: status = %d", rec.Code)
 	}
+	// Same shape as every other API error (apigen.Error).
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("413 Content-Type = %q, want application/json", ct)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"error":"request body too large"}` {
+		t.Errorf("413 body = %q", got)
+	}
 	// Unknown length (chunked): the reader enforces the cap.
 	var read int
 	reader := BodyLimit(10)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -339,6 +346,9 @@ func TestNewAppliesChain(t *testing.T) {
 	}
 	if !hasSecurityHeaders(rec) {
 		t.Errorf("413 lacks security headers: %v", rec.Header())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" || !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("413 is not a JSON Error: %q %q", ct, rec.Body.String())
 	}
 	if !strings.Contains(buf.String(), `"status":413`) {
 		t.Errorf("413 not request-logged: %s", buf.String())

@@ -5,6 +5,6 @@ generate:
   models: true
 output-options:
   # multipart upload body would pull in the oapi-codegen runtime module (openapi_types.File);
-  # the handler reads r.FormFile("photo") directly.
+  # the handler streams the "photo" part itself with r.MultipartReader().
   exclude-operation-ids:
     - putNotePhoto

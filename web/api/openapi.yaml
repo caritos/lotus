@@ -24,6 +24,9 @@ paths:
     post:
       operationId: login
       summary: Sign in and start a session
+      description: >-
+        A JSON body larger than 16 KiB is answered 400 (it is read with a 16 KiB cap), not 413;
+        bodies over the global 8 MiB limit get 413 before the handler runs.
       security: []
       requestBody:
         required: true
@@ -42,6 +45,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /api/logout:
@@ -52,6 +59,8 @@ paths:
       responses:
         "204":
           description: Signed out; the session cookie is cleared.
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/me:
     get:
       operationId: getMe
@@ -100,6 +109,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
   /api/notes/{id}:
@@ -139,6 +150,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "413":
@@ -151,6 +164,8 @@ paths:
           description: Deleted.
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /api/notes/{id}/photo:
@@ -206,6 +221,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "413":
@@ -220,6 +237,8 @@ paths:
           description: Removed.
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 components:
@@ -248,6 +267,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: >-
+        Cross-origin request refused: the Origin header does not match PUBLIC_ORIGIN (or, without
+        Origin, Sec-Fetch-Site is not same-origin or none). Applies to every POST, PUT, PATCH and DELETE.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: No such resource.
       content:
@@ -255,7 +282,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     PayloadTooLarge:
-      description: The request body is too large.
+      description: The request body is too large (over the 8 MiB global limit, or the operation's own limit).
       content:
         application/json:
           schema:

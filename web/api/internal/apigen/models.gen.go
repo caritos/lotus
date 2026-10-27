@@ -61,6 +61,9 @@ type NoteId = string
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
 
+// Forbidden defines model for Forbidden.
+type Forbidden = Error
+
 // NotFound defines model for NotFound.
 type NotFound = Error
 
