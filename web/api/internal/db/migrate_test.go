@@ -2,20 +2,69 @@ package db_test
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
 	"goweb/internal/db"
 )
 
-func TestMigrateFreshAppliesAll(t *testing.T) {
-	ctx := context.Background()
+func openMem(t *testing.T) *sql.DB {
+	t.Helper()
 	d, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
+func scanInt(t *testing.T, d *sql.DB, q string) int {
+	t.Helper()
+	var n int
+	if err := d.QueryRow(q).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", q, err)
+	}
+	return n
+}
+
+func TestMigrateConcurrentIsSafe(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer d.Close()
+	const workers = 4
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = db.Migrate(ctx, d)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("worker %d: %v", i, e)
+		}
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations"); n != 1 {
+		t.Fatalf("schema_migrations rows = %d, want 1", n)
+	}
+}
+
+func TestMigrateFreshAppliesAll(t *testing.T) {
+	ctx := context.Background()
+	d := openMem(t)
 	if err := db.Migrate(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -33,24 +82,20 @@ func TestMigrateFreshAppliesAll(t *testing.T) {
 
 func TestMigrateIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	d, _ := db.Open(":memory:")
-	defer d.Close()
+	d := openMem(t)
 	for i := 0; i < 2; i++ {
 		if err := db.Migrate(ctx, d); err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
 	}
-	var n int
-	d.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&n)
-	if n != 1 {
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations"); n != 1 {
 		t.Fatalf("schema_migrations rows = %d, want 1", n)
 	}
 }
 
 func TestMigrateUpgradesPopulatedDB(t *testing.T) {
 	ctx := context.Background()
-	d, _ := db.Open(":memory:")
-	defer d.Close()
+	d := openMem(t)
 	fsys := fstest.MapFS{
 		"0001_a.sql": {Data: []byte("CREATE TABLE p (id TEXT PRIMARY KEY); CREATE TABLE c (id TEXT PRIMARY KEY, p_id TEXT NOT NULL REFERENCES p(id));")},
 	}
@@ -80,8 +125,7 @@ func TestMigrateUpgradesPopulatedDB(t *testing.T) {
 
 func TestMigrateFailureRollsBack(t *testing.T) {
 	ctx := context.Background()
-	d, _ := db.Open(":memory:")
-	defer d.Close()
+	d := openMem(t)
 	fsys := fstest.MapFS{
 		"0001_ok.sql":  {Data: []byte("CREATE TABLE ok (id TEXT);")},
 		"0002_bad.sql": {Data: []byte("CREATE TABLE half (id TEXT); THIS IS NOT SQL;")},
@@ -90,17 +134,16 @@ func TestMigrateFailureRollsBack(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "0002_bad.sql") {
 		t.Fatalf("err = %v, want mention of 0002_bad.sql", err)
 	}
-	var n int
-	d.QueryRow("SELECT count(*) FROM schema_migrations WHERE version='0002_bad.sql'").Scan(&n)
-	if n != 0 {
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations WHERE version='0002_bad.sql'"); n != 0 {
 		t.Fatal("failed migration was recorded")
 	}
-	d.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='half'").Scan(&n)
-	if n != 0 {
+	if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='half'"); n != 0 {
 		t.Fatal("failed migration left partial schema")
 	}
-	d.QueryRow("SELECT count(*) FROM schema_migrations WHERE version='0001_ok.sql'").Scan(&n)
-	if n != 1 {
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations WHERE version='0001_ok.sql'"); n != 1 {
 		t.Fatal("earlier migration not kept")
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='ok'"); n != 1 {
+		t.Fatal("earlier migration's table missing")
 	}
 }

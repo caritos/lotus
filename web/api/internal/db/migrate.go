@@ -32,13 +32,6 @@ func MigrateFS(ctx context.Context, d *sql.DB, fsys fs.FS) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		var n int
-		if err := d.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations WHERE version = ?", name).Scan(&n); err != nil {
-			return fmt.Errorf("db: check %s: %w", name, err)
-		}
-		if n > 0 {
-			continue
-		}
 		body, err := fs.ReadFile(fsys, name)
 		if err != nil {
 			return fmt.Errorf("db: read %s: %w", name, err)
@@ -56,6 +49,16 @@ func apply(ctx context.Context, d *sql.DB, name, body string) error {
 		return fmt.Errorf("db: migration %s: begin: %w", name, err)
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after commit
+	// Checked inside the write transaction (BEGIN IMMEDIATE) so a concurrent
+	// migrator that committed first is seen and this one skips the file.
+	var n int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations WHERE version = ?", name).Scan(&n); err != nil {
+		return fmt.Errorf("db: migration %s: check: %w", name, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	// modernc.org/sqlite executes every statement in a multi-statement string.
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return fmt.Errorf("db: migration %s: %w", name, err)
 	}

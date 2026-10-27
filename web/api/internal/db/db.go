@@ -40,8 +40,6 @@ func Open(path string) (*sql.DB, error) {
 	}
 	if path == memoryPath {
 		d.SetMaxOpenConns(1)
-		d.SetMaxIdleConns(1)
-		d.SetConnMaxLifetime(0)
 	} else {
 		n := min(max(runtime.NumCPU(), 4), 16)
 		d.SetMaxOpenConns(n)
