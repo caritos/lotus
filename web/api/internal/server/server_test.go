@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestHealthz(t *testing.T) {
-	version.Version, version.Commit = "v1.2.3", "abc123"
+	version.Version, version.Commit, version.BuildID = "v1.2.3", "abc123", "20261027-abc1234"
 	h := New(config.Config{}, Deps{})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -37,7 +37,7 @@ func TestHealthz(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["status"] != "ok" || body["version"] != "v1.2.3" || body["commit"] != "abc123" {
+	if body["status"] != "ok" || body["version"] != "v1.2.3" || body["commit"] != "abc123" || body["build_id"] != "20261027-abc1234" {
 		t.Fatalf("body = %v", body)
 	}
 }

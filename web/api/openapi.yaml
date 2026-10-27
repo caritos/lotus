@@ -361,7 +361,7 @@ components:
           type: string
     Health:
       type: object
-      required: [status, version, commit]
+      required: [status, version, commit, build_id]
       properties:
         status:
           type: string
@@ -369,6 +369,10 @@ components:
           type: string
         commit:
           type: string
+        build_id:
+          type: string
+          description: Build id, YYYYMMDD-<short commit> (UTC build date); "-dirty" is appended when tracked files were modified. The same id is shown in every page footer.
+          example: 20261027-37434d8
     Error:
       type: object
       required: [error]

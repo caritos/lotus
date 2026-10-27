@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"goweb/internal/apptest"
+	"goweb/internal/web"
 )
 
 func TestHealthzReportsVersion(t *testing.T) {
@@ -25,6 +26,43 @@ func TestHealthzReportsVersion(t *testing.T) {
 	}
 	if m["status"] != "ok" || m["version"] == "" || m["commit"] == "" {
 		t.Fatalf("healthz body = %s", body)
+	}
+	if !buildIDRe.MatchString(m["build_id"]) {
+		t.Fatalf("healthz build_id = %q, want YYYYMMDD-<commit>", m["build_id"])
+	}
+}
+
+var buildIDRe = regexp.MustCompile(`^[0-9]{8}-([0-9a-f]{7}|unknown|[0-9a-z]+)(-dirty)?$`)
+
+// Every HTML page the app serves shows "Build <id>" in its footer, and the id is the one
+// /healthz reports. /app/ is skipped locally when the React app is not built (CI fails).
+func TestEveryPageFooterShowsTheHealthzBuildID(t *testing.T) {
+	integration(t)
+	a := apptest.NewServer(t)
+	_, _, hz := req(t, a.Client, http.MethodGet, a.URL+"/healthz", nil, nil)
+	var health struct {
+		BuildID string `json:"build_id"`
+	}
+	if err := json.Unmarshal(hz, &health); err != nil {
+		t.Fatal(err)
+	}
+	if !buildIDRe.MatchString(health.BuildID) {
+		t.Fatalf("healthz build_id = %q", health.BuildID)
+	}
+	want := "Build " + health.BuildID
+	paths := []string{"/", "/faq", "/privacy", "/terms", "/support", "/nope"}
+	if os.Getenv("CI") != "" || web.AppBuilt() {
+		builtIndex(t) // fails under CI when the app is missing
+		paths = append(paths, "/app/", "/app/notes/1")
+	}
+	for _, path := range paths {
+		_, _, body := req(t, a.Client, http.MethodGet, a.URL+path, nil, nil)
+		if !strings.Contains(string(body), want) {
+			t.Errorf("%s: no %q in the page", path, want)
+		}
+		if strings.Contains(string(body), "@@BUILD_ID@@") || strings.Contains(string(body), "__BUILD_ID__") {
+			t.Errorf("%s: placeholder left in the page", path)
+		}
 	}
 }
 

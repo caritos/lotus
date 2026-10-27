@@ -10,6 +10,10 @@ type Error struct {
 
 // Health defines model for Health.
 type Health struct {
+	// BuildId Build id, YYYYMMDD-<short commit> (UTC build date); "-dirty" is appended when tracked files were modified. The same id is shown in every page footer.
+	//
+	// Example: 20261027-37434d8
+	BuildId string `json:"build_id"`
 	Commit  string `json:"commit"`
 	Status  string `json:"status"`
 	Version string `json:"version"`

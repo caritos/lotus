@@ -70,7 +70,7 @@ func New(cfg config.Config, deps Deps) http.Handler {
 
 func healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(apigen.Health{Status: "ok", Version: version.Version, Commit: version.Commit})
+	_ = json.NewEncoder(w).Encode(apigen.Health{Status: "ok", Version: version.Version, Commit: version.Commit, BuildId: version.BuildID})
 }
 
 // NewHTTPServer returns an http.Server with every timeout set.

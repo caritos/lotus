@@ -176,6 +176,11 @@ export interface components {
             status: string;
             version: string;
             commit: string;
+            /**
+             * @description Build id, YYYYMMDD-<short commit> (UTC build date); "-dirty" is appended when tracked files were modified. The same id is shown in every page footer.
+             * @example 20261027-37434d8
+             */
+            build_id: string;
         };
         Error: {
             error: string;
