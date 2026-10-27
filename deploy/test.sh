@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for deploy/restore.sh and deploy/pull-backups.sh.
+# Tests for deploy/restore.sh, deploy/pull-backups.sh, deploy/deploy.sh and deploy/smoke.sh.
 # Builds the goweb binary once, builds fixtures with it and the sqlite3 CLI, and
 # uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash deploy/test.sh
 set -u
@@ -535,6 +535,434 @@ test_pull_mirrors_only_when_MIRROR_DIR_exists() {
   assert_eq "$(ls -A "$T/mirror" | tr '\n' ' ')" "20261027T120000Z " "mirror contents"
 }
 
+# ---------------------------------------------------------------- deploy tests
+# A fake `ssh` runs the remote command locally with HOME set to a sandbox
+# directory ($T/home) and fake systemctl/loginctl/curl first on PATH. A fake `go`
+# writes a shell script standing in for the binary; a fake `rsync` copies into the
+# sandbox. Nothing here contacts a real host.
+
+make_fake_binary_script() {
+  # make_fake_binary_script <path> <version> <schema>
+  cat > "$1" <<EOS
+#!/bin/sh
+case "\$1" in
+  schema-version) echo "$3" ;;
+  __version) echo "$2" ;;
+  backup)
+    d="\$HOME/goweb/data/backups/\$(date +%s)-\$\$"
+    mkdir -p "\$d" && echo "backup" >> "\$DCALLS" && echo "\$d" ;;
+esac
+EOS
+  chmod +x "$1"
+}
+
+setup_deploy() {
+  export DCALLS="$T/dcalls"; : > "$DCALLS"
+  export FAKE_REMOTE_HOME="$T/home"
+  mkdir -p "$T/home/goweb/data" "$T/home/goweb/releases" "$T/rbin" "$T/lbin"
+  printf 'SESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+
+  cat > "$T/ssh" <<'EOS'
+#!/bin/bash
+# fake ssh: ssh [-o X]... [-i K] host command
+echo "ssh $*" >> "$DCALLS"
+while [ $# -gt 0 ]; do
+  case "$1" in -o|-i) shift 2 ;; -*) shift ;; *) break ;; esac
+done
+host="$1"; shift
+[ -n "$host" ] || exit 255
+cd "$FAKE_REMOTE_HOME" || exit 255
+HOME="$FAKE_REMOTE_HOME" PATH="$FAKE_RBIN:$PATH" exec sh -c "$*"
+EOS
+  cat > "$T/rsync" <<'EOS'
+#!/bin/bash
+echo "rsync $*" >> "$DCALLS"
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in -e) shift 2 ;; -*) shift ;; *) args+=("$1"); shift ;; esac
+done
+src="${args[0]}"; dst="${args[1]}"
+case "$dst" in *:*) dst="$FAKE_REMOTE_HOME/${dst#*:}" ;; esac
+cp -R "$src" "$dst" || exit 1
+if [ -n "${FAKE_RSYNC_CORRUPT:-}" ] && [ -f "$dst" ]; then printf 'x' >> "$dst"; fi
+EOS
+  cat > "$T/rbin/systemctl" <<'EOS'
+#!/bin/sh
+echo "systemctl $*" >> "$DCALLS"
+EOS
+  cat > "$T/rbin/loginctl" <<'EOS'
+#!/bin/sh
+echo "Linger=${FAKE_LINGER:-yes}"
+EOS
+  cat > "$T/rbin/curl" <<'EOS'
+#!/bin/sh
+v="$("$HOME/goweb/current/goweb" __version 2>/dev/null)"
+for bad in $FAKE_UNHEALTHY; do [ "$bad" = "$v" ] && exit 22; done
+echo "{\"status\":\"ok\",\"version\":\"$v\",\"commit\":\"abc\"}"
+EOS
+  cat > "$T/lbin/go" <<'EOS'
+#!/bin/bash
+echo "go GOOS=${GOOS:-} GOARCH=${GOARCH:-} CGO_ENABLED=${CGO_ENABLED:-} $*" >> "$DCALLS"
+out=""; ver=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -ldflags) ver="$(printf '%s' "$2" | sed -n 's/.*version\.Version=\([^ ]*\).*/\1/p')"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$out" ] || exit 0
+cat > "$out" <<EOT
+#!/bin/sh
+case "\$1" in
+  schema-version) echo "${FAKE_NEW_SCHEMA:-0001_init.sql}" ;;
+  __version) echo "$ver" ;;
+  backup) d="\$HOME/goweb/data/backups/\$(date +%s)-\$\$"; mkdir -p "\$d"; echo backup >> "\$DCALLS"; echo "\$d" ;;
+esac
+EOT
+chmod +x "$out"
+EOS
+  chmod +x "$T/ssh" "$T/rsync" "$T/rbin/"* "$T/lbin/go"
+  export FAKE_RBIN="$T/rbin"
+  export SSH="$T/ssh" RSYNC="$T/rsync"
+  export SKIP_WEB_BUILD=1 HEALTH_TIMEOUT=2
+  echo "<html>" > "$T/index.html"
+  export EMBED_INDEX="$T/index.html"
+  export PATH="$T/lbin:$PATH"
+  unset FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE
+}
+
+# make_release <name> <schema> [active]
+make_release() {
+  mkdir -p "$T/home/goweb/releases/$1"
+  make_fake_binary_script "$T/home/goweb/releases/$1/goweb" "$1" "$2"
+  if [ "${3:-}" = active ]; then ln -sfn "releases/$1" "$T/home/goweb/current"; fi
+}
+
+deploy() { VERSION="${DEPLOY_VERSION:-v2}" bash "$SCRIPT_DIR/deploy.sh" "$@" >"$T/out" 2>"$T/err"; }
+active_release() { readlink "$T/home/goweb/current" 2>/dev/null; }
+
+test_deploy_aborts_when_linger_is_off() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_LINGER=no deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "loginctl enable-linger" "names the fix"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "service not touched" grep -q "^systemctl --user restart" "$DCALLS"
+}
+
+test_deploy_rolls_back_on_failed_health_check() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_UNHEALTHY="v2" deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "rolled back automatically" "stderr"
+  assert_eq "$(active_release)" "releases/v1" "current back on v1"
+  assert_eq "$(grep -c '^systemctl --user restart' "$DCALLS")" "2" "restarted twice"
+}
+
+test_deploy_does_not_roll_back_when_schema_version_changed_and_prints_restore_command() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_NEW_SCHEMA=0002_more.sql FAKE_UNHEALTHY="v2" deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_eq "$(active_release)" "releases/v2" "binary not rolled back"
+  assert_false "no rollback message" grep -q "rolled back automatically" "$T/err"
+  assert_contains "$(cat "$T/err")" "previous binary may not work" "warning"
+  assert_contains "$(cat "$T/err")" "restore.sh" "restore command"
+  assert_contains "$(cat "$T/err")" "data/backups/" "names the pre-deploy backup"
+  assert_eq "$(grep -c '^systemctl --user restart' "$DCALLS")" "1" "restarted once"
+}
+
+test_deploy_keeps_previous_release() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_eq "$(active_release)" "releases/v2" "current is v2"
+  assert_true "v1 kept" test -x "$T/home/goweb/releases/v1/goweb"
+  assert_true "v2 present" test -x "$T/home/goweb/releases/v2/goweb"
+  assert_eq "$(grep -c '^backup$' "$DCALLS")" "1" "pre-deploy backup ran once"
+  assert_false "no uploading leftovers" test -e "$T/home/goweb/releases/v2.uploading"
+  assert_contains "$(cat "$T/out")" "healthy" "progress"
+}
+
+test_deploy_aborts_on_checksum_mismatch_before_switching() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_RSYNC_CORRUPT=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "checksum" "stderr"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "no release dir" test -e "$T/home/goweb/releases/v2"
+  assert_false "no leftover" test -e "$T/home/goweb/releases/v2.uploading"
+  assert_false "service not restarted" grep -q "^systemctl --user restart" "$DCALLS"
+}
+
+test_deploy_first_release_works_without_current() {
+  setup_deploy
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_eq "$(active_release)" "releases/v2" "current is v2"
+  assert_false "no backup on first deploy" grep -q '^backup$' "$DCALLS"
+  assert_contains "$(cat "$T/out")" "first deploy" "says so"
+  assert_contains "$(grep '^go ' "$DCALLS")" "GOOS=linux GOARCH=amd64 CGO_ENABLED=0" "cross compile env"
+  assert_contains "$(grep '^go ' "$DCALLS")" "version.Version=v2" "version injected"
+  assert_contains "$(grep '^ssh ' "$DCALLS" | head -1)" "BatchMode=yes" "ssh options"
+  assert_false ".env never uploaded" sh -c "grep '^rsync' \"\$DCALLS\" | grep -q \"\\.env\""
+  assert_false "secret never printed" grep -q "do-not-print-me" "$T/out" "$T/err"
+}
+
+test_deploy_first_release_unhealthy_says_no_rollback_target() {
+  setup_deploy
+  FAKE_UNHEALTHY="v2" deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "no previous release" "stderr"
+}
+
+test_deploy_rejects_host_starting_with_a_dash() {
+  setup_deploy
+  deploy -oProxyCommand=evil
+  assert_false "exit nonzero" test "$?" -eq 0
+  deploy "-x@host"
+  assert_false "exit nonzero (dash)" test "$?" -eq 0
+  deploy ""
+  assert_false "exit nonzero (empty)" test "$?" -eq 0
+  assert_false "ssh never invoked" grep -q "^ssh" "$DCALLS"
+}
+
+test_deploy_rejects_host_with_slash_or_colon() {
+  setup_deploy
+  deploy "user@host/evil"
+  assert_false "slash rejected" test "$?" -eq 0
+  deploy "user@host:22"
+  assert_false "colon rejected" test "$?" -eq 0
+  deploy 'user@host;rm'
+  assert_false "semicolon rejected" test "$?" -eq 0
+  assert_false "ssh never invoked" grep -q "^ssh" "$DCALLS"
+}
+
+test_deploy_check_changes_nothing() {
+  setup_deploy; make_release v1 0001_init.sql active
+  local before; before="$(cd "$T/home" && find . | sort)"
+  deploy deploy@host.example.com --check
+  assert_eq "$?" "0" "exit status"
+  assert_eq "$(cd "$T/home" && find . | sort)" "$before" "remote tree unchanged"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+  assert_false "no go build" grep -q "^go " "$DCALLS"
+  assert_false "no restart" grep -q "^systemctl --user restart" "$DCALLS"
+  assert_contains "$(cat "$T/out")" "preflight OK" "stdout"
+}
+
+test_deploy_check_fails_when_linger_off() {
+  setup_deploy
+  FAKE_LINGER=no deploy deploy@host.example.com --check
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "loginctl enable-linger" "names the fix"
+}
+
+test_deploy_refuses_to_redeploy_the_active_release() {
+  setup_deploy; make_release v2 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "active release" "stderr"
+}
+
+test_deploy_replaces_an_inactive_release_with_the_same_name() {
+  setup_deploy; make_release v1 0001_init.sql active; make_release v2 0001_init.sql
+  echo old > "$T/home/goweb/releases/v2/marker"
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_false "old content gone" test -e "$T/home/goweb/releases/v2/marker"
+  assert_eq "$(active_release)" "releases/v2" "current"
+}
+
+test_deploy_prunes_old_releases_but_keeps_active_and_previous() {
+  setup_deploy
+  local i
+  for i in 1 2 3 4 5 6 7; do
+    make_release "r$i" 0001_init.sql
+    touch -t "20260101000$i" "$T/home/goweb/releases/r$i"
+  done
+  # previous (active) release is the OLDEST one, so only the retention rule saves it
+  ln -sfn releases/r1 "$T/home/goweb/current"
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "active kept" test -d "$T/home/goweb/releases/v2"
+  assert_true "previous kept" test -d "$T/home/goweb/releases/r1"
+  assert_true "r7 kept" test -d "$T/home/goweb/releases/r7"
+  assert_true "r6 kept" test -d "$T/home/goweb/releases/r6"
+  assert_true "r5 kept" test -d "$T/home/goweb/releases/r5"
+  assert_false "r4 pruned" test -e "$T/home/goweb/releases/r4"
+  assert_false "r3 pruned" test -e "$T/home/goweb/releases/r3"
+  assert_false "r2 pruned" test -e "$T/home/goweb/releases/r2"
+}
+
+test_deploy_uses_atomic_mv_T_when_available() {
+  setup_deploy; make_release v1 0001_init.sql active
+  cat > "$T/rbin/mv" <<'EOS'
+#!/bin/sh
+if [ "$1" = "--version" ]; then echo "mv (GNU coreutils) 9.4"; exit 0; fi
+echo "mv $*" >> "$DCALLS"
+if [ "$1" = "-T" ]; then shift; rm -f "$2"; fi
+exec /bin/mv "$@"
+EOS
+  chmod +x "$T/rbin/mv"
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$DCALLS")" "mv -T current.new current" "atomic rename used"
+  assert_eq "$(active_release)" "releases/v2" "current"
+}
+
+test_deploy_rejects_unsafe_remote_base() {
+  setup_deploy
+  REMOTE_BASE="../etc" deploy deploy@host.example.com
+  assert_false "dotdot rejected" test "$?" -eq 0
+  REMOTE_BASE="/abs" deploy deploy@host.example.com
+  assert_false "absolute rejected" test "$?" -eq 0
+  REMOTE_BASE='a b' deploy deploy@host.example.com
+  assert_false "space rejected" test "$?" -eq 0
+}
+
+# ---------------------------------------------------------------- smoke tests
+# A tiny python3 HTTP/1.0 server driven by a JSON config file stands in for the site.
+
+SMOKE_SERVER_PY="$ROOT/fake_site.py"
+SMOKE_PID=""
+cat > "$SMOKE_SERVER_PY" <<'EOS'
+import http.server, json, sys
+cfg = json.load(open(sys.argv[1]))
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def reply(self, code, ctype, body):
+        b = body.encode() if isinstance(body, str) else body
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+    def do_GET(self):
+        p = self.path
+        if p == "/healthz":
+            self.reply(200, "application/json", json.dumps({"status": "ok", "version": cfg["version"], "commit": "abc"}))
+        elif p == "/":
+            self.reply(200, "text/html", "<html><body><h1>goweb</h1></body></html>")
+        elif p == "/privacy":
+            self.reply(200, "text/html", "<html><body><h1>Privacy</h1><p>" + "We keep your data private. " * 5 + "</p></body></html>")
+        elif p == "/app/":
+            self.reply(200, "text/html", "<html><div id=root></div></html>")
+        elif p == "/static/style.css":
+            self.reply(200, "text/css", cfg["css"])
+        elif p == "/api/notes":
+            self.reply(cfg.get("notes_status", 401), "application/json", "{}")
+        else:
+            self.reply(cfg.get("nope_status", 404), "text/html", "nope")
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[2], "w").write(str(srv.server_address[1]))
+srv.serve_forever()
+EOS
+
+stop_smoke_server() { if [ -n "$SMOKE_PID" ]; then kill "$SMOKE_PID" 2>/dev/null; wait "$SMOKE_PID" 2>/dev/null; SMOKE_PID=""; fi; }
+trap 'stop_smoke_server; rm -rf "$ROOT"' EXIT
+
+# start_site <config-json>: sets SITE_URL.
+start_site() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "test.sh: python3 is required for the smoke tests (fake HTTP server) but was not found" >&2
+    fail "python3 missing"; return 1
+  fi
+  printf '%s' "$1" > "$T/site.json"
+  rm -f "$T/site.port"
+  python3 "$SMOKE_SERVER_PY" "$T/site.json" "$T/site.port" &
+  SMOKE_PID=$!
+  local i=0
+  while [ ! -s "$T/site.port" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  [ -s "$T/site.port" ] || { fail "fake site did not start"; return 1; }
+  SITE_URL="http://127.0.0.1:$(cat "$T/site.port")"
+}
+
+smoke() { bash "$SCRIPT_DIR/smoke.sh" "$@" >"$T/out" 2>"$T/err"; }
+smoke_css() { printf 'body{color:#123}\n' > "$T/style.css"; export CSS_FILE="$T/style.css"; }
+
+test_smoke_passes_on_a_good_server() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$T/out")" "smoke OK" "stdout"
+}
+
+test_smoke_fails_on_version_mismatch() {
+  smoke_css
+  start_site '{"version":"v8","css":"body{color:#123}\n"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "/healthz" "names the check"
+  assert_contains "$(cat "$T/err")" "v8" "shows observed value"
+}
+
+test_smoke_fails_when_nope_is_not_404() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","nope_status":200}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "/nope" "names the check"
+  assert_contains "$(cat "$T/err")" "200" "shows observed value"
+}
+
+test_smoke_fails_when_css_differs() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:red}\n"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "style.css" "names the check"
+}
+
+test_smoke_fails_on_unauthenticated_notes_not_401() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","notes_status":200}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "/api/notes" "names the check"
+}
+
+test_smoke_skips_css_when_local_file_is_absent() {
+  export CSS_FILE="$T/does-not-exist.css"
+  start_site '{"version":"v9","css":"x"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "skipped" "says css was skipped"
+}
+
+test_smoke_fails_on_redirect_to_another_host() {
+  smoke_css
+  printf '#!/bin/sh\nexit 0\n' > "$T/fakecurl"; chmod +x "$T/fakecurl"
+  # fake curl that reports a 301 for everything
+  cat > "$T/fakecurl" <<'EOS'
+#!/bin/sh
+out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac; done
+[ -n "$out" ] && : > "$out"
+printf '301'
+EOS
+  CURL="$T/fakecurl" smoke "https://app.example.com" v9
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "301" "shows observed status"
+}
+
+test_smoke_requires_arguments() {
+  smoke
+  assert_false "exit nonzero" test "$?" -eq 0
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -563,7 +991,31 @@ for t in \
   test_pull_quarantines_future_dated_sets_and_still_alerts_stale \
   test_pull_quarantines_future_dated_sets_already_held_locally \
   test_pull_works_with_each_installed_rsync \
-  test_pull_mirrors_only_when_MIRROR_DIR_exists
+  test_pull_mirrors_only_when_MIRROR_DIR_exists \
+  test_deploy_aborts_when_linger_is_off \
+  test_deploy_rolls_back_on_failed_health_check \
+  test_deploy_does_not_roll_back_when_schema_version_changed_and_prints_restore_command \
+  test_deploy_keeps_previous_release \
+  test_deploy_aborts_on_checksum_mismatch_before_switching \
+  test_deploy_first_release_works_without_current \
+  test_deploy_first_release_unhealthy_says_no_rollback_target \
+  test_deploy_rejects_host_starting_with_a_dash \
+  test_deploy_rejects_host_with_slash_or_colon \
+  test_deploy_check_changes_nothing \
+  test_deploy_check_fails_when_linger_off \
+  test_deploy_refuses_to_redeploy_the_active_release \
+  test_deploy_replaces_an_inactive_release_with_the_same_name \
+  test_deploy_prunes_old_releases_but_keeps_active_and_previous \
+  test_deploy_uses_atomic_mv_T_when_available \
+  test_deploy_rejects_unsafe_remote_base \
+  test_smoke_passes_on_a_good_server \
+  test_smoke_fails_on_version_mismatch \
+  test_smoke_fails_when_nope_is_not_404 \
+  test_smoke_fails_when_css_differs \
+  test_smoke_fails_on_unauthenticated_notes_not_401 \
+  test_smoke_skips_css_when_local_file_is_absent \
+  test_smoke_fails_on_redirect_to_another_host \
+  test_smoke_requires_arguments
 do
   run_test "$t"
 done

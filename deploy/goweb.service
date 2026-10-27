@@ -1,0 +1,34 @@
+# systemd USER unit for goweb. Install as ~/.config/systemd/user/goweb.service, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now goweb
+# The user must have linger enabled (loginctl enable-linger), or the service stops
+# when the last SSH session ends.
+#
+# Layout (under the deploy user's home): goweb/current/goweb is the active
+# release, goweb/data is DATA_DIR, goweb/.env holds the runtime configuration
+# (ADDR=0.0.0.0:<port>, APP_ENV, SESSION_SECRET, PUBLIC_ORIGIN, ...).
+#
+# The sandboxing lines (NoNewPrivileges, ProtectSystem, ReadWritePaths, PrivateTmp)
+# need unprivileged user namespaces on some hosts. If `systemctl --user status goweb`
+# shows status=226/NAMESPACE or similar, delete those lines and restart; the app
+# still runs, just with less isolation.
+[Unit]
+Description=goweb
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/goweb/current/goweb serve
+WorkingDirectory=%h/goweb/data
+EnvironmentFile=-%h/goweb/.env
+Environment=DATA_DIR=%h/goweb/data
+UMask=0077
+Restart=on-failure
+RestartSec=2
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=%h/goweb/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

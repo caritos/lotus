@@ -1,0 +1,11 @@
+# systemd USER timer: daily backup at 03:15 local time. Persistent=true runs a
+# missed backup at the next start (for example after the host was down at 03:15).
+[Unit]
+Description=Run the goweb backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
