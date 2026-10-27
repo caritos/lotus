@@ -77,6 +77,17 @@ the app log (`~/goweb/data/logs/`), or at the source of connections in `ss -tn` 
 per-IP limits (for example on sign-in attempts) are shared by all visitors. Restrict who can reach the port
 with the host's firewall if it offers one.
 
+**Health check address.** `deploy.sh` probes `http://127.0.0.1:<port>/healthz` on the server (the port is
+taken from `ADDR`). `127.0.0.1:<port>`, `0.0.0.0:<port>` and `:<port>` all answer there; an `ADDR` bound to a
+single non-loopback address (for example `203.0.113.5:8080`) does not, so every deploy would fail its health
+check and roll back. Use one of the first three forms.
+
+**Sign-in lockout (a denial-of-service property).** Failed sign-ins are throttled in memory for 15 minutes:
+5 failures per email and client address, 20 per email from anywhere, and 50 per client address. So anyone
+who knows an email can lock that account out for 15 minutes with 20 wrong passwords, and with
+`TRUSTED_PROXY` empty behind a proxy every visitor shares the proxy's address, so 50 failures from anyone
+lock out every user for 15 minutes. Set `TRUSTED_PROXY` correctly; a restart clears the counters.
+
 Write values without quotes, spaces or a trailing carriage return (systemd and `deploy.sh` read the file
 line by line; `deploy.sh` refuses `DATA_DIR` and `ADDR` lines that contain them). Keep it private:
 `chmod 600 ~/goweb/.env`. `deploy.sh` never uploads this file.
@@ -164,7 +175,7 @@ If the new release is not healthy within the timeout:
   as "may have migrated", so no automatic rollback; the restore command is printed.
 - **First deploy**: there is no previous release; the deploy says so and exits non-zero.
   Read the service log (`journalctl --user -u goweb`; check it first in every failure case, a migration may
-  still be running), and `~/goweb/data/logs/`).
+  still be running) and `~/goweb/data/logs/`.
 
 ### Release notes convention
 
@@ -223,6 +234,14 @@ must print `denied`, and the pull command above must still pull a set.
 
 Schedule the pull from the other machine with launchd or cron, and read
 [backups.md](backups.md) for the exit codes and the freshness alert.
+
+## Housekeeping the server does by itself
+
+- Expired sessions are purged when the service starts and then every hour.
+- Upload temp files (`storage/.upload-*`) older than an hour, left by a crash or kill during an upload, are
+  removed when the service starts.
+- The app log rotates by size (see [backups.md](backups.md)); daily and pre-deploy backup sets are pruned
+  by `goweb backup`. `pre-restore-*` copies are not: delete them once a restore is verified.
 
 ## Monitoring
 

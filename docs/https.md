@@ -38,8 +38,12 @@ server {
 ```
 
 - `proxy_pass` points at the app's port (the port in `ADDR`).
-- `Host`, `X-Forwarded-For` and `X-Forwarded-Proto` let the app log real client addresses and
-  build correct origins.
+- `X-Forwarded-For` carries the real client address. The app honors it only when the connection
+  comes from `TRUSTED_PROXY` (see below), and then uses it for the request log and the per-IP sign-in
+  limits. `TRUSTED_PROXY` governs `X-Forwarded-For` only.
+- `Host` and `X-Forwarded-Proto` are ordinary proxy hygiene (correct upstream logs, and anything you add
+  later that needs them); the app itself does not read them. It never builds origins from request
+  headers: the same-origin check uses `PUBLIC_ORIGIN`.
 - HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: goweb sends no HSTS header
   at all, so the proxy's value is the only one browsers see. HSTS is remembered by browsers, so roll it
   out in stages. The example ships `max-age=300` (five minutes). After you have checked that every page
@@ -69,7 +73,6 @@ The app must know it is behind HTTPS and which proxy to trust:
 ```
 APP_ENV=production
 PUBLIC_ORIGIN=https://app.example.com
-SECURE_COOKIES=true
 TRUSTED_PROXY=127.0.0.1/32
 SESSION_SECRET=<generate: openssl rand -hex 32>
 ```
@@ -80,7 +83,8 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
   dropped) and refuses to start when it has a path, query, fragment, user info or a scheme other than
   `http`/`https`, so `https://app.example.com/app` is an error rather than a site where every sign-in is
   refused with 403.
-- `SECURE_COOKIES=true` marks the session cookie Secure so browsers send it only over HTTPS.
+- `SECURE_COOKIES` marks the session cookie Secure so browsers send it only over HTTPS. It defaults to
+  `true` when `APP_ENV=production`, so it needs no line; set it to `false` only for a plain-HTTP test.
 - `ADDR`: with NGINX on the same host use `ADDR=127.0.0.1:8080`, so the app is reachable only through
   NGINX and plain HTTP is never exposed (a `0.0.0.0` listener would let anyone bypass TLS and HSTS by
   using the port directly).

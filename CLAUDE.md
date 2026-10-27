@@ -72,6 +72,22 @@ If the full suite is slow, run it in the background and wait for the result.
   (see `docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
 - Public pages (`/`, `/faq`, `/privacy`, `/terms`, `/support`) are plain static HTML; keep them
   true to the behavior, including every third-party network call.
+- Every subcommand runs under umask 077 (set in `run`), so the database, WAL/SHM, logs, uploads and
+  backups are owner-only whichever command creates them.
+- Backups: `goweb backup` writes daily sets `<stamp>`; `--label NAME` writes `<stamp>-NAME` sets pruned
+  only against the same label (deploys use `--label predeploy --keep 5`). `pre-restore-*` copies are never
+  pruned automatically. `pull-backups.sh` copies daily sets only.
+- Housekeeping: `serve` purges expired sessions at start and hourly (`app.RunMaintenance`); `app.New`
+  removes `storage/.upload-*` temp files older than an hour.
+
+## Known properties
+
+- Sign-in lockout is a denial-of-service lever, by design of a simple in-memory throttle: 20 failed
+  sign-ins for one email lock that account for 15 minutes, from anywhere; and with `TRUSTED_PROXY`
+  empty behind a proxy, 50 failures from anyone lock every user behind the proxy's address for
+  15 minutes. Set `TRUSTED_PROXY` correctly; a restart clears the counters. See `docs/deploy.md`.
+- The deploy health check probes `127.0.0.1:<ADDR port>`, so `ADDR` must be loopback, `0.0.0.0` or
+  `:<port>`, never a single non-loopback address.
 
 ## Run, verify, deploy
 
@@ -105,6 +121,14 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Agent tooling: this file, `AGENTS.md`, `.claude/` settings, hook and commands, CI workflow,
   `scripts/rename.sh`.
 - Backups verified (restore tested): drill passes in the automated tests on 2026-10-27; real server drill: not yet
+- Final-review fix pass (2026-10-27): the app no longer sends HSTS (the proxy owns it); `.env.example` is
+  the production server template and `deploy.sh` refuses a non-production server `.env`
+  (`ALLOW_DEV_DEPLOY=1` overrides); `serve` warns when development mode listens beyond loopback;
+  `PUBLIC_ORIGIN` is validated and normalized; umask 077 for every subcommand; labeled backups
+  (`--label`, pre-deploy sets kept separately, 5 newest); expired sessions purged at start and hourly;
+  stale upload temp files swept at start; 403/413 documented in `openapi.yaml` and 413 is JSON;
+  unreadable photo files are logged 500s; middleware order and the proxy-to-throttle seam are pinned by
+  tests; CI catches untracked generated files and fails (not skips) the embed check without a build.
 
 ### Not yet verified
 
@@ -118,20 +142,20 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 Server and HTTP
 - Login decoder accepts unknown fields and trailing data; require `Content-Type: application/json`.
-- `PUBLIC_ORIGIN` is not normalized (trailing slash or uppercase makes every POST 403); validate in config.
 - Zoned IPv6 and ported entries in `X-Forwarded-For` are not stripped; short mapped trusted-proxy prefixes widen to everything.
-- 413 responses are plain text while the same-origin 403 is JSON; panicked requests are not request-logged.
+- Panicked requests are not request-logged.
 - `server.New` silently trusts no proxy on a bad config; its parameters for deps are partly unused.
 - `app.New` migrates under `context.Background()` instead of the signal context.
 - "listening" is logged before the bind is confirmed; log files created earlier keep their old modes.
-- Photo handling: orphan files after a failed old-file delete or a crashed upload (`.upload-*`) are never swept.
-- Photo handling: non-ENOENT open errors become an unlogged 404; client disconnect during save logs as 500.
+- Photo handling: an orphan photo file left after a failed old-file delete is never swept.
+- Photo handling: a client disconnect during save logs as 500.
 - `PATCH` with a `null` body is a silent no-op; `multipart/mixed` is accepted.
-- `openapi.yaml` declares no 500 responses; the login 400 also covers oversized bodies.
+- `openapi.yaml` declares no 500 responses.
+- `PUBLIC_ORIGIN` with a non-ASCII (IDN) host is lowercased but not converted to punycode, which is what browsers send; write it in punycode.
 
 Auth
 - The dummy bcrypt hash is built on the first unknown-user login, not at startup.
-- The old session is not revoked on re-login; expired sessions are not purged on a schedule.
+- The old session is not revoked on re-login.
 - `user create` echoes the password on a TTY (piping is the documented way); duplicate email is detected by error text.
 
 Frontend
@@ -146,8 +170,8 @@ Backups, restore and deploy
 - Pull script: `mv` results are unchecked, `DEST` of `/` or `$HOME` is not rejected, stale partials with a newer stamp stay forever.
 - Pull script: `KEEP` below server retention causes re-pull churn; `pre-restore-*` and `DEST/failed` are never pruned.
 - Pull script: a FIFO swapped in before open can block; ssh path, `osascript` and a real systemd are untested.
-- Pre-deploy backups use the default `--keep 14`, so many deploys push out the daily history.
-- The `LOAD_ENV` parser in `deploy.sh` differs from systemd's (quotes and CRLF are rejected for the keys it reads).
+- The `LOAD_ENV` parser in `deploy.sh` differs from systemd's (quotes and CRLF are rejected for the keys it reads: `APP_ENV`, `DATA_DIR`, `ADDR`).
+- The pre-deploy backup runs the active release's `backup --label`; a fork deploying over a binary built before `--label` existed must take that first backup by hand.
 - `After=network.target` does nothing in a user unit; `SSH_E` is built twice in `deploy.sh`.
 - `rrsync` with `REMOTE_DIR=/` is unverified against the real tool; `shellcheck` was not available.
 
@@ -155,6 +179,6 @@ Tests
 - Several assertions are weak or probabilistic: the migration concurrency test, transaction-after-expiry, the traversal test, spec path substring check, the unmounted-routes check, and some e2e heading and URL checks.
 - Missing cases: `etagMatches` list/weak/`*` forms, HEAD with `If-None-Match`, Content-Length on 404/503, a positive control for the cross-origin and cookie tests, PUT photo cross-user, oversize upload in e2e, file bytes in the upload unit test.
 - The boundary guard uses a denylist, exact-match imports and scans `internal/` only; its own unit test is thin.
-- Embed tests skip when the app is not built (should fail when `CI` is set).
 - e2e: the port is chosen at config load (small race), a signal-killed server is noticed only after the 20 s timeout, `E2E_SKIP_BUILD=1` without a prior build fails confusingly, missing `pnpm` or `go` errors are unfriendly.
 - `TestRunDefaultsToServe` mutates the package-level `commands`; a few test names and variables are misleading.
+- The maintenance goroutine's wiring in `serve` (start, cancel, wait before close) has no serve-level test; `app.RunMaintenance` itself is tested.

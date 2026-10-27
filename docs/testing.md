@@ -30,8 +30,9 @@ Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `.nv
 Integration tests in `web/api/tests/` call `integration(t)`, which skips them with `-short`,
 so `make test-fast` stays quick. The tests that check the embedded migrations and frontend
 (`TestEmbedded...`) and the import-direction guard run in every tier on purpose.
-`TestEmbeddedAppPresentWhenBuilt` skips when the frontend has not been built; in CI it runs
-after `pnpm build`.
+`TestEmbeddedAppPresentWhenBuilt` and the deep-link test skip locally when the frontend has not
+been built, but **fail** when the `CI` environment variable is set, so CI can never skip them
+silently (both CI Go jobs run `pnpm build` first).
 
 ## How end to end works
 
@@ -50,15 +51,39 @@ Failure artifacts (traces, screenshots, the HTML report) land in `web/e2e/test-r
 - **Go unit:** put `foo_test.go` next to `foo.go`. Use `internal/testutil` for a temp
   database and `httptest` for handlers. Table-driven tests, standard library only.
 - **Go integration:** add a file in `web/api/tests/`, start with `integration(t)`, and boot the
-  app through `internal/apptest`. Assert on real HTTP responses and on the database.
+  app through `internal/apptest`. Assert on real HTTP responses and on the database. Change the
+  configuration with an option, e.g.
+  `apptest.NewServer(t, apptest.WithConfig(func(c *config.Config) { c.TrustedProxy = "127.0.0.1/32" }))`.
 - **Web unit:** add `Thing.test.tsx` beside the component. Render with `src/test/render.tsx`
   and add MSW handlers in `src/test/handlers.ts`. Query by role and label, as a user would.
 - **End to end:** add `name.spec.ts` in `web/e2e/`. Use the helpers in `support.ts`. Keep it to
   journeys a browser must prove; push detail down to the cheaper tiers.
 - **Shell scripts:** extend the matching `*.test.sh`; use fake commands on `PATH` and temp
-  directories, never real servers.
+  directories, never real servers. `ONLY='test_deploy_*' bash deploy/test.sh` runs a subset of the
+  deploy, restore, pull and smoke tests (add new test names to the list at the bottom of the file).
 
 Write the failing test first, watch it fail for the right reason, then implement.
+
+## Tests that pin cross-cutting behavior
+
+- `internal/server` `TestNewAppliesChain`: the middleware order in `server.New`. A cross-origin POST is
+  refused with 403 and still carries the security headers and is request-logged with the forwarded
+  client IP; an oversized body gets a JSON 413 with the headers; `X-Forwarded-For` counts only from the
+  trusted peer. `TestAppNeverSendsHSTS`: the proxy owns HSTS.
+- `tests/proxy_throttle_test.go`: with `TRUSTED_PROXY` set, sign-in failures are throttled per forwarded
+  client address; without it the header is ignored.
+- `tests/contract_errors_test.go`: every mutating operation's cross-origin 403 and the global 413 are
+  `Error` JSON, as `openapi.yaml` declares.
+- `cmd/goweb`: `user create` and `backup` create owner-only files under umask 0
+  (`umask_test.go`); development mode logs a warning when it listens beyond loopback (`serve_test.go`);
+  `backup --label` (`backup_test.go`).
+- `internal/config`: `PUBLIC_ORIGIN` normalization and rejection rules, and the production refusal messages.
+- `internal/backup/label_test.go`: labeled sets, per-label pruning in both directions, label validation.
+- `internal/app`: expired-session purge at start and on every tick (`maintenance_test.go`) and the
+  start-up sweep of stale upload temp files.
+- `deploy/test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
+  `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
+  accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
 ## Import-direction guard
 
@@ -73,8 +98,9 @@ file deliberately, in its own commit.
 ## Generated code
 
 `make api` regenerates `web/api/internal/apigen/models.gen.go` and `web/src/api/schema.d.ts`
-from `web/api/openapi.yaml`. `scripts/gen-api.test.sh` (part of `make test`) and the CI `full`
-job fail when regenerating changes either file or the lockfile.
+from `web/api/openapi.yaml`. `scripts/gen-api.test.sh` (part of `make test`) fails when
+regenerating changes either file or the lockfile; the CI `full` job fails when regenerating leaves
+any change at all in `git status --porcelain`, including new untracked files.
 
 ## What is not covered
 
