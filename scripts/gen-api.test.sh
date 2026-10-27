@@ -7,6 +7,7 @@ root="$(cd "$here/.." && pwd)"
 files=(
   "web/api/internal/apigen/models.gen.go"
   "web/src/api/schema.d.ts"
+  "web/pnpm-lock.yaml"
 )
 before="$(mktemp)"; after="$(mktemp)"
 trap 'rm -f "$before" "$after"' EXIT

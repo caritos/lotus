@@ -179,6 +179,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+    # Excluded from the Go models in oapi-codegen.yaml: the multipart body would need the oapi-codegen runtime package.
     put:
       operationId: putNotePhoto
       summary: Attach or replace the note's photo (max 5 MiB)
