@@ -14,10 +14,11 @@
 #   .env                       the server's runtime config; never uploaded, never printed
 #   restore.sh                 copy of deploy/restore.sh, refreshed on every deploy
 #
-# Steps: preflight; build (pnpm build, then a static linux/amd64 go build);
-# take a deploy lock on the server (REMOTE_BASE/.deploy.lock, stale after 30 minutes;
-# a second deploy fails fast); resolve DATA_DIR and the app port from the server's .env
-# the way the service does; take a pre-deploy backup with the running release; upload to
+# Steps: preflight; resolve APP_ENV, DATA_DIR and the app port from the server's .env
+# the way the service does (refusing unless APP_ENV=production); build (pnpm build,
+# then a static linux/amd64 go build); take a deploy lock on the server
+# (REMOTE_BASE/.deploy.lock, stale after 30 minutes; a second deploy fails fast);
+# take a pre-deploy backup with the running release; upload to
 # releases/<version>.uploading, verify the sha256 on the server, rename into
 # place; atomically repoint `current`; restart the unit; poll /healthz on the
 # server's loopback until it reports the new version; prune old releases; run
@@ -48,6 +49,8 @@
 #   EMBED_INDEX       the built app's index.html, default web/api/internal/web/app/index.html
 #   KEEP_OLD          releases kept besides the active and previous one, default 3
 #   PUBLIC_URL        e.g. https://app.example.com; when set, smoke.sh runs at the end
+#   ALLOW_DEV_DEPLOY=1  deploy even though the server .env does not say APP_ENV=production
+#                     (prints a warning); without it such a deploy stops with nothing changed
 set -euo pipefail
 umask 077
 
@@ -171,6 +174,59 @@ case "$VERSION" in ""|.|..|-*|.*|*..*|*[!A-Za-z0-9._-]*) die "invalid VERSION '$
 COMMIT="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 preflight
+
+# Resolve APP_ENV, DATA_DIR and ADDR from the server's .env the way the service sees
+# them (the last assignment wins, as in systemd). Read-only, so it runs before the lock
+# and also in --check.
+IFS= read -r -d '' RESOLVE_SCRIPT <<'EOS' || true
+cd '__B__' || exit 20
+dv=; av=; ev=
+CR=$(printf '\r'); Q=$(printf '\047')
+while IFS= read -r l || [ -n "$l" ]; do
+  case "$l" in
+    DATA_DIR=*) k=DATA_DIR; v="${l#DATA_DIR=}" ;;
+    ADDR=*) k=ADDR; v="${l#ADDR=}" ;;
+    APP_ENV=*) k=APP_ENV; v="${l#APP_ENV=}" ;;
+    *) continue ;;
+  esac
+  case "$v" in
+    *'"'*|*"$Q"*|*"$CR"*|*' '*|*'$'*|*'`'*|*'\'*) echo "$k"; exit 21 ;;
+  esac
+  case "$k" in DATA_DIR) dv="$v" ;; ADDR) av="$v" ;; APP_ENV) ev="$v" ;; esac
+done < .env
+case "$dv" in "") dd="$PWD/data" ;; /*) dd="$dv" ;; *) dd="$PWD/data/$dv" ;; esac
+echo "DATA_DIR=$dd"
+echo "ADDR=$av"
+echo "APP_ENV=$ev"
+EOS
+RES="$(rsh "${RESOLVE_SCRIPT//__B__/$B}")" && rc=0 || rc=$?
+case "$rc" in
+  0) ;;
+  21) die "the server .env line for $RES contains quotes, spaces, a carriage return or shell characters; systemd and this script would read it differently. Write KEY=value plainly, with no quotes. Nothing was changed." ;;
+  *) die "cannot read the server .env (exit $rc)" ;;
+esac
+DD="$(printf '%s\n' "$RES" | sed -n 's/^DATA_DIR=//p')"
+ADDR_V="$(printf '%s\n' "$RES" | sed -n 's/^ADDR=//p')"
+APP_ENV_V="$(printf '%s\n' "$RES" | sed -n 's/^APP_ENV=//p')"
+if [ "$APP_ENV_V" != production ]; then
+  if [ -z "$APP_ENV_V" ]; then
+    why="the server .env does not set APP_ENV, so the app would run in development mode (its default)"
+  else
+    why="the server .env sets APP_ENV=$APP_ENV_V"
+  fi
+  if [ "${ALLOW_DEV_DEPLOY:-0}" = 1 ]; then
+    echo "deploy: WARNING: $why. Development mode signs sessions with a built-in key when SESSION_SECRET is empty and does not mark cookies Secure. Continuing only because ALLOW_DEV_DEPLOY=1 is set." >&2
+  else
+    die "$why. A server must run with APP_ENV=production (it then refuses to start without SESSION_SECRET and PUBLIC_ORIGIN). Fix ~/$B/.env, or set ALLOW_DEV_DEPLOY=1 locally to deploy a development server on purpose. Nothing was changed."
+  fi
+fi
+case "$DD" in ""|*[!A-Za-z0-9._/-]*) die "the resolved DATA_DIR '$DD' is empty or has characters outside A-Za-z0-9._/-" ;; esac
+if [ -z "$HEALTH_PORT" ]; then
+  HEALTH_PORT="${ADDR_V##*:}"
+  case "$HEALTH_PORT" in ""|*[!0-9]*) HEALTH_PORT=8080 ;; esac
+fi
+step "DATA_DIR on the server resolves to $DD; health port $HEALTH_PORT"
+
 if [ "$CHECK_ONLY" -eq 1 ]; then
   if [ "${SKIP_WEB_BUILD:-0}" = 1 ] && [ ! -f "$EMBED_INDEX" ]; then
     die "the web app is not built ($EMBED_INDEX is missing); run pnpm build in web/"
@@ -246,40 +302,6 @@ else
 fi
 [ "$ACTIVE" != "$VERSION" ] || die "$VERSION is already the active release; bump the version (commit, tag, or set VERSION) and deploy again"
 
-# Resolve DATA_DIR and ADDR from the server's .env the way the service sees them.
-IFS= read -r -d '' RESOLVE_SCRIPT <<'EOS' || true
-cd '__B__' || exit 20
-dv=; av=
-CR=$(printf '\r'); Q=$(printf '\047')
-while IFS= read -r l || [ -n "$l" ]; do
-  case "$l" in
-    DATA_DIR=*) k=DATA_DIR; v="${l#DATA_DIR=}" ;;
-    ADDR=*) k=ADDR; v="${l#ADDR=}" ;;
-    *) continue ;;
-  esac
-  case "$v" in
-    *'"'*|*"$Q"*|*"$CR"*|*' '*|*'$'*|*'`'*|*'\'*) echo "$k"; exit 21 ;;
-  esac
-  if [ "$k" = DATA_DIR ]; then dv="$v"; else av="$v"; fi
-done < .env
-case "$dv" in "") dd="$PWD/data" ;; /*) dd="$dv" ;; *) dd="$PWD/data/$dv" ;; esac
-echo "DATA_DIR=$dd"
-echo "ADDR=$av"
-EOS
-RES="$(rsh "${RESOLVE_SCRIPT//__B__/$B}")" && rc=0 || rc=$?
-case "$rc" in
-  0) ;;
-  21) die "the server .env line for $RES contains quotes, spaces, a carriage return or shell characters; systemd and this script would read it differently. Write KEY=value plainly, with no quotes. Nothing was changed." ;;
-  *) die "cannot read the server .env (exit $rc)" ;;
-esac
-DD="$(printf '%s\n' "$RES" | sed -n 's/^DATA_DIR=//p')"
-ADDR_V="$(printf '%s\n' "$RES" | sed -n 's/^ADDR=//p')"
-case "$DD" in ""|*[!A-Za-z0-9._/-]*) die "the resolved DATA_DIR '$DD' is empty or has characters outside A-Za-z0-9._/-" ;; esac
-if [ -z "$HEALTH_PORT" ]; then
-  HEALTH_PORT="${ADDR_V##*:}"
-  case "$HEALTH_PORT" in ""|*[!0-9]*) HEALTH_PORT=8080 ;; esac
-fi
-step "DATA_DIR on the server resolves to $DD; health port $HEALTH_PORT"
 
 # Load the server's .env for the backup command without printing it.
 LOAD_ENV='while IFS= read -r l || [ -n "$l" ]; do case "$l" in ""|"#"*) continue ;; esac; k="${l%%=*}"; v="${l#*=}"; case "$k" in *[!A-Za-z0-9_]*|"") continue ;; esac; export "$k=$v"; done < .env'

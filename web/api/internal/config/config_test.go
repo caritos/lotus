@@ -186,3 +186,24 @@ func TestLoadProductionStillRequiresPublicOrigin(t *testing.T) {
 		t.Fatalf("err = %v, want PUBLIC_ORIGIN required", err)
 	}
 }
+
+func TestLoadProductionRefusalMessagesSayHowToFix(t *testing.T) {
+	_, err := Load(env(map[string]string{"APP_ENV": "production", "PUBLIC_ORIGIN": "https://a.example"}))
+	if err == nil {
+		t.Fatal("want error without SESSION_SECRET")
+	}
+	for _, want := range []string{"SESSION_SECRET", "APP_ENV=production", "openssl rand -hex 32"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("SESSION_SECRET error %q lacks %q", err, want)
+		}
+	}
+	_, err = Load(env(map[string]string{"APP_ENV": "production", "SESSION_SECRET": "s"}))
+	if err == nil {
+		t.Fatal("want error without PUBLIC_ORIGIN")
+	}
+	for _, want := range []string{"PUBLIC_ORIGIN", "APP_ENV=production", "https://"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("PUBLIC_ORIGIN error %q lacks %q", err, want)
+		}
+	}
+}

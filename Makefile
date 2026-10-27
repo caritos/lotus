@@ -5,7 +5,7 @@ LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/versio
 .PHONY: help dev build test-fast test test-scripts test-api e2e e2e-install api
 
 help:
-	@echo "make dev          Go API on :8080 plus the Vite dev server on :5173"
+	@echo "make dev          Go API on 127.0.0.1:8080 plus the Vite dev server on :5173"
 	@echo "make build        build the frontend, then the single binary ./goweb"
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
@@ -14,10 +14,11 @@ help:
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
 
-# Go API on :8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
+# Go API on 127.0.0.1:8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
+# It sets its own environment; .env.example is the server template and is not used here.
 dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	(cd web/api && DATA_DIR=.. PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run ./cmd/goweb serve) & \
+	(cd web/api && DATA_DIR=.. ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run ./cmd/goweb serve) & \
 	(cd web && pnpm dev) & \
 	wait
 

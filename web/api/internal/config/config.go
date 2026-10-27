@@ -75,10 +75,10 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if c.Env == "production" {
 		if c.SessionSecret == "" {
-			return Config{}, fmt.Errorf("config: SESSION_SECRET is required when APP_ENV=production")
+			return Config{}, fmt.Errorf("config: SESSION_SECRET is required when APP_ENV=production; set it in the server .env to a long random value, for example the output of: openssl rand -hex 32")
 		}
 		if c.PublicOrigin == "" {
-			return Config{}, fmt.Errorf("config: PUBLIC_ORIGIN is required when APP_ENV=production")
+			return Config{}, fmt.Errorf("config: PUBLIC_ORIGIN is required when APP_ENV=production; set it in the server .env to the site's public origin, for example https://app.example.com")
 		}
 	}
 	return c, nil

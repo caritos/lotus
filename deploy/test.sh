@@ -2,6 +2,7 @@
 # Tests for deploy/restore.sh, deploy/pull-backups.sh, deploy/deploy.sh and deploy/smoke.sh.
 # Builds the goweb binary once, builds fixtures with it and the sqlite3 CLI, and
 # uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash deploy/test.sh
+# (ONLY='test_deploy_*' bash deploy/test.sh runs the tests whose names match the glob).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -568,7 +569,7 @@ case "$1" in
     mkdir -p "$d" && echo "backup DATA_DIR=$dd" >> "$DCALLS" && echo "$d" ;;
 esac
 EOT
-  printf 'SESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
 
   cat > "$T/ssh" <<'EOS'
 #!/bin/bash
@@ -637,7 +638,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT
+  unset ALLOW_DEV_DEPLOY FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT
 }
 
 # make_release <name> <schema> [active]
@@ -1038,7 +1039,7 @@ test_deploy_prune_keeps_a_fresh_uploading_dir_and_removes_an_old_one() {
 test_deploy_backs_up_the_data_dir_from_dotenv() {
   setup_deploy; make_release v1 0001_init.sql active
   mkdir -p "$T/custom/db"; : > "$T/custom/db/goweb.db"
-  printf 'ADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/custom" "backup ran against the .env value"
@@ -1049,7 +1050,7 @@ test_deploy_backs_up_the_data_dir_from_dotenv() {
 test_deploy_restore_command_names_the_resolved_data_dir() {
   setup_deploy; make_release v1 0001_init.sql active
   mkdir -p "$T/custom/db"; : > "$T/custom/db/goweb.db"
-  printf 'ADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
   FAKE_NEW_SCHEMA=0002_more.sql FAKE_UNHEALTHY=v2 deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "DATA_DIR=$T/custom" "restore command"
@@ -1066,7 +1067,7 @@ test_deploy_uses_the_default_data_dir_without_dotenv_setting() {
 test_deploy_resolves_a_relative_data_dir_against_the_data_dir() {
   setup_deploy; make_release v1 0001_init.sql active
   mkdir -p "$T/home/goweb/data/alt/db"; : > "$T/home/goweb/data/alt/db/goweb.db"
-  printf 'DATA_DIR=alt\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nDATA_DIR=alt\n' > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/home/goweb/data/alt" "relative value"
@@ -1075,7 +1076,7 @@ test_deploy_resolves_a_relative_data_dir_against_the_data_dir() {
 test_deploy_aborts_when_resolved_data_dir_has_no_database() {
   setup_deploy; make_release v1 0001_init.sql active
   mkdir -p "$T/empty"
-  printf 'DATA_DIR=%s\n' "$T/empty" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nDATA_DIR=%s\n' "$T/empty" > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "goweb.db" "message"
@@ -1087,11 +1088,11 @@ test_deploy_aborts_when_resolved_data_dir_has_no_database() {
 
 test_deploy_rejects_quotes_and_carriage_returns_in_dotenv_keys_it_reads() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'DATA_DIR="%s"\n' "$T/home/goweb/data" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nDATA_DIR="%s"\n' "$T/home/goweb/data" > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_false "quotes rejected" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "DATA_DIR" "names the key"
-  printf 'ADDR=0.0.0.0:8080\r\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\r\n' > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_false "CR rejected" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "ADDR" "names the key"
@@ -1100,7 +1101,7 @@ test_deploy_rejects_quotes_and_carriage_returns_in_dotenv_keys_it_reads() {
 
 test_deploy_health_port_comes_from_dotenv_addr() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'ADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "http://127.0.0.1:9191/healthz" "port from ADDR"
@@ -1108,12 +1109,12 @@ test_deploy_health_port_comes_from_dotenv_addr() {
 
 test_deploy_health_port_defaults_to_8080_and_env_var_wins() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'SESSION_SECRET=x\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=x\n' > "$T/home/goweb/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "127.0.0.1:8080/healthz" "default"
   : > "$DCALLS"; make_release v3 0001_init.sql
-  printf 'ADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
   HEALTH_PORT=7000 DEPLOY_VERSION=v4 deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status 2"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "127.0.0.1:7000/healthz" "HEALTH_PORT wins"
@@ -1226,6 +1227,63 @@ test_restore_defaults_to_home_goweb_current_binary() {
   assert_contains "$(cat "$T/out")" "DRILL OK" "stdout"
 }
 
+# A server .env that would run the app in development mode (built-in session key,
+# no Secure cookies) is refused unless the operator opts in with ALLOW_DEV_DEPLOY=1.
+test_deploy_refuses_a_development_dotenv_and_changes_nothing() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  local before; before="$(tree_of_home)"
+  deploy deploy@host.example.com
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "APP_ENV" "names the key"
+  assert_contains "$(cat "$T/err")" "production" "names the required value"
+  assert_contains "$(cat "$T/err")" "ALLOW_DEV_DEPLOY=1" "names the override"
+  assert_contains "$(cat "$T/err")" "Nothing was changed" "says nothing changed"
+  assert_eq "$(tree_of_home)" "$before" "server tree unchanged"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "no build" grep -q "^go " "$DCALLS"
+  assert_false "no upload" grep -q "^rsync" "$DCALLS"
+  assert_false "no restart" grep -q "^systemctl --user restart" "$DCALLS"
+}
+
+test_deploy_refuses_a_dotenv_without_APP_ENV() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'SESSION_SECRET=x\nADDR=0.0.0.0:8080\n# APP_ENV=production\n' > "$T/home/goweb/.env"
+  deploy deploy@host.example.com
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "APP_ENV" "names the key"
+  assert_contains "$(cat "$T/err")" "development" "explains the default"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+}
+
+test_deploy_check_refuses_a_development_dotenv() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'APP_ENV=development\n' > "$T/home/goweb/.env"
+  deploy deploy@host.example.com --check
+  assert_false "exit nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "APP_ENV" "names the key"
+  assert_false "no preflight OK" grep -q "preflight OK" "$T/out"
+}
+
+test_deploy_accepts_a_production_dotenv() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'ADDR=0.0.0.0:8080\nAPP_ENV=development\nAPP_ENV=production\n' > "$T/home/goweb/.env"
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
+  assert_eq "$(active_release)" "releases/v2" "current is v2"
+  assert_false "no dev warning" grep -q "ALLOW_DEV_DEPLOY" "$T/err"
+}
+
+test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  ALLOW_DEV_DEPLOY=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
+  assert_eq "$(active_release)" "releases/v2" "current is v2"
+  assert_contains "$(cat "$T/err")" "WARNING" "loud warning"
+  assert_contains "$(cat "$T/err")" "development" "says which mode"
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -1302,9 +1360,15 @@ for t in \
   test_smoke_fails_on_a_real_redirect_to_another_host \
   test_smoke_compares_the_version_exactly_not_as_a_pattern \
   test_restore_rejects_a_directory_as_GOWEB_BIN \
-  test_restore_defaults_to_home_goweb_current_binary
+  test_restore_defaults_to_home_goweb_current_binary \
+  test_deploy_refuses_a_development_dotenv_and_changes_nothing \
+  test_deploy_refuses_a_dotenv_without_APP_ENV \
+  test_deploy_check_refuses_a_development_dotenv \
+  test_deploy_accepts_a_production_dotenv \
+  test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY
 do
-  run_test "$t"
+  # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash deploy/test.sh
+  case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
 done
 
 echo "$PASSED passed, $FAILED failed"

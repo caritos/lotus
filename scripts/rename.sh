@@ -108,7 +108,7 @@ cat <<NEXT
 Next steps:
   - update the README title and the public page copy (web/api/internal/web/pages/)
   - add a LICENSE of your choice
-  - copy .env.example to .env and set SESSION_SECRET and PUBLIC_ORIGIN
+  - on the server, create .env from .env.example and set SESSION_SECRET and PUBLIC_ORIGIN
   - point the git remote at your repository: git remote set-url origin <url>
   - run: make test
 NEXT

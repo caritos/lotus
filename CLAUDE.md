@@ -45,7 +45,7 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 | `make e2e-install` then `make e2e` | Playwright against the built binary (not part of the other tiers) |
 | `make api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
 | `make build` | `pnpm build` (fills the embed directory) then `go build` into `./goweb` |
-| `make dev` | Go API on :8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
+| `make dev` | Go API on 127.0.0.1:8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
 
 If the full suite is slow, run it in the background and wait for the result.
 
@@ -57,8 +57,12 @@ If the full suite is slow, run it in the background and wait for the result.
 - Migrations are numbered `.sql` files embedded in the binary, applied in order inside a
   transaction. Never edit a released migration; add a new one (expand, then contract).
 - Never persist absolute file paths; store names relative to `DATA_DIR/storage`.
-- Configuration is environment variables only (see `.env.example`); production refuses to start
-  without `SESSION_SECRET` and `PUBLIC_ORIGIN`. Secrets never go in the repo.
+- Configuration is environment variables only. `.env.example` is the server template
+  (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make dev` sets its
+  own environment. Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`;
+  `PUBLIC_ORIGIN` is validated and normalized; development mode warns when it listens beyond loopback;
+  `deploy.sh` refuses a server `.env` that is not `APP_ENV=production` (override: `ALLOW_DEV_DEPLOY=1`).
+  Secrets never go in the repo.
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
   run `make api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and

@@ -25,7 +25,7 @@ You need Go (version in `web/api/go.mod`), Node 24 and pnpm through corepack.
 git clone <this repository> myapp && cd myapp
 corepack enable                   # provides the pinned pnpm
 (cd web && pnpm install)
-make dev                          # Go API on :8080, Vite on :5173
+make dev                          # Go API on 127.0.0.1:8080, Vite on :5173 (sets its own env)
 ```
 
 Create a user (the password is read from stdin) in another terminal, then open
@@ -43,14 +43,15 @@ Development data lives under `web/` (`db/`, `logs/`, `storage/`, all gitignored)
 
 ```sh
 make build                        # pnpm build, then go build -> ./goweb
-cp .env.example .env              # edit it; the server reads real environment variables only
-set -a; . ./.env; set +a          # or export the variables however you prefer
-APP_ENV=production SESSION_SECRET=$(openssl rand -hex 32) PUBLIC_ORIGIN=https://app.example.com \
-  ADDR=127.0.0.1:8080 DATA_DIR=./data ./goweb serve
+# try the binary locally (development mode, loopback only, data under ./data):
+ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://127.0.0.1:8080 DATA_DIR=./data ./goweb serve
 ```
 
-Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`. Every setting is
-documented in `.env.example`.
+Configuration is environment variables only. `.env.example` is the template for the **server's**
+`.env` (it says `APP_ENV=production` and leaves the required `SESSION_SECRET` and `PUBLIC_ORIGIN`
+empty); local development does not use it, because `make dev` sets its own environment.
+Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`, and development mode
+logs a warning when it listens on anything but loopback.
 
 ## Tests
 
@@ -65,7 +66,8 @@ Details in [docs/testing.md](docs/testing.md).
 ## Deploy in five steps
 
 1. Prepare a Linux server with a normal user, key-only SSH and `loginctl enable-linger`.
-2. Create `~/goweb/.env` on the server with `APP_ENV=production`, `SESSION_SECRET`, `PUBLIC_ORIGIN`.
+2. Create `~/goweb/.env` on the server from `.env.example` (`APP_ENV=production`; fill in
+   `SESSION_SECRET` and `PUBLIC_ORIGIN`). `deploy.sh` refuses a server `.env` that is not production.
 3. Install the systemd user units from `deploy/`.
 4. Run `deploy/deploy.sh user@host --check`, then `PUBLIC_URL=https://app.example.com deploy/deploy.sh user@host`.
 5. Put NGINX with TLS in front and run `deploy/smoke.sh` against the public URL.
@@ -126,5 +128,5 @@ post-edit hook (Go edits run `go vet` and `go test -short` for the package; web 
 - [ ] The support email `support@example.com` in those pages
 - [ ] This README's title and text
 - [ ] A `LICENSE` file: none is included, choose one yourself
-- [ ] `.env` from `.env.example`, with a real `SESSION_SECRET` and `PUBLIC_ORIGIN`
+- [ ] The server's `.env` from `.env.example`, with a real `SESSION_SECRET` and `PUBLIC_ORIGIN`
 - [ ] The git remote, and the `app.example.com` examples in `deploy/` and `docs/`

@@ -38,14 +38,19 @@ never enables linger by itself.
 
 ## 2. Configure `.env`
 
-Copy `.env.example` to `~/goweb/.env` on the server and edit it. The common part:
+Copy `.env.example` to `~/goweb/.env` on the server and edit it. It is the server template: it already
+says `APP_ENV=production` and leaves the two required values empty, so the app refuses to start until you
+fill them in. The common part:
 
 ```
 APP_ENV=production
 PUBLIC_ORIGIN=https://app.example.com
-SECURE_COOKIES=true
 SESSION_SECRET=<output of: openssl rand -hex 32>
 ```
+
+`SECURE_COOKIES` follows `APP_ENV` (on in production), so it needs no line. `deploy.sh` reads `APP_ENV`
+from this file and stops, with nothing changed, unless it is `production`; set `ALLOW_DEV_DEPLOY=1` in
+your local environment only if you really mean to deploy a development-mode server (it prints a warning).
 
 Then pick the case that matches how traffic reaches the app. Pick a free port; on a shared host
 check `ss -tln` first, because ports are not private to your user.
@@ -104,24 +109,26 @@ PUBLIC_URL=https://app.example.com deploy/deploy.sh deploy@host.example.com
 ```
 
 `--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
-service unit exist, and that the server has `curl` or `wget` and a sha256 tool.
+service unit exist, that the server has `curl` or `wget` and a sha256 tool, and that the server
+`.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,
 default 8080), `HEALTH_TIMEOUT` (default 20 s), `VERSION` (default
 `git describe --tags --always --dirty`; a dirty tree is allowed and shows in the version),
-`SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`. When `HEALTH_PORT` is not set the port is read
+`SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`, `ALLOW_DEV_DEPLOY=1`. When `HEALTH_PORT` is not set the port is read
 from `ADDR` in the server's `.env` (default 8080).
 
 What a deploy does, in order:
 
 1. Preflight (as `--check`). Every ssh and rsync call uses `BatchMode=yes`, so it fails
-   instead of prompting for a password.
+   instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
+   from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
 2. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version and
    commit injected.
 3. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
    over. The lock is released on exit, also after a failure or Ctrl-C.
-4. Resolves `DATA_DIR` and the app port from the server's `.env` as described above.
+4. Checks that the resolved `DATA_DIR` holds `db/goweb.db` (when a release is active).
 5. If a release is active, runs `goweb backup` on the server with the running binary
    (the pre-deploy snapshot) and remembers its directory.
 6. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the

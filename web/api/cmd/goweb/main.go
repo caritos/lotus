@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
@@ -63,6 +65,7 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	}
 	defer logCloser.Close()
 	slog.SetDefault(logger)
+	warnDevExposure(logger, cfg)
 
 	a, err := app.New(cfg, logger)
 	if err != nil {
@@ -87,4 +90,29 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 		return fmt.Errorf("shutdown: %w", err)
 	}
 	return nil
+}
+
+// warnDevExposure logs a warning when the server runs in development mode on an
+// address other than loopback: development mode signs sessions with a built-in
+// key when SESSION_SECRET is unset and does not mark cookies Secure, so it must
+// not be reachable from other machines. An empty host (":8080") listens on every
+// interface.
+func warnDevExposure(logger *slog.Logger, cfg config.Config) {
+	if cfg.Env != "development" || isLoopbackAddr(cfg.Addr) {
+		return
+	}
+	logger.Warn("development mode is listening beyond loopback: set APP_ENV=production (with SESSION_SECRET and PUBLIC_ORIGIN) on a server, or ADDR=127.0.0.1:<port> for local use",
+		"addr", cfg.Addr, "env", cfg.Env)
+}
+
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	a, err := netip.ParseAddr(host)
+	return err == nil && a.IsLoopback()
 }
