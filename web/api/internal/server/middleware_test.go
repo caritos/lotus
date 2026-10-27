@@ -285,17 +285,81 @@ func TestRequestLogPreservesFlusher(t *testing.T) {
 	}
 }
 
+// TestNewAppliesChain pins the composition order in New (outermost first):
+// TrustedProxy, RequestLog, SecurityHeaders, SameOrigin, BodyLimit.
 func TestNewAppliesChain(t *testing.T) {
-	h := New(configDev(), Deps{})
-	rec := do(h, "GET", "/healthz", nil)
-	if rec.Header().Get("X-Frame-Options") != "DENY" {
-		t.Fatal("security headers missing from New")
+	var buf bytes.Buffer
+	cfg := config.Config{PublicOrigin: "https://app.example", TrustedProxy: "127.0.0.1/32"}
+	h := New(cfg, Deps{Logger: slog.New(slog.NewJSONHandler(&buf, nil))})
+
+	send := func(method, target string, hdr map[string]string, contentLength int64) *httptest.ResponseRecorder {
+		t.Helper()
+		buf.Reset()
+		r := httptest.NewRequest(method, target, nil)
+		r.RemoteAddr = "127.0.0.1:40000"
+		r.Header.Set("X-Forwarded-For", "203.0.113.9")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		if contentLength > 0 {
+			r.ContentLength = contentLength
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec
 	}
-	r := httptest.NewRequest("POST", "/api/login", nil)
-	r.Header.Set("Origin", "https://evil.example")
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, r)
-	if rec.Code != 403 {
-		t.Fatalf("status = %d", rec.Code)
+	hasSecurityHeaders := func(rec *httptest.ResponseRecorder) bool {
+		return rec.Header().Get("X-Frame-Options") == "DENY" &&
+			rec.Header().Get("X-Content-Type-Options") == "nosniff" &&
+			rec.Header().Get("Content-Security-Policy") != ""
+	}
+
+	// Cross-origin POST: refused by SameOrigin, yet it carries the security
+	// headers (SecurityHeaders is outside SameOrigin) and is logged with the
+	// forwarded client IP (RequestLog is outside SameOrigin, TrustedProxy outside
+	// RequestLog).
+	rec := send("POST", "/api/login", map[string]string{"Origin": "https://evil.example"}, 0)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin POST: status = %d, want 403", rec.Code)
+	}
+	if !hasSecurityHeaders(rec) {
+		t.Errorf("cross-origin 403 lacks security headers: %v", rec.Header())
+	}
+	logged := buf.String()
+	for _, want := range []string{`"path":"/api/login"`, `"status":403`, `"ip":"203.0.113.9"`} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("request log for the refused POST lacks %s: %s", want, logged)
+		}
+	}
+
+	// Oversized body (declared length): 413 from BodyLimit, with security headers, logged.
+	rec = send("POST", "/api/login", map[string]string{"Origin": "https://app.example"}, maxBodyBytes+1)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized POST: status = %d, want 413", rec.Code)
+	}
+	if !hasSecurityHeaders(rec) {
+		t.Errorf("413 lacks security headers: %v", rec.Header())
+	}
+	if !strings.Contains(buf.String(), `"status":413`) {
+		t.Errorf("413 not request-logged: %s", buf.String())
+	}
+
+	// A safe request is logged with the forwarded IP, and carries the headers.
+	rec = send("GET", "/healthz", nil, 0)
+	if rec.Code != http.StatusOK || !hasSecurityHeaders(rec) {
+		t.Fatalf("GET /healthz: status = %d, headers = %v", rec.Code, rec.Header())
+	}
+	if !strings.Contains(buf.String(), `"ip":"203.0.113.9"`) {
+		t.Errorf("trusted peer: handler chain did not see the forwarded client IP: %s", buf.String())
+	}
+
+	// From an untrusted peer the header is ignored.
+	buf.Reset()
+	r := httptest.NewRequest("GET", "/healthz", nil)
+	r.RemoteAddr = "198.51.100.1:40000"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if !strings.Contains(buf.String(), `"ip":"198.51.100.1"`) {
+		t.Errorf("untrusted peer: want the peer address logged: %s", buf.String())
 	}
 }

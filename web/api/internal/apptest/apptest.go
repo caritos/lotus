@@ -42,8 +42,15 @@ func (a *App) NewClient() *http.Client {
 	}
 }
 
+// Option adjusts the configuration before the application is built.
+type Option func(*config.Config)
+
+// WithConfig lets a test change the configuration, e.g. set TrustedProxy. It runs
+// after the defaults (DataDir, PublicOrigin = the server URL, development env).
+func WithConfig(f func(*config.Config)) Option { return Option(f) }
+
 // NewServer starts the application. Everything is closed when the test ends.
-func NewServer(t testing.TB) *App {
+func NewServer(t testing.TB, opts ...Option) *App {
 	t.Helper()
 	dataDir := t.TempDir()
 
@@ -61,6 +68,9 @@ func NewServer(t testing.TB) *App {
 		SessionSecret: "apptest-session-secret",
 		Env:           "development",
 		SessionTTL:    24 * time.Hour,
+	}
+	for _, o := range opts {
+		o(&cfg)
 	}
 	logger, closer, err := logging.New(dataDir, 5<<20, 5)
 	if err != nil {
