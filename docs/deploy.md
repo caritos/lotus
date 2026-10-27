@@ -129,8 +129,10 @@ What a deploy does, in order:
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
    over. The lock is released on exit, also after a failure or Ctrl-C.
 4. Checks that the resolved `DATA_DIR` holds `db/goweb.db` (when a release is active).
-5. If a release is active, runs `goweb backup` on the server with the running binary
-   (the pre-deploy snapshot) and remembers its directory.
+5. If a release is active, runs `goweb backup --label predeploy --keep 5` on the server with the running
+   binary (the pre-deploy snapshot, `<timestamp>-predeploy`) and remembers its directory. Pre-deploy sets have
+   their own retention (the 5 newest), never push the daily sets out, and stay on the server (the pull script
+   ignores them); see [backups.md](backups.md).
 6. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the
    local one (a mismatch aborts with nothing changed), then renames into place.
 7. Repoints `current` (an atomic rename when the server's `mv` supports `-T`, else
@@ -156,7 +158,8 @@ If the new release is not healthy within the timeout:
   commands to put the previous release back and restore the pre-deploy backup with
   `restore.sh` (run on the server, with `GOWEB_BIN` pointing at the previous release's binary file). `restore.sh` verifies the backup, stops the
   service, saves the live data as `pre-restore-*`, swaps the backup in, restarts and
-  health-checks. See [backups.md](backups.md).
+  health-checks. `pre-restore-*` copies are never pruned automatically: delete them by hand after you have
+  verified the restore. See [backups.md](backups.md).
 - **Previous binary without `schema-version`** (a release from before that subcommand existed): treated
   as "may have migrated", so no automatic rollback; the restore command is printed.
 - **First deploy**: there is no previous release; the deploy says so and exits non-zero.
@@ -173,7 +176,8 @@ migration that has been released.
 
 ## Backups
 
-The timer from step 3 runs `goweb backup --keep 14` daily at 03:15 on the server.
+The timer from step 3 runs `goweb backup --keep 14` daily at 03:15 on the server. Pre-deploy sets
+(`--label predeploy`, 5 kept) are separate and never count against those 14.
 Pulling copies to another machine is covered in [backups.md](backups.md).
 
 ### Off-site pull with a restricted key

@@ -18,16 +18,26 @@ func init() {
 	commands["verify-backup"] = verifyBackupCmd
 }
 
-// backupCmd writes a backup set and prints its directory.
+const backupUsage = "usage: goweb backup [--keep N] [--label NAME]"
+
+// backupCmd writes a backup set and prints its directory. Without --label it is
+// the daily set <timestamp>, pruned to the newest N daily sets; with --label it
+// is <timestamp>-<label>, pruned to the newest N sets with that label.
 func backupCmd(args []string, getenv func(string) string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	keep := fs.Int("keep", 14, "number of backup sets to keep")
+	keep := fs.Int("keep", 14, "number of backup sets to keep (per label)")
+	label := fs.String("label", "", "name the set <timestamp>-<label> and prune only sets with this label")
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("usage: goweb backup [--keep N]: %w", err)
+		return fmt.Errorf("%s: %w", backupUsage, err)
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: goweb backup [--keep N]")
+		return errors.New(backupUsage)
+	}
+	labelSet := false
+	fs.Visit(func(f *flag.Flag) { labelSet = labelSet || f.Name == "label" })
+	if labelSet && *label == "" {
+		return fmt.Errorf("%s: --label must not be empty", backupUsage)
 	}
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -38,7 +48,7 @@ func backupCmd(args []string, getenv func(string) string, stdout io.Writer) erro
 		return err
 	}
 	defer d.Close()
-	res, err := backup.Run(context.Background(), d, cfg.DataDir, *keep, time.Now())
+	res, err := backup.RunLabel(context.Background(), d, cfg.DataDir, *label, *keep, time.Now())
 	if err != nil {
 		return err
 	}

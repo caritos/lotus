@@ -73,3 +73,32 @@ func TestVerifyBackupCommandFailsOnBadDir(t *testing.T) {
 		t.Fatal("want usage error")
 	}
 }
+
+func TestBackupCommandLabel(t *testing.T) {
+	dir := seededDataDir(t)
+	var daily, out bytes.Buffer
+	if err := run([]string{"backup", "--keep", "1"}, userEnv(dir), &daily); err != nil {
+		t.Fatal(err)
+	}
+	// Same second as the daily run is fine: the names differ.
+	if err := run([]string{"backup", "--label", "predeploy", "--keep", "1"}, userEnv(dir), &out); err != nil {
+		t.Fatal(err)
+	}
+	p := strings.TrimSpace(out.String())
+	if !strings.HasSuffix(p, "-predeploy") || !strings.HasPrefix(p, filepath.Join(dir, "backups")+string(filepath.Separator)) {
+		t.Fatalf("stdout = %q, want a <stamp>-predeploy set under backups/", out.String())
+	}
+	var vout bytes.Buffer
+	if err := run([]string{"verify-backup", p}, userEnv(dir), &vout); err != nil || vout.String() != "ok\n" {
+		t.Fatalf("verify-backup labeled set: %v %q", err, vout.String())
+	}
+	// The daily set survives labeled runs (it has its own retention).
+	if _, err := os.Stat(strings.TrimSpace(daily.String())); err != nil {
+		t.Fatalf("daily set pruned by a labeled run: %v", err)
+	}
+	for _, bad := range []string{"Bad", "x_y", "", "a/b"} {
+		if err := run([]string{"backup", "--label", bad}, userEnv(dir), &bytes.Buffer{}); err == nil {
+			t.Errorf("--label %q: want error", bad)
+		}
+	}
+}

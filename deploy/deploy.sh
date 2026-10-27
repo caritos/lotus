@@ -18,7 +18,8 @@
 # the way the service does (refusing unless APP_ENV=production); build (pnpm build,
 # then a static linux/amd64 go build); take a deploy lock on the server
 # (REMOTE_BASE/.deploy.lock, stale after 30 minutes; a second deploy fails fast);
-# take a pre-deploy backup with the running release; upload to
+# take a pre-deploy backup with the running release (a separate "predeploy" labeled
+# set, 5 kept, which never prunes the daily sets); upload to
 # releases/<version>.uploading, verify the sha256 on the server, rename into
 # place; atomically repoint `current`; restart the unit; poll /healthz on the
 # server's loopback until it reports the new version; prune old releases; run
@@ -309,8 +310,8 @@ LOAD_ENV='while IFS= read -r l || [ -n "$l" ]; do case "$l" in ""|"#"*) continue
 BACKUP_DIR=""
 if [ -n "$ACTIVE" ]; then
   rsh "test -d '$DD' && test -f '$DD/db/goweb.db'" || die "the resolved DATA_DIR $DD is not a directory containing db/goweb.db. Check DATA_DIR in the server .env: the service would not be serving this data. Nothing was changed."
-  step "taking a pre-deploy backup with $ACTIVE into $DD/backups (keeps the newest 14 sets)"
-  BACKUP_DIR="$(rsh "cd '$B' && $LOAD_ENV; export DATA_DIR='$DD'; out=\$(./current/goweb backup) || exit 1; d=\$(printf '%s\n' \"\$out\" | tail -n 1); [ -n \"\$d\" ] && [ -d \"\$d\" ] || exit 2; printf '%s\n' \"\$d\"")" \
+  step "taking a pre-deploy backup with $ACTIVE into $DD/backups (a <timestamp>-predeploy set; the 5 newest pre-deploy sets are kept, daily sets are not touched)"
+  BACKUP_DIR="$(rsh "cd '$B' && $LOAD_ENV; export DATA_DIR='$DD'; out=\$(./current/goweb backup --label predeploy --keep 5) || exit 1; d=\$(printf '%s\n' \"\$out\" | tail -n 1); [ -n \"\$d\" ] && [ -d \"\$d\" ] || exit 2; printf '%s\n' \"\$d\"")" \
     || die "pre-deploy backup failed; nothing was changed"
   [ -n "$BACKUP_DIR" ] || die "pre-deploy backup printed no directory; nothing was changed"
   step "backup written to $BACKUP_DIR"

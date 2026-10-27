@@ -3,7 +3,8 @@
 # another machine, usually a Mac). The server holds no credentials for this machine.
 #
 # For each completed remote set (<UTC timestamp>, never *.partial) not yet held
-# locally: rsync it into DEST, run `PRAGMA integrity_check` on the pulled goweb.db
+# locally (labeled sets such as <timestamp>-predeploy are never pulled and count
+# neither toward KEEP nor toward the freshness check; they stay on the server): rsync it into DEST, run `PRAGMA integrity_check` on the pulled goweb.db
 # with the sqlite3 CLI (this machine needs sqlite3 installed), move failures to
 # DEST/failed/ and notify. Then prune DEST to the newest KEEP sets (retention:
 # 30 snapshots by default, i.e. about a month of daily backups; DEST/failed/ is

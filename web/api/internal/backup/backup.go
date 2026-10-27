@@ -27,8 +27,12 @@ const (
 )
 
 var (
+	// setName matches an unlabeled (daily) set; labeledName a labeled one, such as
+	// 20261027T031500Z-predeploy. Each kind is pruned separately.
 	setName     = regexp.MustCompile(`^\d{8}T\d{6}Z$`)
-	partialName = regexp.MustCompile(`^(\d{8}T\d{6}Z)\.partial$`)
+	labeledName = regexp.MustCompile(`^\d{8}T\d{6}Z-([a-z][a-z0-9-]{0,15})$`)
+	partialName = regexp.MustCompile(`^(\d{8}T\d{6}Z)(-[a-z][a-z0-9-]{0,15})?\.partial$`)
+	validLabel  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,15}$`)
 )
 
 // ErrBusy is returned when another backup run holds the lock.
@@ -40,7 +44,7 @@ type Result struct {
 	Files int    // storage files copied
 }
 
-// Run writes a backup set <dataDir>/backups/<UTC timestamp>/ containing goweb.db
+// Run writes an unlabeled backup set <dataDir>/backups/<UTC timestamp>/ containing goweb.db
 // (a VACUUM INTO snapshot) and storage/ (a copy of <dataDir>/storage), then keeps
 // only the newest `keep` completed sets. The set is built in <name>.partial and
 // renamed into place last; the rename is the completion marker.
@@ -50,6 +54,18 @@ type Result struct {
 // inconsistent (a referenced file missing, or an unreferenced file present).
 // Verify reports referenced files that are missing.
 func Run(ctx context.Context, d *sql.DB, dataDir string, keep int, now time.Time) (Result, error) {
+	return RunLabel(ctx, d, dataDir, "", keep, now)
+}
+
+// RunLabel is Run for a labeled set: with a non-empty label the set is named
+// <UTC timestamp>-<label> (label: a lowercase letter, then up to 15 lowercase
+// letters, digits or '-') and keep applies only to sets with that same label.
+// Unlabeled (daily) sets and labeled sets never prune each other. An empty label
+// is Run.
+func RunLabel(ctx context.Context, d *sql.DB, dataDir, label string, keep int, now time.Time) (Result, error) {
+	if label != "" && !validLabel.MatchString(label) {
+		return Result{}, fmt.Errorf("backup: invalid label %q: use a lowercase letter followed by up to 15 lowercase letters, digits or '-'", label)
+	}
 	if keep < 1 {
 		return Result{}, fmt.Errorf("backup: keep must be at least 1, got %d", keep)
 	}
@@ -74,7 +90,11 @@ func Run(ctx context.Context, d *sql.DB, dataDir string, keep int, now time.Time
 		return Result{}, fmt.Errorf("backup: lock: %w", err)
 	}
 	stamp := now.UTC().Format(stampLayout)
-	final := filepath.Join(root, stamp)
+	name := stamp
+	if label != "" {
+		name += "-" + label
+	}
+	final := filepath.Join(root, name)
 	partial := final + ".partial"
 	if _, err := os.Lstat(final); err == nil {
 		return Result{}, fmt.Errorf("backup: %s already exists", final)
@@ -92,7 +112,7 @@ func Run(ctx context.Context, d *sql.DB, dataDir string, keep int, now time.Time
 		os.RemoveAll(partial)
 		return Result{}, fmt.Errorf("backup: finalize: %w", err)
 	}
-	if err := prune(root, stamp, keep); err != nil {
+	if err := prune(root, stamp, label, keep); err != nil {
 		return Result{Dir: final, Files: files}, err
 	}
 	return Result{Dir: final, Files: files}, nil
@@ -181,9 +201,11 @@ func copyFile(src, dst string) (bool, error) {
 	return true, nil
 }
 
-// prune removes stale .partial dirs older than the current run and all but the
-// newest keep completed sets. Entries with any other name are never touched.
-func prune(root, currentStamp string, keep int) error {
+// prune removes stale .partial dirs (of any label) older than the current run
+// and all but the newest keep completed sets carrying label ("" means the
+// unlabeled daily sets). Sets with another label and entries with any other
+// name (pre-restore-*, foreign files) are never touched.
+func prune(root, currentStamp, label string, keep int) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return fmt.Errorf("backup: prune: %w", err)
@@ -202,7 +224,11 @@ func prune(root, currentStamp string, keep int) error {
 			}
 			continue
 		}
-		if setName.MatchString(name) {
+		if label == "" {
+			if setName.MatchString(name) {
+				sets = append(sets, name)
+			}
+		} else if m := labeledName.FindStringSubmatch(name); m != nil && m[1] == label {
 			sets = append(sets, name)
 		}
 	}

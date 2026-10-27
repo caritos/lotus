@@ -19,7 +19,15 @@ Logs are not backed up.
 - **Pull copies:** `deploy/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
   each with `PRAGMA integrity_check`, quarantines failures in `failed/`, and keeps the newest 30 (`KEEP`).
   `failed/` is never pruned automatically.
-- Every deploy also takes a pre-deploy set with the running release.
+- **Pre-deploy sets:** every deploy runs `goweb backup --label predeploy --keep 5` with the running release.
+  A labeled set is named `<UTC timestamp>-<label>` (for example `20261027T031500Z-predeploy`) and is pruned
+  only against sets with the same label: the 5 newest pre-deploy sets are kept, and deploys never push daily
+  sets out (the daily prune never touches labeled sets either). Pre-deploy sets stay on the server only:
+  `pull-backups.sh` copies only the daily sets, and labeled sets count neither toward `KEEP` nor toward the
+  freshness alert. `verify-backup` and `restore.sh` accept them like any other set.
+- **`pre-restore-*` safety copies** (written by a real restore, see below) are never pruned automatically.
+  Delete them by hand once you have checked that the restored data is right; until then each one costs a full
+  copy of the data.
 
 Both copies and the server live in your own accounts. Do not count them as protection against loss of
 all of them at once (fire, theft, account loss). If you ever send backups to a third-party service, say so
@@ -85,8 +93,9 @@ or `launchctl list`), and look at `DEST` now and then.
 
 ## Disk and logs
 
-- Each set is roughly the database plus the photos, so 14 sets on the server cost 14 times that; watch the
-  disk usage of the data volume and alert at 80 percent.
+- Each set is roughly the database plus the photos, so 14 daily sets plus 5 pre-deploy sets (plus any
+  `pre-restore-*` copies) on the server cost that many times the data; watch the disk usage of the data volume
+  and alert at 80 percent.
 - The app rotates its own log under `<DATA_DIR>/logs/` by size (5 MiB, 5 generations kept); there is no system
   logrotate to configure for a non-root user.
 - The service's own output goes to the user journal (`journalctl --user -u goweb`).

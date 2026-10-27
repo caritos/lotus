@@ -566,7 +566,7 @@ case "$1" in
     if [ -n "$FAKE_BACKUP_EMPTY" ]; then exit 0; fi
     dd="${DATA_DIR:-$HOME/goweb/data}"
     d="$dd/backups/pre-$(date +%s)-$$"
-    mkdir -p "$d" && echo "backup DATA_DIR=$dd" >> "$DCALLS" && echo "$d" ;;
+    mkdir -p "$d" && echo "backup DATA_DIR=$dd" >> "$DCALLS" && echo "backup ARGS=$*" >> "$DCALLS" && echo "$d" ;;
 esac
 EOT
   printf 'APP_ENV=production\nSESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
@@ -1284,6 +1284,43 @@ test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY() {
   assert_contains "$(cat "$T/err")" "development" "says which mode"
 }
 
+# Pre-deploy backups are a labeled set with their own retention, so deploys never
+# push the daily sets out.
+test_deploy_takes_a_labeled_predeploy_backup_with_its_own_retention() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$DCALLS")" "backup ARGS=backup --label predeploy --keep 5" "labeled backup"
+  assert_contains "$(cat "$T/out")" "5 newest pre-deploy sets" "progress names the retention"
+}
+
+test_restore_accepts_a_labeled_set() {
+  make_fakes
+  local b; b="$(new_backup 20261027T120000Z-predeploy)"
+  restore "$b" --drill
+  assert_eq "$?" "0" "drill exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$T/out")" "DRILL OK $b" "drill stdout"
+  cp -R "$ROOT/master-live" "$T/data"
+  export DATA_DIR="$T/data" HEALTH_CMD="true"
+  restore "$b"
+  assert_eq "$?" "0" "restore exit status ($(cat "$T/err"))"
+  assert_eq "$(live_email)" "backup@example.com" "db replaced from the labeled set"
+}
+
+test_pull_ignores_labeled_sets_for_copy_keep_and_staleness() {
+  make_fakes; pull_env
+  export KEEP=2
+  remote_set 20261019T120000Z; remote_set 20261020T120000Z
+  remote_set 20261027T120000Z-predeploy
+  remote_set 20261027T130000Z-other
+  pull
+  assert_false "stale daily set still alerts (a fresh labeled set does not count)" test "$?" -eq 0
+  assert_contains "$(cat "$NOTIFIED")" "stale" "notified"
+  assert_eq "$(ls "$T/dest" | grep -v '^failed$' | tr '\n' ' ')" "20261019T120000Z 20261020T120000Z " "only daily sets pulled; labeled sets not counted toward KEEP"
+  assert_false "labeled set not pulled" test -e "$T/dest/20261027T120000Z-predeploy"
+  assert_false "labeled set not quarantined" test -e "$T/dest/failed/20261027T120000Z-predeploy"
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -1365,7 +1402,10 @@ for t in \
   test_deploy_refuses_a_dotenv_without_APP_ENV \
   test_deploy_check_refuses_a_development_dotenv \
   test_deploy_accepts_a_production_dotenv \
-  test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY
+  test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY \
+  test_deploy_takes_a_labeled_predeploy_backup_with_its_own_retention \
+  test_restore_accepts_a_labeled_set \
+  test_pull_ignores_labeled_sets_for_copy_keep_and_staleness
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash deploy/test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
