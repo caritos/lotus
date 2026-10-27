@@ -57,3 +57,36 @@ func (a *App) Close() error {
 	}
 	return nil
 }
+
+// MaintenanceInterval is how often serve runs RunMaintenance's periodic work.
+const MaintenanceInterval = time.Hour
+
+// RunMaintenance purges expired sessions once right away and then every
+// interval until ctx is done. Failures are logged and never stop the loop or
+// the server. logger nil falls back to slog.Default(). It blocks; run it in a
+// goroutine and cancel ctx (and wait for it) before Close.
+func (a *App) RunMaintenance(ctx context.Context, logger *slog.Logger, every time.Duration) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	purge := func() {
+		n, err := a.Auth.PurgeExpired(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			logger.Error("maintenance: purge expired sessions", "err", err)
+		case n > 0:
+			logger.Info("maintenance: purged expired sessions", "count", n)
+		}
+	}
+	purge()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			purge()
+		}
+	}
+}

@@ -77,6 +77,16 @@ func serve(_ []string, getenv func(string) string, _ io.Writer) error {
 	}
 	defer a.Close()
 
+	// Periodic maintenance (expired-session purge) stops with the server and is
+	// waited for before the database is closed (deferred calls run last-in first-out).
+	mctx, mcancel := context.WithCancel(ctx)
+	mdone := make(chan struct{})
+	go func() {
+		defer close(mdone)
+		a.RunMaintenance(mctx, logger, app.MaintenanceInterval)
+	}()
+	defer func() { mcancel(); <-mdone }()
+
 	srv := server.NewHTTPServer(cfg, a.Handler)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
