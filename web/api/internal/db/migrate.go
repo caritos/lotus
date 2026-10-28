@@ -1,3 +1,8 @@
+// Package db opens the SQLite database and runs its embedded migrations.
+//
+// Migration files are checksummed over their exact bytes (sha256). Whitespace, comment and
+// line-ending changes therefore count as edits to an applied migration and stop the run; the
+// repository's .gitattributes marks *.sql as -text so an autocrlf checkout cannot alter the bytes.
 package db
 
 import (
@@ -8,11 +13,17 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"app/internal/db/migrations"
 )
+
+// migrationName is the only accepted file name shape: a four-digit version, an underscore and a
+// lowercase description, for example 0002_add_tags.sql.
+var migrationName = regexp.MustCompile(`^[0-9]{4}_[a-z0-9_]+\.sql$`)
 
 // Migrate applies the embedded migrations.
 func Migrate(ctx context.Context, d *sql.DB) error {
@@ -28,15 +39,47 @@ func Migrate(ctx context.Context, d *sql.DB) error {
 // naming it, before anything further is applied. Rows from before checksums
 // existed are backfilled from fsys the first time they are seen, so the history
 // of such a database cannot be verified.
+//
+// The checksum is over the exact bytes of the file, so a change of whitespace or line endings is an
+// edit and is refused like any other (see the package comment about .gitattributes).
+//
+// A recorded migration whose file is no longer in fsys is NOT verified and not an error: that keeps
+// a rolled-back binary, which embeds fewer files than the database has recorded, working.
+//
+// Every *.sql file must be named NNNN_description.sql (^[0-9]{4}_[a-z0-9_]+\.sql$) and no two
+// files may share the NNNN version; either problem is an error naming the file, found before any database access, so nothing
+// (not even schema_migrations) is created or changed. A name that ends in .sql in any case but does
+// not match (0002_x.SQL) is rejected, not skipped. Gaps in the numbering are allowed.
 func MigrateFS(ctx context.Context, d *sql.DB, fsys fs.FS) error {
-	if err := ensureTable(ctx, d); err != nil {
-		return err
-	}
-	names, err := fs.Glob(fsys, "*.sql")
+	// Validate the whole set before touching the database at all, so a bad file name or a duplicate
+	// version changes nothing (not even schema_migrations).
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return fmt.Errorf("db: list migrations: %w", err)
 	}
+	var names []string
+	for _, e := range entries {
+		// Anything that ends in .sql in any case is meant as a migration: a name like 0002_x.SQL
+		// must be rejected, not silently skipped.
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".sql") {
+			continue
+		}
+		names = append(names, e.Name())
+	}
 	sort.Strings(names)
+	byVersion := map[string]string{}
+	for _, name := range names {
+		if !migrationName.MatchString(name) {
+			return fmt.Errorf("db: migration file %q: name must match NNNN_description.sql (four digits, then lowercase letters, digits and underscores)", name)
+		}
+		if other, dup := byVersion[name[:4]]; dup {
+			return fmt.Errorf("db: migration files %q and %q have the same version %s", other, name, name[:4])
+		}
+		byVersion[name[:4]] = name
+	}
+	if err := ensureTable(ctx, d); err != nil {
+		return err
+	}
 	for _, name := range names {
 		body, err := fs.ReadFile(fsys, name)
 		if err != nil {

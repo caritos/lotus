@@ -194,7 +194,7 @@ func RequestID() Middleware {
 			id := r.Header.Get("X-Request-Id")
 			if !validRequestID.MatchString(id) {
 				var b [8]byte
-				_, _ = rand.Read(b[:]) // crypto/rand.Read never fails on supported platforms
+				_, _ = rand.Read(b[:]) // the error is ignored on purpose: since Go 1.24 crypto/rand.Read cannot fail (it crashes the program instead); this module is Go 1.27.2
 				id = hex.EncodeToString(b[:])
 			}
 			w.Header().Set("X-Request-Id", id)

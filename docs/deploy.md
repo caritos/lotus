@@ -150,14 +150,14 @@ PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 
 `--check` verifies the SSH login, linger, local tools, that `~/app/data`, `.env` and the
 service unit exist, that the server has `curl` or `wget` and a sha256 tool, that the daily backup
-timer `app-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`), and that the server
+timer `app-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`; the timer counts as enabled only when `is-enabled` exits 0 and answers `enabled` or `enabled-runtime`. "Not enabled" covers a timer that is disabled, masked or never installed: exit 1, or 4 on newer systemd, with a state word such as `disabled` or `not-found`; older systemd's "Failed to get unit file state ...: No such file or directory" (exit 1); or exit 0 with another state word (`static`, `indirect`, `generated`), reported as "not enabled (state: <word>)" with the install hint. If ssh fails (exit 255), the user bus is unreachable (any other "Failed to ..."), or the answer is empty or not one of the known state words (`enabled`, `enabled-runtime`, `static`, `indirect`, `generated`, `disabled`, `masked`, `linked`, `alias`, `transient`, `bad`, `not-found`), on exit 0 as on exit 1, the result is "could not determine". Both are a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`, and "could not determine" is never reported as "not enabled"), and that the server
 `.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,
 default 8080), `HEALTH_TIMEOUT` (default 20 s), `VERSION` (default
 `git describe --tags --always --dirty`; a dirty tree is allowed and shows in the version),
 `SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`, `ALLOW_DEV_DEPLOY=1`, `SKIP_TESTS=1` (skip the
-test gate below), `REQUIRE_BACKUP_TIMER=1` (refuse to deploy when `${SERVICE}-backup.timer` is not enabled
+test gate below; the Node check still runs), `REQUIRE_BACKUP_TIMER=1` (refuse to deploy when `${SERVICE}-backup.timer` is not enabled
 on the server; otherwise that only warns). When `HEALTH_PORT` is not set the port is read
 from `ADDR` in the server's `.env` (default 8080).
 
@@ -166,10 +166,17 @@ What a deploy does, in order:
 1. Preflight (as `--check`). Every ssh and rsync call uses `BatchMode=yes`, so it fails
    instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
    from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
-2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips it):
-   `go vet ./...` and `go test -short ./...` in `web/api`, then `pnpm test` and `pnpm typecheck` in `web/`.
-   The first failure stops the deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
-   major version in `.nvmrc` (`web/.nvmrc` if present) differs from `node -v`.
+2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips the tests only, not the Node check):
+   first `pnpm install --frozen-lockfile` in `web/` (so the tests and the build never run against stale
+   `node_modules`; skipped only when both `SKIP_TESTS=1` and `SKIP_WEB_BUILD=1`; a failure stops the deploy
+   with nothing changed). Then
+   `go vet ./...` and `go test -short ./...` in `web/api` (run without the caller's `GOOS`/`GOARCH`, so test
+   binaries run on this machine; the release build below keeps its own target), then `pnpm test` and `pnpm typecheck` in `web/`.
+   The first failure stops the deploy. The Go tests run without `-race` on purpose: the gate has to stay fast
+   enough to run on every deploy. The full tier with `-race` is `make test` and CI; run it before you deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
+   major version in `.nvmrc` (`web/.nvmrc` if present) differs from the major of `node -v`. `v24`, `24`, `24.1.0` and
+   `v24.18.0` all mean 24. A value that is not a number (for example `lts/*`) prints "cannot compare .nvmrc value ..."
+   and skips the check instead of failing.
 3. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
    commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
    uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is

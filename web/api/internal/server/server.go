@@ -41,15 +41,26 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	if deps.Auth != nil {
+		// Public routes, registered explicitly. /api/me answers 401 itself when signed out. The paths
+		// are method-less on purpose so a wrong method keeps getting the handler's own 405.
+		// The list must match publicRoutes in tests/guardrails_test.go.
 		api := auth.Middleware(deps.Auth)(auth.Handlers(deps.Auth))
 		for _, p := range []string{"/api/login", "/api/logout", "/api/me"} {
 			mux.Handle(p, api)
 		}
-	}
-	if deps.Auth != nil && deps.DB != nil && deps.Storage != nil {
-		h := auth.Middleware(deps.Auth)(auth.Require(notes.Handlers(notes.NewStore(deps.DB), deps.Storage)))
-		mux.Handle("/api/notes", h)
-		mux.Handle("/api/notes/", h)
+		// Default-deny: every other /api/ path, existing or not, is behind auth.Require. A new API
+		// route is mounted inside `private` and is therefore private; signed out it is a 401 before
+		// any 404, signed in an unknown path is a 404.
+		private := http.NewServeMux()
+		private.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		})
+		if deps.DB != nil && deps.Storage != nil {
+			h := notes.Handlers(notes.NewStore(deps.DB), deps.Storage)
+			private.Handle("/api/notes", h)
+			private.Handle("/api/notes/", h)
+		}
+		mux.Handle("/api/", auth.Middleware(deps.Auth)(auth.Require(private)))
 	}
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())
@@ -57,9 +68,11 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	return Wrap(cfg, deps.Logger, mux)
 }
 
-// Wrap puts the middleware chain documented on New around h. New uses it for the
-// application mux; tests use it to put a handler that panics inside the real chain.
-func Wrap(cfg config.Config, logger *slog.Logger, mux http.Handler) http.Handler {
+// Wrap puts the middleware chain documented on New around h. It is exported only because
+// the integration tests live in a separate package (web/api/tests): it exists for New and
+// for those tests, which put a handler that panics inside the real chain. Production code
+// goes through New.
+func Wrap(cfg config.Config, logger *slog.Logger, h http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -69,7 +82,6 @@ func Wrap(cfg config.Config, logger *slog.Logger, mux http.Handler) http.Handler
 	if err != nil {
 		proxy, _ = TrustedProxy("")
 	}
-	var h http.Handler = mux
 	h = BodyLimit(maxBodyBytes)(h)
 	h = SameOrigin(cfg.PublicOrigin)(h)
 	h = SecurityHeaders()(h)

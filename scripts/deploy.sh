@@ -49,14 +49,22 @@
 #   GOOS, GOARCH      default linux and amd64
 #   SKIP_WEB_BUILD=1  do not run `pnpm build` (the embedded app must already exist); also
 #                     skips the Node version check
-#   SKIP_TESTS=1      skip the test gate. Otherwise, after the preflight and before anything
+#   SKIP_TESTS=1      skip the test gate only (the Node check below still runs). Otherwise, after the preflight and before anything
 #                     changes on the server (not in --check), deploy runs `go vet ./...` and
 #                     `go test -short ./...` in web/api and `pnpm test` and `pnpm typecheck`
-#                     in web/, and stops on the first failure
-#   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (else .nvmrc)
-#                     must equal `node -v`, or the deploy stops early
+#                     in web/, and stops on the first failure. The Go tests run WITHOUT -race on
+#                     purpose: the gate must stay quick enough to run on every deploy; the full
+#                     tier with -race is `make test` and CI
+#   Dependencies      unless both SKIP_TESTS=1 and SKIP_WEB_BUILD=1, `pnpm install --frozen-lockfile`
+#                     runs in web/ before the gate and the build (not in --check); a failure
+#                     stops the deploy with nothing changed
+#   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (else .nvmrc;
+#                     v24, 24, 24.1.0 and v24.18.0 all mean 24) must equal `node -v`'s major, or
+#                     the deploy stops early. A non-numeric value such as lts/* prints "cannot
+#                     compare" and skips the check. SKIP_TESTS does not skip it
 #   REQUIRE_BACKUP_TIMER=1  refuse to deploy (nothing changed) when `${SERVICE}-backup.timer`
-#                     is not enabled on the server; without it that only prints a warning.
+#                     is not enabled on the server, or when that cannot be determined (ssh or
+#                     user-bus failure); without it either case only prints a warning.
 #                     The preflight, and so --check, checks the timer either way
 #   EMBED_INDEX       the built app's index.html, default web/api/internal/web/app/index.html
 #   KEEP_OLD          releases kept besides the active and previous one, default 3
@@ -186,11 +194,38 @@ preflight() {
   esac
 
   step "preflight: backup timer"
-  if ! rsh "systemctl --user is-enabled '$SERVICE-backup.timer'" >/dev/null 2>&1; then
+  # Three outcomes. Enabled: exit 0 AND the answer is enabled or enabled-runtime. Not enabled: exit 1 or
+  # 4 with a systemd state word (disabled, masked, static, not-found for a unit that was never installed,
+  # ...), older systemd's "Failed to get unit file state ...: No such file or directory" (exit 1, a missing
+  # unit), or exit 0 with a state word that is not enabled (static, indirect, generated: nothing starts
+  # the timer). Could not determine: ssh exit 255, a user-bus error or any other "Failed to ...", empty or
+  # unrecognized output, any other exit.
+  local tout trc tlast known tstate=""
+  tout="$(rsh "systemctl --user is-enabled '$SERVICE-backup.timer'" 2>&1)" && trc=0 || trc=$?
+  tlast="$(printf '%s\n' "$tout" | sed '/^[[:space:]]*$/d' | tail -n 1 | tr -d '[:space:]')"
+  # Explicit word list (no character ranges: they behave differently across locales and bash 3.2).
+  case "$tlast" in
+    enabled|enabled-runtime|static|indirect|generated|disabled|masked|masked-runtime|linked|linked-runtime|alias|transient|bad|not-found) known=1 ;;
+    *) known=0 ;;
+  esac
+  case "$trc:$tlast" in
+    0:enabled|0:enabled-runtime) trc=0 ;;
+    0:*) if [ "$known" -eq 1 ]; then tstate="$tlast"; trc=1; else trc=255; fi ;;
+    1:Failedtogetunitfilestate*Nosuchfileordirectory) tstate="not-found"; trc=1 ;;
+    1:*|4:*) if [ "$known" -eq 1 ] && [ "$tlast" != enabled ] && [ "$tlast" != enabled-runtime ]; then tstate="$tlast"; trc=1; else trc=255; fi ;;
+    *) trc=255 ;;
+  esac
+  [ -z "$tstate" ] || tstate=" (state: $tstate)"
+  if [ "$trc" -eq 1 ]; then
     if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
-      die "the daily backup timer '$SERVICE-backup.timer' is not enabled on the server (REQUIRE_BACKUP_TIMER=1). Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
+      die "the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate (REQUIRE_BACKUP_TIMER=1). Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
     fi
-    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled on the server, so no daily backups run. Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
+    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate, so no daily backups run. Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
+  elif [ "$trc" -ne 0 ]; then
+    if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
+      die "could not determine whether the backup timer is enabled (ssh or user bus failed) (REQUIRE_BACKUP_TIMER=1). Check the connection and 'systemctl --user status' on the server, then deploy again. Nothing was changed."
+    fi
+    echo "deploy: WARNING: could not determine whether the backup timer is enabled (ssh or user bus failed), so daily backups are unverified. Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
   fi
 }
 
@@ -305,19 +340,34 @@ if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
     if [ -f "$f" ]; then NVMRC="$f"; break; fi
   done
   if [ -n "$NVMRC" ]; then
-    want="$(tr -d 'v \r\n' < "$NVMRC")"; want="${want%%.*}"
-    have="$(node -v 2>/dev/null || true)"
-    got="${have#v}"; got="${got%%.*}"
-    [ -n "$got" ] || die "node is required to build the web app but 'node -v' printed nothing"
-    [ "$got" = "$want" ] || die "Node $want is required (${NVMRC#"$REPO_ROOT"/}) but node -v says ${have:-nothing}. Switch with: nvm use. Nothing was changed."
+    raw="$(tr -d ' \r\n' < "$NVMRC")"
+    want="${raw#v}"; want="${want%%.*}"
+    case "$want" in
+      ""|*[!0-9]*)
+        echo "deploy: cannot compare .nvmrc value '$raw' with the local Node; skipping the Node check" >&2 ;;
+      *)
+        have="$(node -v 2>/dev/null || true)"
+        got="${have#v}"; got="${got%%.*}"
+        [ -n "$got" ] || die "node is required to build the web app but 'node -v' printed nothing"
+        [ "$got" = "$want" ] || die "Node $want is required (${NVMRC#"$REPO_ROOT"/}) but node -v says ${have:-nothing}. Switch with: nvm use. Nothing was changed." ;;
+    esac
   fi
 fi
 
+# Dependencies: the gate and the build must run against node_modules that match pnpm-lock.yaml, not
+# whatever an earlier checkout left behind. Skipped only when neither the gate nor the build runs.
+if [ "${SKIP_TESTS:-0}" != 1 ] || [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
+  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to install the web dependencies (or set SKIP_TESTS=1 and SKIP_WEB_BUILD=1)"
+  step "installing web dependencies (pnpm install --frozen-lockfile)"
+  (cd "$REPO_ROOT/web" && pnpm install --frozen-lockfile) >&2 || die "pnpm install --frozen-lockfile failed (the lockfile and package.json disagree, or the registry is unreachable). Nothing was changed."
+fi
+
 if [ "${SKIP_TESTS:-0}" != 1 ]; then
-  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to run the web tests (or set SKIP_TESTS=1)"
-  step "test gate: go vet, go test -short, pnpm test, pnpm typecheck (SKIP_TESTS=1 skips)"
-  (cd "$REPO_ROOT/web/api" && go vet ./...) >&2 || die "go vet failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
-  (cd "$REPO_ROOT/web/api" && go test -short ./...) >&2 || die "go test failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
+  step "test gate: go vet, go test -short, pnpm test, pnpm typecheck (SKIP_TESTS=1 skips the tests)"
+  # The caller's GOOS/GOARCH (say, linux exported on a Mac) must not reach the gate: the test
+  # binaries have to run here. The release build below keeps its own target.
+  (cd "$REPO_ROOT/web/api" && env -u GOOS -u GOARCH go vet ./...) >&2 || die "go vet failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
+  (cd "$REPO_ROOT/web/api" && env -u GOOS -u GOARCH go test -short ./...) >&2 || die "go test failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
   (cd "$REPO_ROOT/web" && pnpm test) >&2 || die "pnpm test failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
   (cd "$REPO_ROOT/web" && pnpm typecheck) >&2 || die "pnpm typecheck failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
 fi
@@ -500,9 +550,18 @@ step "healthy: $VERSION is serving"
 
 if [ "$EXPECT_PUBLIC_LISTENER" -eq 1 ]; then
   public=0
+  sout="$(rsh "ss -H -ltn" 2>&1)" && src=0 || src=$?
+  if [ "$src" -ne 0 ]; then
+    if [ "$src" -eq 255 ]; then
+      echo "deploy: $VERSION is healthy on loopback, but could not run ss on the server to check the public listener (exit 255: the ssh connection failed, or an old ss without -H rejected the option). Check the connection and run: ss -ltn | grep :$HEALTH_PORT   The release was not rolled back." >&2
+    else
+      echo "deploy: $VERSION is healthy on loopback, but ss is not available on the server, so the public listener on port $HEALTH_PORT could not be checked (ss exit $src). Install ss (iproute2) or check by hand; the proxy needs a listener on 0.0.0.0:$HEALTH_PORT. The release was not rolled back." >&2
+    fi
+    exit 1
+  fi
   while read -r addr; do
     if listener_is_public "$addr"; then public=1; fi
-  done < <(rsh "ss -H -ltn" | awk '{print $4}' | grep ":$HEALTH_PORT\$" || true)
+  done < <(printf '%s\n' "$sout" | awk '{print $4}' | grep ":$HEALTH_PORT\$" || true)
   if [ "$public" -ne 1 ]; then
     echo "deploy: $VERSION is healthy on loopback but nothing listens on a public address on port $HEALTH_PORT, so the reverse proxy cannot reach it (it would answer 502). Set ADDR=0.0.0.0:$HEALTH_PORT in ~/$B/.env and restart $SERVICE. The release was not rolled back: the previous one has the same .env." >&2
     exit 1

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -519,9 +520,27 @@ func TestWrapPanicOrder(t *testing.T) {
 	if !requestIDPattern.MatchString(id) {
 		t.Fatalf("X-Request-Id = %q", id)
 	}
-	for _, want := range []string{`"msg":"request"`, `"status":500`, `"ip":"203.0.113.9"`, `"request_id":"` + id + `"`, `"msg":"panic"`} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("log lacks %s: %s", want, buf.String())
+	var reqRec, panicRec map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line is not JSON: %q: %v", line, err)
 		}
+		switch m["msg"] {
+		case "request":
+			reqRec = m
+		case "panic":
+			panicRec = m
+		}
+	}
+	if reqRec == nil || panicRec == nil {
+		t.Fatalf("want a request and a panic record, got: %s", buf.String())
+	}
+	// Each field is checked on the one record that must carry it.
+	if reqRec["status"] != float64(500) || reqRec["ip"] != "203.0.113.9" || reqRec["request_id"] != id {
+		t.Errorf("request record = %v, want status 500, ip 203.0.113.9, request_id %s", reqRec, id)
+	}
+	if panicRec["request_id"] != id {
+		t.Errorf("panic record = %v, want request_id %s", panicRec, id)
 	}
 }

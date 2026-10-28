@@ -48,8 +48,11 @@ MASTER_BACKUP="$(DATA_DIR="$ROOT/master-base" "$APP_BIN" backup --keep 3)" || { 
 
 PASSED=0
 FAILED=0
+SKIPPED=0
 CUR_FAIL=""
 
+# skip <reason>: mark the running test as skipped (counted, printed in the summary, not a failure).
+skip() { echo "    SKIPPED: $*" >&2; : > "$T/.skipped"; }
 fail() { echo "    $*" >&2; : > "$CUR_FAIL"; }
 assert_eq() { [ "$1" = "$2" ] || fail "$3: got '$1', want '$2'"; }
 assert_true() { local m="$1"; shift; "$@" >/dev/null 2>&1 || fail "$m: command failed: $*"; }
@@ -119,6 +122,8 @@ run_test() {
   ( cd "$T" && "$name" )
   if [ -e "$CUR_FAIL" ]; then
     echo "FAIL $name"; FAILED=$((FAILED + 1))
+  elif [ -e "$T/.skipped" ]; then
+    echo "SKIP $name"; SKIPPED=$((SKIPPED + 1))
   else
     echo "PASS $name"; PASSED=$((PASSED + 1))
   fi
@@ -589,6 +594,8 @@ while [ $# -gt 0 ]; do
 done
 host="$1"; shift
 [ -n "$host" ] || exit 255
+# FAKE_SSH_FAIL_END: a command ending in this text fails like a dropped connection (exit 255).
+if [ -n "${FAKE_SSH_FAIL_END:-}" ]; then case "$*" in *"$FAKE_SSH_FAIL_END") exit 255 ;; esac; fi
 cd "$FAKE_REMOTE_HOME" || exit 255
 HOME="$FAKE_REMOTE_HOME" PATH="$FAKE_RBIN:$PATH" exec sh -c "$*"
 EOS
@@ -608,13 +615,27 @@ EOS
 #!/bin/sh
 echo "systemctl $*" >> "$DCALLS"
 if [ -n "${FAKE_NO_UNIT:-}" ] && [ "$2" = cat ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
-if [ "$2" = is-active ]; then echo "${FAKE_SERVICE_ACTIVE:-active}"; [ "${FAKE_SERVICE_ACTIVE:-active}" = active ]; exit; fi
-if [ "$2" = is-enabled ]; then echo "${FAKE_TIMER_ENABLED:-enabled}"; [ "${FAKE_TIMER_ENABLED:-enabled}" = enabled ]; exit; fi
+# is-active answers for the unit in FAKE_EXPECT_UNIT (default app) only; any other unit is inactive.
+if [ "$2" = is-active ]; then
+  if [ "$3" != "${FAKE_EXPECT_UNIT:-app}" ]; then echo inactive; exit 3; fi
+  echo "${FAKE_SERVICE_ACTIVE:-active}"; [ "${FAKE_SERVICE_ACTIVE:-active}" = active ]; exit
+fi
+if [ "$2" = is-enabled ]; then
+  if [ -n "${FAKE_TIMER_BUS_ERROR:-}" ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
+  # FAKE_TIMER_EMPTY=1: exit 0 and print nothing. FAKE_TIMER_OLD_MISSING=1: older systemd's wording for
+  # a missing unit (stderr text, exit 1). Otherwise the state word is FAKE_TIMER_ENABLED.
+  if [ -n "${FAKE_TIMER_EMPTY:-}" ]; then exit 0; fi
+  if [ -n "${FAKE_TIMER_OLD_MISSING:-}" ]; then echo "Failed to get unit file state for $3: No such file or directory" >&2; exit 1; fi
+  echo "${FAKE_TIMER_ENABLED:-enabled}"
+  if [ -n "${FAKE_TIMER_RC:-}" ]; then exit "$FAKE_TIMER_RC"; fi
+  case "${FAKE_TIMER_ENABLED:-enabled}" in enabled|enabled-runtime|static|indirect|generated) exit 0 ;; not-found) exit 4 ;; *) exit 1 ;; esac
+fi
 EOS
   cat > "$T/rbin/ss" <<'EOS'
 #!/bin/sh
 # fake ss -H -ltn: one LISTEN line per local address in FAKE_SS_LISTEN (newline separated)
 echo "ss $*" >> "$DCALLS"
+if [ -n "${FAKE_SS_MISSING:-}" ]; then echo "sh: 1: ss: not found" >&2; exit 127; fi
 printf '%s\n' "${FAKE_SS_LISTEN:-}" | while IFS= read -r a; do
   [ -n "$a" ] || continue
   case " $* " in
@@ -644,7 +665,7 @@ echo "{\"status\":\"ok\",\"version\":\"$v\",\"commit\":\"abc\"}"
 EOS
   cat > "$T/lbin/go" <<'EOS'
 #!/bin/bash
-echo "go GOOS=${GOOS:-} GOARCH=${GOARCH:-} CGO_ENABLED=${CGO_ENABLED:-} $*" >> "$DCALLS"
+echo "go GOOS=${GOOS:-} GOARCH=${GOARCH:-} CGO_ENABLED=${CGO_ENABLED:-} PWD=$PWD $*" >> "$DCALLS"
 case "$1" in vet|test) [ "${FAKE_GO_FAIL:-}" = "$1" ] && { echo "fake go $1: injected failure" >&2; exit 1; }; exit 0 ;; esac
 out=""; ver=""
 while [ $# -gt 0 ]; do
@@ -676,7 +697,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_RC FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
 }
 
 # make_release <name> <schema> [active]
@@ -875,6 +896,68 @@ test_deploy_skips_the_test_gate_with_SKIP_TESTS() {
   assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
 }
 
+test_deploy_installs_frozen_dependencies_before_the_tests_and_the_build() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran frozen in web/" grep -q "^pnpm ARGS=install --frozen-lockfile PWD=.*/web$" "$DCALLS"
+  local i t c b
+  i="$(grep -n '^pnpm ARGS=install' "$DCALLS" | head -1 | cut -d: -f1)"
+  t="$(grep -n '^pnpm ARGS=test' "$DCALLS" | head -1 | cut -d: -f1)"
+  c="$(grep -n '^pnpm ARGS=typecheck' "$DCALLS" | head -1 | cut -d: -f1)"
+  b="$(grep -n '^pnpm ARGS=build' "$DCALLS" | head -1 | cut -d: -f1)"
+  assert_true "install before pnpm test" test "${i:-99}" -lt "${t:-0}"
+  assert_true "install before typecheck" test "${i:-99}" -lt "${c:-0}"
+  assert_true "install before pnpm build" test "${i:-99}" -lt "${b:-0}"
+  assert_eq "$(grep -c '^pnpm ARGS=install' "$DCALLS")" "1" "installed once"
+}
+
+test_deploy_stops_before_anything_changes_when_the_install_fails() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 FAKE_PNPM_FAIL=install deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "pnpm install --frozen-lockfile failed" "names the step"
+  assert_contains "$(cat "$T/err")" "Nothing was changed" "says nothing changed"
+  assert_false "no pnpm test" grep -q "^pnpm ARGS=test" "$DCALLS"
+  assert_false "no pnpm build" grep -q "^pnpm ARGS=build" "$DCALLS"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+  assert_false "no lock taken" grep -q "deploy.lock" "$DCALLS"
+}
+
+test_deploy_still_installs_for_the_build_when_only_the_tests_are_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=1 SKIP_WEB_BUILD=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran" grep -q "^pnpm ARGS=install --frozen-lockfile" "$DCALLS"
+  assert_true "build ran" grep -q "^pnpm ARGS=build" "$DCALLS"
+  assert_false "no tests" grep -q "^pnpm ARGS=test" "$DCALLS"
+}
+
+test_deploy_still_installs_for_the_tests_when_only_the_build_is_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran" grep -q "^pnpm ARGS=install --frozen-lockfile" "$DCALLS"
+  assert_true "tests ran" grep -q "^pnpm ARGS=test" "$DCALLS"
+  assert_false "no build" grep -q "^pnpm ARGS=build" "$DCALLS"
+}
+
+test_deploy_does_not_install_when_both_the_tests_and_the_build_are_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=1 SKIP_WEB_BUILD=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_false "no pnpm at all" grep -q "^pnpm" "$DCALLS"
+}
+
+test_deploy_check_does_not_install() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 deploy deploy@host.example.com --check
+  assert_eq "$?" "0" "exit status"
+  assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
+}
+
 test_deploy_check_does_not_run_the_test_gate() {
   setup_deploy; make_release v1 0001_init.sql active
   SKIP_TESTS=0 deploy deploy@host.example.com --check
@@ -919,20 +1002,63 @@ test_deploy_stops_when_pnpm_typecheck_fails() {
   gate_fails_and_changes_nothing "$?" "pnpm typecheck"
 }
 
+# The major the script reads from the real .nvmrc (web/.nvmrc, else the root one).
+real_nvmrc_major() {
+  local f="$REPO_ROOT/web/.nvmrc"
+  [ -f "$f" ] || f="$REPO_ROOT/.nvmrc"
+  tr -d 'v \r\n' < "$f" | cut -d. -f1
+}
+
+# deploy_with_nvmrc <.nvmrc content> [deploy args]: run a copy of the scripts in a throwaway repo
+# whose root .nvmrc holds the given text (REPO_ROOT is derived from the script's location).
+deploy_with_nvmrc() {
+  local v="$1"; shift
+  mkdir -p "$T/repo/scripts" "$T/repo/web/api"
+  cp "$SCRIPT_DIR/deploy.sh" "$SCRIPT_DIR/smoke.sh" "$SCRIPT_DIR/restore.sh" "$SCRIPT_DIR/build-id.sh" "$T/repo/scripts/"
+  printf '%s\n' "$v" > "$T/repo/.nvmrc"
+  VERSION=v2 bash "$T/repo/scripts/deploy.sh" "$@" >"$T/out" 2>"$T/err"
+}
+
 test_deploy_fails_early_when_node_major_differs_from_nvmrc() {
   setup_deploy; make_release v1 0001_init.sql active
-  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=20 deploy deploy@host.example.com
+  local want other; want="$(real_nvmrc_major)"; other=$((want + 1))
+  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=$other deploy deploy@host.example.com
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_contains "$(cat "$T/err")" "Node 24" "names the wanted major"
-  assert_contains "$(cat "$T/err")" "v20" "names the running version"
+  assert_contains "$(cat "$T/err")" "Node $want" "names the wanted major"
+  assert_contains "$(cat "$T/err")" "v$other" "names the running version"
   assert_false "no pnpm build" grep -q "^pnpm" "$DCALLS"
   assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
 }
 
 test_deploy_accepts_a_matching_node_major() {
   setup_deploy; make_release v1 0001_init.sql active
-  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=24 deploy deploy@host.example.com
+  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR="$(real_nvmrc_major)" deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
   assert_false "no node complaint" grep -q "Node" "$T/err"
+}
+
+test_deploy_compares_only_the_major_for_each_nvmrc_form() {
+  local form
+  for form in "v24" "24" "24.1.0" "v24.18.0"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=24 deploy_with_nvmrc "$form" deploy@host.example.com
+    assert_eq "$?" "0" "'$form' matches node 24"
+    assert_false "no node complaint for '$form'" grep -q "Node" "$T/err"
+    rm -rf "$T/home/app/releases/v2"; ln -sfn releases/v1 "$T/home/app/current"
+    SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=20 deploy_with_nvmrc "$form" deploy@host.example.com
+    assert_false "'$form' rejects node 20" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "Node 24" "names the major for '$form'"
+  done
+}
+
+test_deploy_skips_the_node_check_for_a_non_numeric_nvmrc() {
+  local form
+  for form in 'lts/*' 'node' '>=24'; do
+    setup_deploy; make_release v1 0001_init.sql active
+    SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=20 deploy_with_nvmrc "$form" deploy@host.example.com
+    assert_eq "$?" "0" "'$form' does not fail the deploy"
+    assert_contains "$(cat "$T/err")" "cannot compare .nvmrc value '$form' with the local Node; skipping the Node check" "explains the skip for '$form'"
+  done
 }
 
 test_deploy_skips_the_node_check_when_the_web_build_is_skipped() {
@@ -980,6 +1106,156 @@ test_deploy_uses_SERVICE_for_the_timer_name() {
   setup_deploy; make_release v1 0001_init.sql active
   SERVICE=other REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com --check
   assert_contains "$(cat "$T/err")" "other-backup.timer" "names the unit"
+}
+
+test_deploy_refuses_when_the_backup_timer_state_cannot_be_determined_and_REQUIRE_BACKUP_TIMER() {
+  local how
+  for how in ssh bus; do
+    setup_deploy; make_release v1 0001_init.sql active
+    if [ "$how" = ssh ]; then export FAKE_SSH_FAIL_END="app-backup.timer'"; else export FAKE_TIMER_BUS_ERROR=1; fi
+    REQUIRE_BACKUP_TIMER=1 deploy deploy@host.example.com
+    assert_false "exit status must be nonzero ($how)" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "could not determine whether the backup timer is enabled (ssh or user bus failed)" "message ($how)"
+    assert_false "does not claim the timer is disabled ($how)" grep -q "is not enabled" "$T/err"
+    assert_eq "$(active_release)" "releases/v1" "current unchanged ($how)"
+    assert_false "no rsync ($how)" grep -q "^rsync" "$DCALLS"
+    unset FAKE_SSH_FAIL_END FAKE_TIMER_BUS_ERROR
+  done
+}
+
+test_deploy_warns_when_the_backup_timer_state_cannot_be_determined() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_TIMER_BUS_ERROR=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/err")" "could not determine whether the backup timer is enabled (ssh or user bus failed)" "warning"
+  assert_false "does not claim the timer is disabled" grep -q "is not enabled" "$T/err"
+  assert_eq "$(active_release)" "releases/v2" "deployed"
+}
+
+test_deploy_treats_every_normal_systemd_answer_as_not_enabled() {
+  local ans
+  for ans in "not-found" "disabled"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$ans deploy deploy@host.example.com
+    assert_false "refused for $ans" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "is not enabled" "message for $ans"
+    assert_contains "$(cat "$T/err")" "enable --now app-backup.timer" "install hint for $ans"
+    assert_false "not 'could not determine' for $ans" grep -q "could not determine" "$T/err"
+    setup_deploy; make_release v1 0001_init.sql active
+    FAKE_TIMER_ENABLED=$ans deploy deploy@host.example.com
+    assert_eq "$?" "0" "warns only, for $ans"
+    assert_contains "$(cat "$T/err")" "is not enabled" "warning for $ans"
+  done
+}
+
+test_deploy_warns_and_continues_when_ssh_fails_on_the_timer_check() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SSH_FAIL_END="app-backup.timer'" deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status (warn only without REQUIRE_BACKUP_TIMER)"
+  assert_contains "$(cat "$T/err")" "could not determine whether the backup timer is enabled" "warning"
+  assert_eq "$(active_release)" "releases/v2" "deployed"
+}
+
+test_deploy_only_enabled_states_on_exit_0_count_as_enabled() {
+  local st
+  for st in enabled enabled-runtime; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$st deploy deploy@host.example.com
+    assert_eq "$?" "0" "$st is enabled"
+    assert_false "no warning for $st" grep -q "backup.timer" "$T/err"
+  done
+  for st in static indirect generated; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$st deploy deploy@host.example.com
+    assert_false "$st (exit 0) is not enabled" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "is not enabled" "message for $st"
+    assert_contains "$(cat "$T/err")" "state: $st" "names the state for $st"
+    assert_contains "$(cat "$T/err")" "enable --now app-backup.timer" "install hint for $st"
+  done
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_EMPTY=1 deploy deploy@host.example.com
+  assert_false "empty output on exit 0 refuses" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "could not determine" "empty output is undetermined"
+  assert_false "not called 'not enabled'" grep -q "is not enabled" "$T/err"
+}
+
+test_deploy_an_unrecognized_state_word_is_could_not_determine() {
+  local rc
+  for rc in 0 1 4; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=foo FAKE_TIMER_RC=$rc deploy deploy@host.example.com
+    assert_false "exit $rc with an unknown word refuses" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "could not determine" "unknown word on exit $rc"
+    assert_false "not called 'not enabled' (exit $rc)" grep -q "is not enabled" "$T/err"
+  done
+}
+
+test_deploy_older_systemd_missing_unit_wording_is_not_enabled() {
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_OLD_MISSING=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "is not enabled" "not installed counts as not enabled"
+  assert_contains "$(cat "$T/err")" "enable --now app-backup.timer" "install hint"
+  assert_false "not 'could not determine'" grep -q "could not determine" "$T/err"
+}
+
+test_deploy_says_not_enabled_only_for_a_real_disabled_answer() {
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "is not enabled" "says not enabled"
+  assert_false "not 'could not determine'" grep -q "could not determine" "$T/err"
+}
+
+test_deploy_gate_runs_in_web_api_without_the_callers_GOOS_and_GOARCH() {
+  setup_deploy; make_release v1 0001_init.sql active
+  GOOS=linux GOARCH=amd64 SKIP_TESTS=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  local vet test_line build
+  vet="$(grep '^go .* vet ' "$DCALLS")"; test_line="$(grep '^go .* test ' "$DCALLS")"; build="$(grep '^go .* build ' "$DCALLS")"
+  assert_contains "$vet" "GOOS= GOARCH= " "go vet runs without GOOS and GOARCH"
+  assert_contains "$test_line" "GOOS= GOARCH= " "go test runs without GOOS and GOARCH"
+  assert_contains "$vet" "/web/api vet" "go vet runs in web/api"
+  assert_contains "$test_line" "/web/api test" "go test runs in web/api"
+  assert_contains "$build" "GOOS=linux GOARCH=amd64" "the release build keeps its own target"
+}
+
+test_deploy_honors_SERVICE_in_the_port_owner_check() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SERVICE=other FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 deploy deploy@host.example.com
+  assert_false "an unexpected unit is inactive, so the port is refused" test "$?" -eq 0
+  assert_true "asked about the unit" grep -q "^systemctl --user is-active other" "$DCALLS"
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_EXPECT_UNIT=other SERVICE=other FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "the expected unit is active"
+  assert_true "asked about the unit" grep -q "^systemctl --user is-active other" "$DCALLS"
+}
+
+test_deploy_says_ss_is_unavailable_after_start_when_ss_is_missing() {
+  setup_deploy; make_release v1 0001_init.sql active
+  EXPECT_PUBLIC_LISTENER=1 FAKE_SS_MISSING=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "ss is not available on the server, so the public listener on port 8080 could not be checked" "message"
+  assert_false "does not claim the port is closed" grep -q "nothing listens" "$T/err"
+}
+
+test_deploy_reports_an_ssh_failure_in_the_post_start_listener_check() {
+  setup_deploy; make_release v1 0001_init.sql active
+  EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SSH_FAIL_END="ss -H -ltn" deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "could not run ss on the server to check the public listener (exit 255: the ssh connection failed" "message"
+  assert_false "does not claim the port is closed" grep -q "nothing listens" "$T/err"
+}
+
+test_deploy_health_port_comes_from_localhost_and_ipv6_loopback_addr_forms() {
+  local addr
+  for addr in "localhost:9191" "[::1]:9191"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    printf 'APP_ENV=production\nADDR=%s\n' "$addr" > "$T/home/app/.env"
+    deploy deploy@host.example.com
+    assert_eq "$?" "0" "exit status for $addr"
+    assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "http://127.0.0.1:9191/healthz" "port from $addr"
+  done
 }
 
 test_deploy_ignores_the_listener_checks_by_default() {
@@ -1776,10 +2052,23 @@ agent_env() {
   cat > "$T/launchctl" <<'EOS'
 #!/bin/sh
 echo "$*" >> "$LC_CALLS"
+# FAKE_BOOT_POLLS=N: after a bootout the job still counts as loaded for N `list` polls (bootout is
+# asynchronous on a real Mac). FAKE_BOOTSTRAP_FAILS=N: the first N bootstraps fail with an I/O error.
 case "$1" in
-  bootstrap) : > "$LC_STATE" ;;
-  bootout) [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
-  list) [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
+  bootstrap)
+    n="$(cat "$LC_STATE.bs" 2>/dev/null || echo 0)"
+    if [ "$n" -lt "${FAKE_BOOTSTRAP_FAILS:-0}" ]; then
+      echo $((n + 1)) > "$LC_STATE.bs"
+      echo "Bootstrap failed: 5: Input/output error" >&2; exit 5
+    fi
+    : > "$LC_STATE" ;;
+  bootout)
+    echo "${FAKE_BOOT_POLLS:-0}" > "$LC_STATE.polls"
+    [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
+  list)
+    p="$(cat "$LC_STATE.polls" 2>/dev/null || echo 0)"
+    if [ "$p" -gt 0 ]; then echo $((p - 1)) > "$LC_STATE.polls"; exit 0; fi
+    [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
 esac
 EOS
   chmod +x "$T/launchctl"
@@ -1814,9 +2103,36 @@ test_agent_install_is_idempotent() {
   assert_eq "$?" "0" "second run exit status"
   assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "1" "exactly one plist"
   assert_eq "$(grep -c '^bootstrap' "$LC_CALLS")" "2" "bootstrapped twice"
-  # the second bootstrap is preceded by a bootout (the first run found nothing loaded)
-  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '3p' | cut -d' ' -f1)" "bootout" "old agent booted out before the second bootstrap"
-  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '4p' | cut -d' ' -f1)" "bootstrap" "then bootstrap"
+  # Asserted on content, not on call indexes: the last bootstrap comes after the last bootout.
+  local last_out last_bs
+  last_out="$(grep -n '^bootout ' "$LC_CALLS" | tail -1 | cut -d: -f1)"
+  last_bs="$(grep -n '^bootstrap ' "$LC_CALLS" | tail -1 | cut -d: -f1)"
+  assert_true "old agent booted out" test -n "$last_out"
+  assert_true "the second bootstrap follows a bootout" test "${last_bs:-0}" -gt "${last_out:-99999}"
+  assert_contains "$(cat "$LC_CALLS")" "bootout gui/$(id -u)/com.app.backup-pull" "bootout names the job"
+}
+
+test_agent_reinstall_waits_for_bootout_and_retries_an_io_error() {
+  agent_env
+  agent
+  : > "$LC_CALLS"
+  FAKE_BOOT_POLLS=2 FAKE_BOOTSTRAP_FAILS=1 agent
+  assert_eq "$?" "0" "exit status: $(cat "$T/err")"
+  assert_eq "$(grep -c '^bootstrap ' "$LC_CALLS")" "2" "bootstrap retried once"
+  # two polls that still see the job, one that sees it gone, all before the first bootstrap, plus the final verify
+  local first_bs polls_before
+  first_bs="$(grep -n '^bootstrap ' "$LC_CALLS" | head -1 | cut -d: -f1)"
+  polls_before="$(head -n "$first_bs" "$LC_CALLS" | grep -c '^list ')"
+  assert_true "polled until the job was gone ($polls_before polls)" test "$polls_before" -ge 3
+  assert_true "agent is loaded at the end" test -e "$LC_STATE"
+}
+
+test_agent_install_gives_up_after_three_bootstrap_io_errors() {
+  agent_env
+  FAKE_BOOTSTRAP_FAILS=3 agent
+  assert_eq "$?" "1" "exit status"
+  assert_eq "$(grep -c '^bootstrap ' "$LC_CALLS")" "3" "three attempts"
+  assert_contains "$(cat "$T/err")" "launchctl bootstrap failed" "message"
 }
 
 test_agent_install_fails_without_REMOTE_or_REMOTE_DIR() {
@@ -1847,10 +2163,50 @@ test_agent_uninstall_removes_plist_and_boots_out() {
   agent
   agent --uninstall
   assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "removed" "says removed"
   assert_false "plist removed" test -e "$(AGENT_PLIST)"
   assert_false "agent unloaded" test -e "$LC_STATE"
   agent --uninstall
   assert_eq "$?" "0" "uninstall twice is fine"
+  assert_contains "$(cat "$T/out")" "nothing installed" "second uninstall says so"
+  assert_false "no false removed claim" grep -q "removed" "$T/out"
+}
+
+test_agent_uninstall_with_nothing_installed_says_so() {
+  agent_env
+  agent --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "nothing installed" "message"
+  assert_false "no removed claim" grep -q "removed" "$T/out"
+}
+
+test_agent_dry_run_install_changes_nothing() {
+  agent_env
+  agent --dry-run
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "would write $(AGENT_PLIST)" "names the plist"
+  assert_contains "$(cat "$T/out")" "would load" "says it would load"
+  assert_false "no plist" test -e "$(AGENT_PLIST)"
+  assert_false "no log dir" test -e "$T/home/Library/Logs"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+  printf 'REMOTE=x\n' > "$ENV_FILE"
+  agent --dry-run
+  assert_eq "$?" "2" "dry run still validates the settings"
+}
+
+test_agent_dry_run_uninstall_changes_nothing() {
+  agent_env
+  agent
+  : > "$LC_CALLS"
+  agent --dry-run --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "would unload and remove" "message"
+  assert_true "plist kept" test -f "$(AGENT_PLIST)"
+  assert_true "still loaded" test -e "$LC_STATE"
+  assert_false "no bootout" grep -q '^bootout' "$LC_CALLS"
+  agent --uninstall
+  agent --uninstall --dry-run
+  assert_contains "$(cat "$T/out")" "nothing installed" "dry run with nothing installed"
 }
 
 test_agent_passes_a_MIRROR_DIR_with_a_space_intact() {
@@ -1888,7 +2244,7 @@ test_agent_install_rejects_an_env_file_that_does_not_source_cleanly() {
 }
 
 test_agent_plist_is_valid() {
-  command -v plutil >/dev/null 2>&1 || { echo "    (plutil missing, skipped)"; return; }
+  command -v plutil >/dev/null 2>&1 || { skip "plutil is not installed"; return; }
   agent_env
   printf 'MIRROR_DIR="/tmp/a & <b> y"\n' >> "$ENV_FILE"
   agent
@@ -2014,18 +2370,44 @@ for t in \
   test_agent_install_fails_without_REMOTE_or_REMOTE_DIR \
   test_agent_install_verifies_with_launchctl_list \
   test_agent_uninstall_removes_plist_and_boots_out \
+  test_agent_reinstall_waits_for_bootout_and_retries_an_io_error \
+  test_agent_install_gives_up_after_three_bootstrap_io_errors \
+  test_agent_uninstall_with_nothing_installed_says_so \
+  test_agent_dry_run_install_changes_nothing \
+  test_agent_dry_run_uninstall_changes_nothing \
   test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
   test_agent_plist_is_valid \
   test_agent_install_rejects_an_env_file_that_does_not_source_cleanly \
   test_deploy_runs_the_test_gate_before_anything_changes \
   test_deploy_skips_the_test_gate_with_SKIP_TESTS \
   test_deploy_check_does_not_run_the_test_gate \
+  test_deploy_installs_frozen_dependencies_before_the_tests_and_the_build \
+  test_deploy_stops_before_anything_changes_when_the_install_fails \
+  test_deploy_still_installs_for_the_build_when_only_the_tests_are_skipped \
+  test_deploy_still_installs_for_the_tests_when_only_the_build_is_skipped \
+  test_deploy_does_not_install_when_both_the_tests_and_the_build_are_skipped \
+  test_deploy_check_does_not_install \
   test_deploy_stops_when_go_vet_fails \
   test_deploy_stops_when_go_tests_fail \
   test_deploy_stops_when_pnpm_tests_fail \
   test_deploy_stops_when_pnpm_typecheck_fails \
   test_deploy_fails_early_when_node_major_differs_from_nvmrc \
   test_deploy_accepts_a_matching_node_major \
+  test_deploy_compares_only_the_major_for_each_nvmrc_form \
+  test_deploy_skips_the_node_check_for_a_non_numeric_nvmrc \
+  test_deploy_refuses_when_the_backup_timer_state_cannot_be_determined_and_REQUIRE_BACKUP_TIMER \
+  test_deploy_warns_when_the_backup_timer_state_cannot_be_determined \
+  test_deploy_says_not_enabled_only_for_a_real_disabled_answer \
+  test_deploy_treats_every_normal_systemd_answer_as_not_enabled \
+  test_deploy_warns_and_continues_when_ssh_fails_on_the_timer_check \
+  test_deploy_only_enabled_states_on_exit_0_count_as_enabled \
+  test_deploy_older_systemd_missing_unit_wording_is_not_enabled \
+  test_deploy_an_unrecognized_state_word_is_could_not_determine \
+  test_deploy_gate_runs_in_web_api_without_the_callers_GOOS_and_GOARCH \
+  test_deploy_honors_SERVICE_in_the_port_owner_check \
+  test_deploy_says_ss_is_unavailable_after_start_when_ss_is_missing \
+  test_deploy_reports_an_ssh_failure_in_the_post_start_listener_check \
+  test_deploy_health_port_comes_from_localhost_and_ipv6_loopback_addr_forms \
   test_deploy_skips_the_node_check_when_the_web_build_is_skipped \
   test_deploy_warns_but_continues_when_the_backup_timer_is_not_enabled \
   test_deploy_is_quiet_when_the_backup_timer_is_enabled \
@@ -2038,4 +2420,5 @@ do
 done
 
 echo "$PASSED passed, $FAILED failed"
+echo "SKIPPED: $SKIPPED"
 [ "$FAILED" -eq 0 ]

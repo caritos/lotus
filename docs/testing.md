@@ -64,6 +64,11 @@ Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/t
   directories, never real servers. `ONLY='test_deploy_*' bash scripts/deploy.test.sh` runs a subset of the
   deploy, restore, pull and smoke tests (add new test names to the list at the bottom of the file).
 
+`scripts/rename.test.sh` renames a copy of the repo, builds and tests it, and also runs the layout guard's
+self-tests in that copy, so it is slow (about a minute); run it before merging, not on every edit. The
+`deploy.test.sh` runner prints `SKIPPED: n` in its summary for tests that skipped themselves (for example the
+plist lint when `plutil` is missing); a skip is counted, never silent, and does not fail the run.
+
 Write the failing test first, watch it fail for the right reason, then implement.
 
 ## Tests that pin cross-cutting behavior
@@ -90,6 +95,22 @@ Write the failing test first, watch it fail for the right reason, then implement
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
+- `internal/db` `migrate_test.go`: a checksum is over the exact bytes; every `*.sql` must be named
+  `NNNN_description.sql` (`^[0-9]{4}_[a-z0-9_]+\.sql$`) and two files may not share a version (the error names
+  the file and nothing is applied); gaps in the numbering are fine; several goroutines upgrading a
+  database from before the checksum column all succeed and record each checksum once (run under `-race`).
+  A recorded migration whose file is gone from the binary is not verified (a rolled-back binary keeps working).
+  `.gitattributes` marks `*.sql` as `-text`, so autocrlf cannot change the bytes; `layout.test.sh` asserts it.
+- `scripts/deploy.test.sh` deploy gate: the backup timer has three outcomes (enabled; not enabled; could not
+  determine because ssh or the user bus failed, which refuses with `REQUIRE_BACKUP_TIMER=1` and otherwise
+  warns); the gate runs `go vet` and `go test -short` in `web/api` without the caller's `GOOS`/`GOARCH`; the
+  Node check compares majors for `v24`, `24`, `24.1.0` and `v24.18.0` and skips a non-numeric `.nvmrc` such as
+  `lts/*` with a message; after the restart a missing `ss` and an ssh failure are reported as such, not as a
+  closed port. The fakes record the unit name and working directory they are called with.
+- `scripts/deploy.test.sh` backup agent: reinstall waits for `bootout` to finish and retries `bootstrap` on an
+  I/O error (fake `launchctl`), `--uninstall` with nothing installed says "nothing installed", `--dry-run` changes
+  nothing; idempotence is asserted on call content, not call positions.
+
 ## Endpoint guard rails
 
 `web/api/tests/guardrails_test.go` keeps the API, its spec and its tests in step. It runs in the fast
@@ -104,6 +125,23 @@ which one is missing:
    may share a comment). An operation no test claims fails `TestEveryOperationHasAnIntegrationTest`,
    as does a `covers:` naming an operationId that no longer exists. Copy `notes_flow_test.go`.
 
+**Private by default.** `server.New` mounts every `/api/` path that is not explicitly public behind
+`auth.Require`, so a new route cannot be public by accident. `TestAPIIsPrivateByDefault` (integration tier) sends
+a signed-out request to every `/api/` route found in the spec AND registered in Go that is not in the one allowlist,
+`publicRoutes` in `guardrails_test.go` (login, logout, getMe and healthz today), and expects 401; an unknown
+`/api/zzz-not-a-route` is 401 signed out and 404 signed in. `TestPublicAllowlistMatchesTheSpec` keeps the allowlist
+and the spec in step: every public route is in the spec, carries `security: []` (getMe is the one listed route that
+stays secured in the spec, because it answers 401 itself), and no other operation has `security: []`. To make an
+endpoint public, add it to `publicRoutes` with a reason, register it explicitly in `server.New`, and mark it
+`security: []` in `openapi.yaml`. To check the guard, temporarily register an extra unwrapped
+`mux.HandleFunc("GET /api/x", ...)` in `server.New` and watch the test fail. A method-less mount such as
+`mux.HandleFunc("/api/admin", ...)` is invisible to the spec-drift test and to the probe, so
+`TestServerMountsNothingPublicUnderAPI` scans the `"/api/..."` string literals of `internal/server/server.go` and
+fails on any that is not public, the `/api/` catch-all or on the `private` mux. The scan ignores comments (a trailing comment mentioning `private.` does not exempt a mount) and sees both
+`"..."` and backtick literals. Remaining limit: it reads literals in
+that one file; a path built by concatenation (`prefix+"/x"`), a route mounted through a variable, or one registered from another file escapes it (the probe still catches one that is
+in the spec or has a literal `"METHOD /path"` pattern).
+
 The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
 the module has no YAML library; a differently laid-out spec makes the guard fail loudly, not pass.
 
@@ -115,7 +153,31 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   the e2e output directories are ignored at any depth, no tracked file is ignored, and no tracked file names
   an old location: the old e2e directory, a deploy script addressed through `deploy/`
   (by path, glob, `cd`, `bash`, `./` or `../`), or a bare script name on a line that mentions `deploy/` without
-  `scripts/`.
+  `scripts/`. `.gitattributes` must mark `*.sql` as `-text`. The `deploy/` self-tests (an extra and a missing
+  file) require the failure to come from the `deploy/` check itself, not from any other check.
+  **Host mode:** when the wrapper's marker file exists at the root (an external wrapper writes it when it turns the
+  starter into an app; its fixed name is the wrapper's contract, NOT the project name, and is the `MARKER`
+  constant in `scripts/layout.test.sh`, built from two pieces so `scripts/rename.sh` cannot rewrite it) the app may live inside a host repo with its own `ios/` and root `CLAUDE.md`. The guard then
+  skips only the starter-only checks (the `ios/` placeholder and the starter's own root `CLAUDE.md` headings) and exempts the
+  `### Done` section of EACH of root `CLAUDE.md` and `web/CLAUDE.md` that has one (the host's own log and the starter's
+  moved log, which the wrapper puts at `web/CLAUDE.md` when the host already has a root one; a section runs to the
+  next `## ` or `### ` heading or the end of the file). The rest of both files is current-state text and stays checked.
+  If the marker exists in the starter itself (the name in `web/api/cmd/` is the shipped one AND `README.md` line 1
+  is the shipped title, both kept in `STARTER_NAME`/`STARTER_TITLE` built from two pieces), the guard fails loudly:
+  the marker is for apps created from the starter (a CRLF README title counts too). A renamed app has another name
+  in `web/api/cmd/`, so it is accepted even if its README still carries the starter title.
+  The self-tests that build host fixtures from the starter's own layout run in the starter only; in an app created
+  from it (marker present) they print `SKIPPED: starter-only self-tests (host mode)` and the summary ends with a
+  `SKIPPED: n` total. The starter instead builds a host-shaped app in a throwaway copy (renamed to `hostapp`, no
+  `ios/README.md`, a host root `CLAUDE.md` with its own log, the starter's log at `web/CLAUDE.md`, tracked marker) and runs
+  the FULL guard in it: it must pass, and the same app with a stale path outside the Done sections must fail.
+  In host mode the stale-path scan skips the host-owned trees `ios/` and `android/` (the usage comments in a `new-ios-app` host's
+  `ios/App/` scripts look like the old layout); the starter itself still scans `ios/`, and a stale path in `web/` or
+  `scripts/` of a host-shaped app still fails (the self-test fixture carries excerpts of the real iOS templates).
+  Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
+  stays on. Without the marker the starter itself is fully guarded. The self-tests build a host layout in a
+  throwaway copy: it passes with the marker, still fails without it (naming the `ios/` and `CLAUDE.md`
+  problems), and a stale path in `web/CLAUDE.md` outside the Done section still fails.
   `docs/superpowers/` (historical specs) and the dated entries under `### Done` in `CLAUDE.md` (history,
   between the `### Done` and `### Not yet verified` headings) are exempt; the rest of `CLAUDE.md` is
   current-state text and is checked. The test also proves the guard works: it injects each stale pattern into

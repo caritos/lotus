@@ -62,8 +62,10 @@ If the full suite is slow, run it in the background and wait for the result.
   `archived_at`. One owner of the connection (`internal/db`).
 - Migrations are numbered `.sql` files embedded in the binary, applied in order inside a
   transaction. Never edit a released migration; add a new one (expand, then contract). The runner
-  enforces this: it records each file's sha256 in `schema_migrations.checksum` and refuses to run
-  (naming the file, applying nothing further) when an applied file's bytes change.
+  enforces this: it records each file's sha256 in `schema_migrations.checksum` (over the exact bytes, so
+  whitespace and line endings count; `.gitattributes` keeps `*.sql` as `-text`) and refuses to run (naming the
+  file, applying nothing further) when an applied file's bytes change. Files must be named
+  `NNNN_description.sql` (`^[0-9]{4}_[a-z0-9_]+\.sql$`) with unique `NNNN`; gaps are fine.
 - Never persist absolute file paths; store names relative to `DATA_DIR/storage`.
 - Configuration is environment variables only. `.env.example` is the server template
   (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make dev` sets its
@@ -73,8 +75,9 @@ If the full suite is slow, run it in the background and wait for the result.
   `deploy.sh` also refuses a port already held by another service, and with `EXPECT_PUBLIC_LISTENER=1`
   a loopback `ADDR` or a missing public listener (`ss`); see `docs/deploy.md`.
   `deploy.sh` runs a test gate (`go vet`, `go test -short`, `pnpm test`, `pnpm typecheck`) and a Node-major
-  check against `.nvmrc` before anything changes (`SKIP_TESTS=1` skips it), and warns when
-  `${SERVICE}-backup.timer` is not enabled on the server (`REQUIRE_BACKUP_TIMER=1` refuses).
+  check against `.nvmrc` before anything changes (`SKIP_TESTS=1` skips only the tests, not the Node check), and
+  warns when `${SERVICE}-backup.timer` is not enabled, or its state cannot be determined, on the server
+  (`REQUIRE_BACKUP_TIMER=1` refuses both).
   Secrets never go in the repo.
 - Embed everything static with `go:embed` so a release is one binary plus the server `.env`: migrations,
   the React build, public pages, CSS, fonts (subfolders of `static/` are served at `/static/<path>`), icons,
@@ -86,6 +89,13 @@ If the full suite is slow, run it in the background and wait for the result.
 - A new endpoint needs three things, enforced by `web/api/tests/guardrails_test.go` (details in
   `docs/testing.md`): a literal `"METHOD /path"` route pattern, an `operationId` in `openapi.yaml`, and an
   integration test marked `// covers: <operationId>` (copy `notes_flow_test.go`).
+- A new endpoint is private by default: `server.New` mounts everything under `/api/` behind `auth.Middleware` +
+  `auth.Require`, so mount new routes inside that private mux (not directly on the top-level mux) and a signed-out
+  request gets 401 (an unknown `/api/` path is 401 signed out, 404 signed in). A public endpoint must be added to
+  the one allowlist, `publicRoutes` in `web/api/tests/guardrails_test.go`, WITH a reason, registered explicitly in
+  `server.New`, and marked `security: []` in `openapi.yaml`; `TestAPIIsPrivateByDefault` and
+  `TestPublicAllowlistMatchesTheSpec` fail otherwise.
+- Money is stored as integer cents (no floats); the example schema has no money column.
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
   run `make api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
@@ -155,6 +165,20 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Follow-ups batch (2026-10-27): `deploy.sh` separates timer enabled / not enabled / could not determine, runs
+  its test gate without the caller's `GOOS`/`GOARCH`, skips the Node check for a non-numeric `.nvmrc` and
+  compares majors only, and reports a missing `ss` or an ssh failure after the restart as such; the deploy
+  fakes now record unit names, working directories and can inject ssh failures. `install-backup-agent.sh`
+  waits for `bootout`, retries `bootstrap`, says "nothing installed" and has `--dry-run`; `deploy.test.sh`
+  prints `SKIPPED: n`. Migrations: file-name and duplicate-version validation, byte-exact checksum documented,
+  `.gitattributes` `*.sql -text`, concurrent legacy upgrade test. Panic log record pinned (stack names the
+  function, fields on the right records); `Wrap` documented. Layout guard self-tests prove the `deploy/` check
+  fired. Real launchd load is still not verified on a Mac.
+- Follow-ups part 2 (2026-10-27): `/api/` is default-deny (public login, logout and me registered explicitly,
+  everything else behind `auth.Require`; guard tests and the single `publicRoutes` allowlist); `deploy.sh` runs
+  `pnpm install --frozen-lockfile` before the gate and the build (gate's `go test -short` stays without `-race`);
+  `scripts/layout.test.sh` has a host mode keyed on the wrapper's marker file (its name is the wrapper's contract, not the project name; starter-only checks skipped, log found in
+  `CLAUDE.md` or `web/CLAUDE.md`); money-in-cents convention.
 - Panic recovery and request id: `RequestID` and `Recover` middleware (order above); a panicking request
   is now a JSON 500, request-logged with its id, and the server keeps serving. `server.Wrap` exposes the chain
   so tests can put a panicking handler inside it.
@@ -164,7 +188,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - `deploy.sh`: port-owner check (always) and optional `EXPECT_PUBLIC_LISTENER=1` public-listener checks,
   with shell tests using a fake `ss`.
 - `deploy.sh`: test gate before the lock, build and upload (`go vet`, `go test -short` in `web/api`, `pnpm test`,
-  `pnpm typecheck` in `web/`; `SKIP_TESTS=1` skips it; not run by `--check`), Node major checked against `.nvmrc`
+  `pnpm typecheck` in `web/`; `SKIP_TESTS=1` skips the tests only; not run by `--check`), Node major checked against `.nvmrc`
   unless `SKIP_WEB_BUILD=1`, and a preflight on `${SERVICE}-backup.timer` (warning, or refusal with
   `REQUIRE_BACKUP_TIMER=1`; also in `--check`). Shell tests use fake `go`, `pnpm`, `node` and `systemctl`.
 - `scripts/install-backup-agent.sh`: launchd agent for the Mac backup pull (daily 03:30, settings in

@@ -75,20 +75,7 @@ func TestNotesFlowWithPhoto(t *testing.T) {
 	}
 }
 
-func TestUnauthenticatedAPIRefused(t *testing.T) {
-	integration(t)
-	a := apptest.NewServer(t)
-	const id = "00000000-0000-4000-8000-000000000000"
-	for _, rt := range []struct{ method, path string }{
-		{"GET", "/api/notes"}, {"POST", "/api/notes"},
-		{"GET", "/api/notes/" + id}, {"PATCH", "/api/notes/" + id}, {"DELETE", "/api/notes/" + id},
-		{"PUT", "/api/notes/" + id + "/photo"}, {"GET", "/api/notes/" + id + "/photo"}, {"DELETE", "/api/notes/" + id + "/photo"},
-	} {
-		if st, _, _ := req(t, a.Client, rt.method, a.URL+rt.path, nil, nil); st != http.StatusUnauthorized {
-			t.Errorf("%s %s = %d, want 401", rt.method, rt.path, st)
-		}
-	}
-}
+// (The signed-out 401 for every notes route is covered by TestAPIIsPrivateByDefault in guardrails_test.go.)
 
 // covers: getNote, updateNote
 func TestNoteGetAndUpdate(t *testing.T) {

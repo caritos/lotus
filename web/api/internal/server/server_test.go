@@ -153,9 +153,13 @@ func TestNotesRoutesMountedOnlyWithAllDeps(t *testing.T) {
 	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("authed list = %d %q", rec.Code, rec.Body)
 	}
-	// Without Storage the routes are not mounted: falls through to the web handler.
+	// Without Storage the notes routes are not mounted, but /api/ is still default-deny:
+	// signed out is a 401, signed in a JSON 404.
 	h2 := New(config.Config{}, Deps{DB: d, Auth: svc})
-	if rec := get(h2, "/api/notes", nil); rec.Code == http.StatusUnauthorized || rec.Code == http.StatusOK {
-		t.Errorf("unmounted /api/notes = %d", rec.Code)
+	if rec := get(h2, "/api/notes", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unmounted /api/notes signed out = %d, want 401", rec.Code)
+	}
+	if rec := get(h2, "/api/notes", &http.Cookie{Name: "app_session", Value: tok}); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("unmounted /api/notes signed in = %d %q, want a JSON 404", rec.Code, rec.Body)
 	}
 }

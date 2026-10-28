@@ -100,13 +100,15 @@ or `launchctl list`), and look at `DEST` now and then.
 mkdir -p ~/.config/app
 cp scripts/backup-pull.env.example ~/.config/app/backup-pull.env   # set REMOTE and REMOTE_DIR, others optional
 scripts/install-backup-agent.sh               # install or replace the agent; verifies it with launchctl list
-scripts/install-backup-agent.sh --uninstall   # unload and remove it
+scripts/install-backup-agent.sh --uninstall   # unload and remove it ("nothing installed" if there is nothing)
+scripts/install-backup-agent.sh --dry-run     # print what would be written and loaded; change nothing (also with --uninstall)
 ```
 
 - `REMOTE` and `REMOTE_DIR` are required (exit 2 and nothing written if either is missing). `DEST`, `KEEP`,
   `SSH_KEY`, `STALE_DAYS` and `MIRROR_DIR` are optional and behave as in `pull-backups.sh`. The agent sources the
   file when it runs, so edits apply without reinstalling, and values with spaces must be quoted.
-- Re-running the installer replaces the agent (it boots the old one out first); it never leaves two.
+- Re-running the installer replaces the agent (it boots the old one out first, waits until launchd reports it gone, and retries `bootstrap` up to 3 times on a transient
+  "Input/output error"); it never leaves two.
 - Output goes to `~/Library/Logs/app/backup-pull.log`. A Mac that is asleep at 03:30 runs the job on wake.
 - Check it with `launchctl list com.app.backup-pull` and the log. A failed pull or a stale copy raises a
   notification (see the exit table above).
