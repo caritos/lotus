@@ -1922,7 +1922,8 @@ test_smoke_fails_on_a_real_redirect_to_another_host() {
   stop_smoke_server
   assert_false "exit nonzero" test "$rc" -eq 0
   assert_contains "$(cat "$T/err")" "301" "observed redirect status"
-  assert_false "did not follow to the other host" grep -q "000" "$T/err"
+  # curl failure is reported as "000 (...)"; a bare "000" can also sit inside the random port number
+  assert_false "did not follow to the other host" grep -Eq '(^|[^0-9])000 \(' "$T/err"
 }
 
 test_smoke_compares_the_version_exactly_not_as_a_pattern() {
