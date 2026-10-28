@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook for Edit|Write|MultiEdit. Reads the hook JSON on stdin and checks what was edited:
 #   web/api/**/*.go          -> go vet + go test -short for that package (run from web/api)
-#   web/src/** web/e2e/**    -> pnpm exec tsc --noEmit (run from web/)
+#   web/src/** web/test/**   -> pnpm exec tsc --noEmit (run from web/)
 # Everything else (generated files, docs, lockfiles, the embed dir) is ignored.
 # Success prints nothing and exits 0. Failure prints the last 40 lines to stderr and exits 2.
 set -u
@@ -61,7 +61,7 @@ case "$rel" in
     $TO go test -short "$pkg" >"$out" 2>&1 || fail "go test -short $pkg"
     ;;
   web/src/api/schema.d.ts) exit 0 ;;
-  web/src/*|web/e2e/*)
+  web/src/*|web/test/*)
     case "$rel" in *.ts|*.tsx) ;; *) exit 0 ;; esac
     if ! command -v pnpm >/dev/null 2>&1; then
       echo "post-edit hook: pnpm not on PATH, skipping tsc for $rel (use Node 24 with corepack)" >&2

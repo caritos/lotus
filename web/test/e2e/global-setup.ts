@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { TEST_EMAIL, TEST_PASSWORD } from "./support";
 
-const webDir = path.resolve(import.meta.dirname, "..");
+const webDir = path.resolve(import.meta.dirname, "..", "..");
 const apiDir = path.join(webDir, "api");
 const repoDir = path.resolve(webDir, "..");
 

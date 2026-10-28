@@ -53,7 +53,7 @@ test-api:
 
 # Playwright against the built binary (not part of test/test-fast; needs `make e2e-install` once).
 e2e:
-	cd web && pnpm exec playwright test -c e2e/playwright.config.ts
+	cd web && pnpm exec playwright test -c test/e2e/playwright.config.ts
 
 e2e-install:
 	cd web && pnpm exec playwright install chromium

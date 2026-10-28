@@ -10,7 +10,7 @@
     "dev": "vite",
     "prebuild": "node scripts/clean-app.mjs",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/e2e/tsconfig.json",
     "test": "vitest run",
     "preview": "vite preview"
   },

@@ -131,6 +131,6 @@ jobs:
         with:
           name: playwright
           path: |
-            web/e2e/test-results
-            web/e2e/playwright-report
+            web/test/e2e/test-results
+            web/test/e2e/playwright-report
           if-no-files-found: ignore

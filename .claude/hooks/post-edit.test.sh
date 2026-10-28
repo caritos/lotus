@@ -7,9 +7,9 @@ ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
 
 PROJ="$ROOT/proj"
-mkdir -p "$PROJ/web/api/internal/notes" "$PROJ/web/src/api" "$PROJ/docs" "$ROOT/bin"
+mkdir -p "$PROJ/web/api/internal/notes" "$PROJ/web/test/e2e" "$PROJ/web/src/api" "$PROJ/docs" "$ROOT/bin"
 touch "$PROJ/web/api/internal/notes/store.go" "$PROJ/web/api/internal/notes/x.gen.go" \
-  "$PROJ/web/src/App.tsx" "$PROJ/web/src/api/schema.d.ts" "$PROJ/docs/a.md"
+  "$PROJ/web/src/App.tsx" "$PROJ/web/test/e2e/a.spec.ts" "$PROJ/web/src/api/schema.d.ts" "$PROJ/docs/a.md"
 
 LOG="$ROOT/calls.log"
 cat > "$ROOT/bin/go" <<EOS
@@ -52,6 +52,9 @@ run_hook "$PROJ/docs/a.md"
 
 run_hook "$PROJ/web/src/App.tsx"
 if [ $RC -eq 0 ] && echo "$CALLS" | grep -q "pnpm .*/web exec tsc --noEmit"; then ok "web/src edit runs tsc"; else bad "tsc: rc=$RC calls=[$CALLS]"; fi
+
+run_hook "$PROJ/web/test/e2e/a.spec.ts"
+if [ $RC -eq 0 ] && echo "$CALLS" | grep -q "pnpm .*/web exec tsc --noEmit"; then ok "web/test edit runs tsc"; else bad "web/test tsc: rc=$RC calls=[$CALLS]"; fi
 
 run_hook "$PROJ/web/src/api/schema.d.ts"
 [ $RC -eq 0 ] && [ -z "$CALLS" ] && ok "schema.d.ts edit runs nothing" || bad "schema.d.ts: rc=$RC calls=[$CALLS]"
