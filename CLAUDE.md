@@ -159,6 +159,11 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   `.gitattributes` `*.sql -text`, concurrent legacy upgrade test. Panic log record pinned (stack names the
   function, fields on the right records); `Wrap` documented. Layout guard self-tests prove the `deploy/` check
   fired. Real launchd load is still not verified on a Mac.
+- Follow-ups part 2 (2026-10-27): `/api/` is default-deny (public login, logout and me registered explicitly,
+  everything else behind `auth.Require`; guard tests and the single `publicRoutes` allowlist); `deploy.sh` runs
+  `pnpm install --frozen-lockfile` before the gate and the build (gate's `go test -short` stays without `-race`);
+  `scripts/layout.test.sh` has a host mode keyed on `.goweb-origin` (starter-only checks skipped, log found in
+  `CLAUDE.md` or `web/CLAUDE.md`); money-in-cents convention.
 - Panic recovery and request id: `RequestID` and `Recover` middleware (order above); a panicking request
   is now a JSON 500, request-logged with its id, and the server keeps serving. `server.Wrap` exposes the chain
   so tests can put a panicking handler inside it.
