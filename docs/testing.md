@@ -106,7 +106,7 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
 
 - `scripts/layout.test.sh`: `deploy/` holds no `*.sh` (only files installed on a server), the deploy, smoke,
   restore and pull-backups scripts and `deploy.test.sh` are in `scripts/`, every test script ends in
-  `.test.sh`, Playwright is in `web/test/e2e/` (and `web/e2e` is gone), and no tracked file outside
+  `.test.sh`, Playwright is in `web/test/e2e/` (the old location is gone), and no tracked file outside
   `docs/superpowers/` names an old path.
 
 ## Build id
