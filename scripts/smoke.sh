@@ -18,7 +18,7 @@
 #
 # Environment:
 #   APP_NAME   name that the home page's <title> or first <h1> must contain as a whole word,
-#              default app (set it to your project name)
+#              default app (the display name; scripts/rename.sh sets the project name there)
 #   CSS_FILE   local stylesheet to compare, default <repo>/web/api/internal/web/static/style.css
 #              (the check is skipped with a note when the file is absent)
 #   CURL       curl binary, default curl
@@ -64,8 +64,13 @@ snippet() { head -c 200 "$TMP/body" | tr '\n' ' '; }
 # in the page's <title> or in its first <h1>. A match inside another word (application, mapp), in
 # a link or in body text does not count. Sets PAGE_TITLE and PAGE_H1 for the failure message.
 # (Explicit character classes: \b is not portable in grep -E.)
+# Removes every <!-- ... --> (shortest match, so "--" inside a comment is fine; an unterminated
+# comment drops the rest, as browsers do) from the one-line input.
+STRIP_COMMENTS='{ s = $0; out = ""; while ((i = index(s, "<!--")) > 0) { out = out substr(s, 1, i - 1); s = substr(s, i + 4); j = index(s, "-->"); if (j == 0) { s = ""; break } s = substr(s, j + 3) } print out s }'
+# Known limits (documented, not fixed): an inline SVG <title> that comes before the page <title> is
+# taken as the title, and a name split by markup (for example app<b></b>) is not a whole word.
 heading_text() { # <html file> <tag, as a bracket-class pattern>: text of the first such tag, tags stripped
-  tr '\n\r' '  ' < "$1" | sed -E 's/<!--([^-]|-[^-])*-->//g' | grep -oE "<$2[[:space:]>].*" | head -n 1 |
+  tr '\n\r' '  ' < "$1" | awk "$STRIP_COMMENTS" | grep -oE "<$2[[:space:]>].*" | head -n 1 |
     sed -E "s#</$2>.*##; s#^<$2[^>]*>##; s#<[^>]*># #g"
 }
 name_in_heading() {

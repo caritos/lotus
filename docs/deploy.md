@@ -9,15 +9,16 @@ the server.
 
 Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `app`).
 
-**Warning: the default names are generic.** `~/app`, `app.service`, `app-backup.service`,
-`app-backup.timer` and the database `app.db` can clash with another app on a shared server (two
+**Warning: the default name is generic.** A fresh checkout is called `app`, so `~/<name>`,
+`<name>.service`, `<name>-backup.service`, `<name>-backup.timer` and the database `<name>.db` can
+clash with another app on a shared server while `web/api/cmd/` still holds `app` (two
 apps would share one directory, one `.env`, and so one port). The same holds on your Mac for the
 backup agent. For a real deployment run `scripts/rename.sh <module-path> <name>` before the first
 deploy: it renames the units, every path below, the `restore.sh` and `deploy.sh` defaults, the
 nginx example, the pull and agent names and the binary together. This is the supported route.
 Overriding single variables (`REMOTE_BASE`, `SERVICE`) is not: `restore.sh` has its own
 defaults (`DATA_DIR`, `SERVICE`, `APP_BIN`), the three unit files must be renamed as a set (the
-timer starts the backup service by name) with their `%h/app` paths edited, and a restore with the
+timer starts the backup service by name) with their `%h/<name>` paths edited, and a restore with the
 wrong defaults would stop the OTHER app's service. `restore.sh` prints the `DATA_DIR`, `SERVICE`
 and `APP_BIN` it resolved before it changes anything; read that line.
 

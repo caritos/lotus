@@ -124,13 +124,15 @@ reserved: names the repository itself uses as a directory or variable word (`web
 `scripts/rename.sh`). Prose that merely mentions the name is left alone: edit this README and the page copy
 yourself.
 
-**Rename before a real deployment.** The shipped names are generic: the server directory `~/app`,
-the units `app.service`, `app-backup.service` and `app-backup.timer`, the database `app.db`, and on
-your Mac the backup agent (`com.app.backup-pull`, `~/.config/app/`, `~/Library/Logs/app/`). On a shared
+**Rename before a real deployment.** A fresh checkout is called `app`, which is generic, and that name
+is used for the server directory `~/<name>`, the units `<name>.service`, `<name>-backup.service` and
+`<name>-backup.timer`, the database `<name>.db`, and on your Mac the backup agent (`com.<name>.backup-pull`,
+`~/.config/<name>/`, `~/Library/Logs/<name>/`). While `web/api/cmd/` still holds `app`, on a shared
 server or Mac they can clash with another app that uses the same names, and a documented restore
 could then stop and start the other app. Running `scripts/rename.sh` before the first deploy is the
 supported way to get distinctive names everywhere at once; overriding single variables is not (see
-[docs/deploy.md](docs/deploy.md)).
+[docs/deploy.md](docs/deploy.md)). `scripts/rename.sh --check <module-path> <name>` validates a rename (name
+rules, reserved words, and a check that renaming back would be exact) without changing anything.
 
 ## Layout
 

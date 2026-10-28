@@ -149,11 +149,13 @@ If the full suite is slow, run it in the background and wait for the result.
   from `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (module path,
   `cmd/<name>`, `dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
   and `<h1>`; the full list is in the header of the script). Prose is not rewritten; `scripts/rename.test.sh`
-  renames to another name and back and proves the generic uses are untouched.
-- The default server and Mac names (`~/app`, `app.service`, `app.db`, `com.app.backup-pull`) are generic and can
-  clash with another app: run `scripts/rename.sh` before a real deployment. That is the only supported route;
+  renames to several names and back (byte-identical) and shows the generic uses are untouched.
+- A fresh checkout is called `app`, which is generic: the server and Mac names built from it (`~/<name>`,
+  `<name>.service`, `<name>.db`, `com.<name>.backup-pull`) can clash with another app. Run `scripts/rename.sh` before a real deployment. That is the only supported route;
   overriding `REMOTE_BASE`/`SERVICE` alone leaves `restore.sh`, the unit files and the Mac agent generic.
-  `rename.sh` rejects reserved names (the `RESERVED` list: directory and variable words such as `web`, `data`).
+  `rename.sh` rejects a name that is reserved (directory and variable words such as `web`, `data`; the `RESERVED`
+  list is only a fast pre-filter) or that already occurs in the tree in a context it rewrites (checked at run
+  time: renaming back would not be exact); `rename.sh --check <module-path> <name>` runs these checks only.
 
 ## Node and pnpm
 

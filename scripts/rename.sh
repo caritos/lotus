@@ -12,9 +12,11 @@
 # directory under web/api/cmd/), so the script works for any starting name, including the generic
 # one the starter ships with. Because the shipped name is also an ordinary word (and a directory,
 # a package and a URL prefix), the script never replaces the bare word. It replaces the name only
-# in the contexts where it is the project name. That is only safe when the name is not itself a
-# word the repository uses as a directory or a variable target (web, api, data, scripts, ...):
-# such names are rejected (see RESERVED below), for the new name and for the current one.
+# in the contexts where it is the project name. A name is refused when it is a reserved word (a
+# directory or variable word of the repository, see RESERVED: a fast pre-filter only) or, decisive,
+# when the run-time check finds that the name already occurs in the tree in a context the rules
+# rewrite: renaming back would then not be exact. Every name the check accepts can be renamed away
+# from, and back, byte for byte (rename.test.sh proves this for several names).
 # The contexts:
 #
 #   - the Go module path (module line, imports, -X ldflags), as `<module>/internal|cmd|tests`

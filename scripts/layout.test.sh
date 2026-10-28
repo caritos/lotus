@@ -39,7 +39,10 @@ skip() { skipped=$((skipped+1)); echo "SKIPPED: $1"; }
 # the marker must not switch the starter-only checks off.
 if [ "$HOST" -eq 1 ] && [ "$NAME" = "$STARTER_NAME" ] && [ "$(head -n 1 README.md 2>/dev/null | tr -d '\r')" = "$STARTER_TITLE" ]; then
   bad "$MARKER present in the starter itself; host mode is only for apps created from it"
-  HOST=0
+  # Stop here: every later check (and every self-test copy, which inherits the marker) would only
+  # repeat this failure.
+  echo "layout.test.sh: $pass passed, $fail failed"; echo "SKIPPED: $skipped"
+  exit 1
 fi
 
 # deploy/ holds no shell scripts.
@@ -294,7 +297,7 @@ EOT
   make_app() { # [stale|stale-scripts|stale-web]: a committed host-shaped app in $WORK/c
     make_copy || return 1
     ( cd "$WORK/c" && git -c user.email=t@example.com -c user.name=t commit -qm base \
-      && { ! grep -q "^module $STARTER_NAME\$" web/api/go.mod || bash scripts/rename.sh layout.invalid/selftest/hostapp hostapp >/dev/null 2>&1; } \
+      && { ! grep -q "^module $STARTER_NAME\$" web/api/go.mod || bash scripts/rename.sh layout.invalid/selftest/host"app" host"app" >/dev/null 2>&1; } \
       && git rm -qf --ignore-unmatch ios/README.md && mkdir -p ios && echo "// host app" > ios/App.swift \
       && { [ -e web/CLAUDE.md ] || git mv CLAUDE.md web/CLAUDE.md; } \
       && printf '# Host\n\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' > CLAUDE.md \

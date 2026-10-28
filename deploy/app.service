@@ -1,4 +1,4 @@
-# systemd USER unit for app. Install as ~/.config/systemd/user/app.service, then:
+# systemd USER unit for this app. Install as ~/.config/systemd/user/app.service, then:
 #   systemctl --user daemon-reload && systemctl --user enable --now app
 # The user must have linger enabled (loginctl enable-linger), or the service stops
 # when the last SSH session ends.
@@ -18,7 +18,7 @@
 # shows status=226/NAMESPACE or similar, delete those lines and restart; the app
 # still runs, just with less isolation.
 [Unit]
-Description=app
+Description=app web service
 After=network.target
 
 [Service]

@@ -186,6 +186,10 @@ grep -q 'internal/web/app' "$R/.gitignore" && ok ".gitignore embed path untouche
 [ -x "$R/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 
+# The "generic name" warnings must not turn false: no line that calls things generic may name the new name.
+gen="$(cd "$R" && git grep -n -i 'generic' -- README.md CLAUDE.md docs ':!docs/superpowers' | grep -E "(^|[^A-Za-z0-9_])$NEW([^A-Za-z0-9_]|$)")"
+[ -z "$gen" ] && ok "no renamed doc still calls its own name generic" || bad "a doc calls the new name generic: $gen"
+
 # Renaming back must restore the starter byte for byte: the contexts are symmetric and nothing
 # else is touched. This also proves a rename from a non-generic name works.
 RT="$ROOT/roundtrip"; cp -R "$R" "$RT"
