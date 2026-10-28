@@ -129,8 +129,10 @@ If the full suite is slow, run it in the background and wait for the result.
   `cmd/<name>`, `dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
   and `<h1>`; the full list is in the header of the script). Prose is not rewritten; `scripts/rename.test.sh`
   renames to another name and back and proves the generic uses are untouched.
-- The default server names (`~/app`, `app.service`, `app.db`) are generic and can clash with another app on a
-  shared server: always rename (or set `REMOTE_BASE`/`SERVICE`) for a real deployment.
+- The default server and Mac names (`~/app`, `app.service`, `app.db`, `com.app.backup-pull`) are generic and can
+  clash with another app: run `scripts/rename.sh` before a real deployment. That is the only supported route;
+  overriding `REMOTE_BASE`/`SERVICE` alone leaves `restore.sh`, the unit files and the Mac agent generic.
+  `rename.sh` rejects reserved names (the `RESERVED` list: directory and variable words such as `web`, `data`).
 
 ## Node and pnpm
 

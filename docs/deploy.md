@@ -11,10 +11,19 @@ Everything is under the deploy user's home (the base directory is `REMOTE_BASE`,
 
 **Warning: the default names are generic.** `~/app`, `app.service`, `app-backup.service`,
 `app-backup.timer` and the database `app.db` can clash with another app on a shared server (two
-apps would share one directory, one unit name and one port). For a real deployment pick a
-distinctive name: run `scripts/rename.sh <module-path> <name>` before the first deploy (it renames
-the units and every path below), or keep the code as it is and override `REMOTE_BASE` and
-`SERVICE` for `scripts/deploy.sh` and edit the unit files to match (they hard-code `%h/app` and their own names).
+apps would share one directory, one `.env`, and so one port). The same holds on your Mac for the
+backup agent. For a real deployment run `scripts/rename.sh <module-path> <name>` before the first
+deploy: it renames the units, every path below, the `restore.sh` and `deploy.sh` defaults, the
+nginx example, the pull and agent names and the binary together. This is the supported route.
+Overriding single variables (`REMOTE_BASE`, `SERVICE`) is not: `restore.sh` has its own
+defaults (`DATA_DIR`, `SERVICE`, `APP_BIN`), the three unit files must be renamed as a set (the
+timer starts the backup service by name) with their `%h/app` paths edited, and a restore with the
+wrong defaults would stop the OTHER app's service. `restore.sh` prints the `DATA_DIR`, `SERVICE`
+and `APP_BIN` it resolved before it changes anything; read that line.
+
+Note on the smoke check: while the project name is still the generic `app`, the home page check
+(name as a whole word in `<title>` or the first `<h1>`) is weak, because any page titled "My App"
+passes. It becomes meaningful after a rename.
 
 Layout:
 

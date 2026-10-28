@@ -118,14 +118,18 @@ The shipped name `app` is also an ordinary word, a Go package (`internal/app`), 
 directory (`internal/web/app`), the `/app/` URL mount and the `APP_` environment prefix. The script
 therefore never replaces the bare word: it reads the current module path and name from
 `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (listed in
-the header of the script). Those other uses stay as they are, and renaming works the same from any
-later name. Prose that merely mentions the name is left alone: edit this README and the page copy
+the header of the script). Those other uses stay as they are. It works for any name that is not
+reserved: names the repository itself uses as a directory or variable word (`web`, `api`, `data`,
+`scripts`, `releases`, ...) are rejected with a clear error (the `RESERVED` list in
+`scripts/rename.sh`). Prose that merely mentions the name is left alone: edit this README and the page copy
 yourself.
 
-**Pick a distinctive name for a real deployment.** The defaults are generic: the server directory
-`~/app`, the units `app.service` and `app-backup.service`, and the database `app.db`. On a shared
-server they can clash with another app that uses the same names. Run the rename script before the
-first deploy, or override `REMOTE_BASE` and `SERVICE` for `scripts/deploy.sh` (see
+**Rename before a real deployment.** The shipped names are generic: the server directory `~/app`,
+the units `app.service`, `app-backup.service` and `app-backup.timer`, the database `app.db`, and on
+your Mac the backup agent (`com.app.backup-pull`, `~/.config/app/`, `~/Library/Logs/app/`). On a shared
+server or Mac they can clash with another app that uses the same names, and a documented restore
+could then stop and start the other app. Running `scripts/rename.sh` before the first deploy is the
+supported way to get distinctive names everywhere at once; overriding single variables is not (see
 [docs/deploy.md](docs/deploy.md)).
 
 ## Layout

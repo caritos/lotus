@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore a app backup set (as written by `app backup`), or rehearse it.
+# Restore a backup set (as written by `app backup`), or rehearse it.
 #
 #   restore.sh <backup-dir> [--drill]
 #
@@ -20,7 +20,7 @@
 #   DATA_DIR        default $HOME/app/data
 #   SERVICE         systemd unit name, default app
 #   SYSTEMCTL       default "systemctl --user"
-#   APP_BIN       must be the executable FILE. Default: $HOME/app/current/app if it
+#   APP_BIN         must be the executable FILE. Default: $HOME/app/current/app if it
 #                   exists, else `app` on PATH, else <script dir>/../dist/app
 #   PORT            default 8080 (used by the default HEALTH_URL)
 #   HEALTH_URL      default http://127.0.0.1:$PORT/healthz
@@ -208,6 +208,8 @@ if [ "$DRILL" -eq 1 ]; then
 fi
 
 # ---- real restore ----
+# One line so a wrong default (another app's directory or service) is visible before anything changes.
+echo "restore: DATA_DIR=$DATA_DIR SERVICE=$SERVICE APP_BIN=$APP_BIN" >&2
 case "$DATA_DIR" in
   /*) ;;
   *) die "DATA_DIR must be an absolute path: '$DATA_DIR'" ;;

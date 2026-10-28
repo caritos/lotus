@@ -40,6 +40,8 @@ case "${1:-}" in
   *) die 2 "usage: $0 [--uninstall]" ;;
 esac
 
+echo "install-backup-agent: label $LABEL, settings $ENV_FILE, log $LOG" >&2
+
 # Validate everything before writing anything.
 [ -f "$ENV_FILE" ] || die 2 "settings file $ENV_FILE not found; copy $HERE/backup-pull.env.example there and edit it"
 [ -f "$PULL_SCRIPT" ] || die 2 "$PULL_SCRIPT not found"
