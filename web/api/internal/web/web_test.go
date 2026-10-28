@@ -248,7 +248,7 @@ func TestDefaultHandlerAndAppBuilt(t *testing.T) {
 const testBuildID = "20261027-abc1234"
 
 var builtAppWithMeta = fstest.MapFS{
-	"index.html":        {Data: []byte(`<!doctype html><html><head><meta name="build-id" content="__BUILD_ID__" /></head><body><div id="root">SPA-INDEX</div></body></html>`)},
+	"index.html":        {Data: []byte(`<!doctype html><html><head><meta name="build-id" content="__BUILD_ID__" /></head><body><div id="root">SPA-INDEX</div><noscript>Build __BUILD_ID__</noscript></body></html>`)},
 	"assets/index-a.js": {Data: []byte(`const s = "__BUILD_ID__";`)},
 	"favicon.svg":       {Data: []byte(`<svg>__BUILD_ID__</svg>`)},
 }
@@ -337,9 +337,9 @@ func TestBuildIDIsHTMLEscaped(t *testing.T) {
 	}
 }
 
-func TestInjectBuildIDReplacesOnlyTheFirstPlaceholder(t *testing.T) {
+func TestInjectBuildIDReplacesEveryPlaceholderWithoutRescanning(t *testing.T) {
 	got := string(injectBuildID([]byte("a @@X@@ b @@X@@"), "@@X@@", "ID"))
-	if got != "a ID b @@X@@" {
+	if got != "a ID b ID" {
 		t.Errorf("got %q", got)
 	}
 	if got := string(injectBuildID([]byte("no placeholder"), "@@X@@", "ID")); got != "no placeholder" {
@@ -386,6 +386,9 @@ func TestAppIndexGetsTheBuildIDAndOtherFilesAreUntouched(t *testing.T) {
 		body := rec.Body.String()
 		if !strings.Contains(body, `<meta name="build-id" content="`+testBuildID+`" />`) {
 			t.Errorf("%s: meta not replaced: %q", p, body)
+		}
+		if !strings.Contains(body, "Build "+testBuildID) {
+			t.Errorf("%s: no visible %q for clients without JavaScript: %q", p, "Build "+testBuildID, body)
 		}
 		if strings.Contains(body, appPlaceholder) {
 			t.Errorf("%s: placeholder left", p)

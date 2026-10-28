@@ -79,11 +79,13 @@ type asset struct {
 // Handler serves the public site, /static/* and /app/* from the embedded files.
 func Handler() http.Handler { return NewHandler(appFS()) }
 
-// injectBuildID returns b with the first occurrence of placeholder replaced by id,
+// injectBuildID returns b with every occurrence of placeholder replaced by id,
 // HTML-escaped (the id comes from -ldflags, but it ends up inside markup). It is the only
-// templating in this package. The replacement is not re-scanned.
+// templating in this package and the replacement is not re-scanned. The page sources hold
+// the placeholder exactly once (a test enforces it); the app's index.html holds it twice
+// (the meta tag and the no-JavaScript fallback).
 func injectBuildID(b []byte, placeholder, id string) []byte {
-	return bytes.Replace(b, []byte(placeholder), []byte(html.EscapeString(id)), 1)
+	return bytes.Replace(b, []byte(placeholder), []byte(html.EscapeString(id)), -1)
 }
 
 // AppBuilt reports whether the embedded React build contains index.html.
