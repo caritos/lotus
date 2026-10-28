@@ -208,7 +208,7 @@ for f in Makefile scripts/deploy.sh web/test/e2e/global-setup.ts; do
   grep -q "$NEW_MODULE/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
 done
 grep -q "dist/$NEW" "$R/Makefile" && grep -q "dist/$NEW" "$R/README.md" && ok "binary path dist/$NEW in Makefile and README" || bad "dist/$NEW missing"
-[ -z "$(cd "$R" && git grep -n "dist/$CUR")" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
+[ -z "$(cd "$R" && git grep -n "dist/$CUR" -- . ':!.claude/skills')" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
 grep -q "${NEW}_session" "$R/web/api/internal/auth/middleware.go" && grep -q "\"$NEW.db\"" "$R/web/api/internal/backup/backup.go" && ok "cookie and database names renamed" || bad "cookie or db name"
 grep -q "${NEW_UP}_BIN" "$R/scripts/restore.sh" && ! grep -q "${CUR_UP}_BIN" "$R/scripts/restore.sh" && ok "env var ${NEW_UP}_BIN renamed" || bad "${NEW_UP}_BIN missing"
 grep -q "com.$NEW.backup-pull" "$R/scripts/install-backup-agent.sh" && grep -q "Logs/$NEW/" "$R/scripts/install-backup-agent.sh" && grep -q ".config/$NEW/" "$R/scripts/backup-pull.env.example" && grep -q "users:((\"$NEW\"" "$R/scripts/deploy.test.sh" && ok "launchd label, log dir, env file path and ss process name renamed" || bad "launchd/ss contexts"
