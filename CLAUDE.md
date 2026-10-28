@@ -68,6 +68,8 @@ If the full suite is slow, run it in the background and wait for the result.
   own environment. Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`;
   `PUBLIC_ORIGIN` is validated and normalized; development mode warns when it listens beyond loopback;
   `deploy.sh` refuses a server `.env` that is not `APP_ENV=production` (override: `ALLOW_DEV_DEPLOY=1`).
+  `deploy.sh` also refuses a port already held by another service, and with `EXPECT_PUBLIC_LISTENER=1`
+  a loopback `ADDR` or a missing public listener (`ss`); see `docs/deploy.md`.
   Secrets never go in the repo.
 - Embed everything static with `go:embed` so a release is one binary plus the server `.env`: migrations,
   the React build, public pages, CSS, fonts (subfolders of `static/` are served at `/static/<path>`), icons,
@@ -139,6 +141,12 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 ## Log
 
 ### Done (2026-10-27)
+
+- `deploy.sh`: port-owner check (always) and optional `EXPECT_PUBLIC_LISTENER=1` public-listener checks,
+  with shell tests using a fake `ss`.
+- `scripts/install-backup-agent.sh`: launchd agent for the Mac backup pull (daily 03:30, settings in
+  `~/.config/goweb/backup-pull.env` from `scripts/backup-pull.env.example`, `--uninstall`); shell tests use a fake
+  `launchctl`. Real launchd load: not yet verified on a Mac.
 
 - Go server: config, SQLite open and embedded migrations, `/healthz`, security middleware,
   trusted-proxy handling, request log with a rotating file logger.

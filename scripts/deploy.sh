@@ -51,6 +51,11 @@
 #   EMBED_INDEX       the built app's index.html, default web/api/internal/web/app/index.html
 #   KEEP_OLD          releases kept besides the active and previous one, default 3
 #   PUBLIC_URL        e.g. https://app.example.com; when set, smoke.sh runs at the end
+#   EXPECT_PUBLIC_LISTENER=1  for servers behind a reverse proxy that reaches the app on the
+#                     host's public address (a loopback-only listener then fails publicly
+#                     with a 502 while local checks pass): refuse a loopback ADDR in the
+#                     server's .env before anything changes, and after the restart require
+#                     a public listener (0.0.0.0, * or [::]) on the app port. Default 0.
 #   ALLOW_DEV_DEPLOY=1  deploy even though the server .env does not say APP_ENV=production
 #                     (prints a warning); without it such a deploy stops with nothing changed
 set -euo pipefail
@@ -232,6 +237,39 @@ if [ -z "$HEALTH_PORT" ]; then
   case "$HEALTH_PORT" in ""|*[!0-9]*) HEALTH_PORT=8080 ;; esac
 fi
 step "DATA_DIR on the server resolves to $DD; health port $HEALTH_PORT"
+
+EXPECT_PUBLIC_LISTENER="${EXPECT_PUBLIC_LISTENER:-0}"
+case "$EXPECT_PUBLIC_LISTENER" in 0|1) ;; *) die "EXPECT_PUBLIC_LISTENER must be 0 or 1" ;; esac
+
+# listener_is_public <local-address-field of ss -H -ltn>: 0.0.0.0:P, *:P and [::]:P are
+# public; 127.0.0.1:P, [::1]:P and anything else are not.
+listener_is_public() {
+  case "$1" in 0.0.0.0:*|\*:*|\[::\]:*) return 0 ;; *) return 1 ;; esac
+}
+
+# check_port_owner: refuse when something is already listening on the app port unless it
+# is our own service: the unit must be active AND `ss -p` must show a process for that
+# listener (ss -p lists only the caller's own processes, so a stranger's listener has no
+# users:(...) field). Remaining limit: another process of the same user on that port, or a
+# stranger's listener while our unit runs on a different port, cannot be told apart from
+# a stale view of ours; the hint in the message says how to look.
+check_port_owner() {
+  local out lines
+  out="$(rsh "ss -H -ltnp" 2>/dev/null)" || { echo "deploy: warning: ss is not available on the server, so the port $HEALTH_PORT owner check was skipped" >&2; return 0; }
+  lines="$(printf '%s\n' "$out" | awk -v p=":$HEALTH_PORT" 'substr($4, length($4)-length(p)+1) == p')"
+  [ -n "$lines" ] || return 0
+  if [ "$(rsh "systemctl --user is-active '$SERVICE'" 2>/dev/null || true)" = active ] && printf '%s\n' "$lines" | grep -q 'users:'; then
+    return 0
+  fi
+  die "port $HEALTH_PORT is already in use on the server and $SERVICE is not the active service listening on it. Find the owner with: ss -ltnp | grep :$HEALTH_PORT, or ps aux (on a shared host the owner may be another user, whose process ss -p does not show). Then pick a free port (ADDR in ~/$B/.env, or HEALTH_PORT) or stop the other listener. Nothing was changed."
+}
+check_port_owner
+
+if [ "$EXPECT_PUBLIC_LISTENER" -eq 1 ]; then
+  case "${ADDR_V%:*}" in
+    127.0.0.1|::1|\[::1\]|localhost) die "EXPECT_PUBLIC_LISTENER=1 but the server .env has ADDR=$ADDR_V, which listens on loopback only. Set ADDR=0.0.0.0:$HEALTH_PORT in ~/$B/.env. Nothing was changed." ;;
+  esac
+fi
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
   if [ "${SKIP_WEB_BUILD:-0}" = 1 ] && [ ! -f "$EMBED_INDEX" ]; then
@@ -416,6 +454,17 @@ if ! wait_healthy "$VERSION"; then
   exit 1
 fi
 step "healthy: $VERSION is serving"
+
+if [ "$EXPECT_PUBLIC_LISTENER" -eq 1 ]; then
+  public=0
+  while read -r addr; do
+    if listener_is_public "$addr"; then public=1; fi
+  done < <(rsh "ss -H -ltn" | awk '{print $4}' | grep ":$HEALTH_PORT\$" || true)
+  if [ "$public" -ne 1 ]; then
+    echo "deploy: $VERSION is healthy on loopback but nothing listens on a public address on port $HEALTH_PORT, so the reverse proxy cannot reach it (it would answer 502). Set ADDR=0.0.0.0:$HEALTH_PORT in ~/$B/.env and restart $SERVICE. The release was not rolled back: the previous one has the same .env." >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------- retention
 step "pruning old releases (keeping the active, the previous and $KEEP_OLD more)"

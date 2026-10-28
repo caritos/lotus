@@ -599,6 +599,21 @@ EOS
 #!/bin/sh
 echo "systemctl $*" >> "$DCALLS"
 if [ -n "${FAKE_NO_UNIT:-}" ] && [ "$2" = cat ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
+if [ "$2" = is-active ]; then echo "${FAKE_SERVICE_ACTIVE:-active}"; [ "${FAKE_SERVICE_ACTIVE:-active}" = active ]; exit; fi
+EOS
+  cat > "$T/rbin/ss" <<'EOS'
+#!/bin/sh
+# fake ss -H -ltn: one LISTEN line per local address in FAKE_SS_LISTEN (newline separated)
+echo "ss $*" >> "$DCALLS"
+printf '%s\n' "${FAKE_SS_LISTEN:-}" | while IFS= read -r a; do
+  [ -n "$a" ] || continue
+  case " $* " in
+    *" -H -ltnp "*) [ -n "${FAKE_SS_OWNED:-}" ] && u=' users:(("goweb",pid=1,fd=3))' || u="" ;;
+    *) u="" ;;
+  esac
+  echo "LISTEN 0      4096   $a   0.0.0.0:*$u"
+done
+exit 0
 EOS
   cat > "$T/rbin/loginctl" <<'EOS'
 #!/bin/sh
@@ -639,7 +654,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER
 }
 
 # make_release <name> <schema> [active]
@@ -759,6 +774,79 @@ test_deploy_check_changes_nothing() {
   assert_false "no go build" grep -q "^go " "$DCALLS"
   assert_false "no restart" grep -q "^systemctl --user restart" "$DCALLS"
   assert_contains "$(cat "$T/out")" "preflight OK" "stdout"
+}
+
+test_deploy_refuses_a_port_already_in_use_by_another_service() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=inactive deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "8080" "names the port"
+  assert_contains "$(cat "$T/err")" "ss -ltnp | grep :8080" "says how to find the owner"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+test_deploy_allows_the_port_when_our_own_service_is_active() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 FAKE_SERVICE_ACTIVE=active deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_eq "$(active_release)" "releases/v2" "switched"
+}
+
+test_deploy_refuses_an_active_unit_when_the_listener_has_no_process_info() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=active deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "8080" "names the port"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+test_deploy_refuses_an_inactive_unit_even_when_the_listener_has_process_info() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 FAKE_SERVICE_ACTIVE=inactive deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+}
+
+test_deploy_check_also_refuses_a_busy_port() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=inactive deploy deploy@host.example.com --check
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "8080" "names the port"
+}
+
+test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_env() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/goweb/.env"
+  EXPECT_PUBLIC_LISTENER=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "ADDR=0.0.0.0:8080" "names the fix"
+  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+test_deploy_ignores_the_listener_checks_by_default() {
+  setup_deploy; make_release v1 0001_init.sql active
+  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/goweb/.env"
+  FAKE_SS_LISTEN="127.0.0.1:8080" FAKE_SS_OWNED=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+}
+
+test_listener_forms_public_vs_loopback() {
+  local form
+  for form in "0.0.0.0:8080" "*:8080" "[::]:8080"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
+    assert_eq "$?" "0" "public form $form passes"
+  done
+  for form in "127.0.0.1:8080" "[::1]:8080"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
+    assert_false "loopback form $form fails" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "ADDR=0.0.0.0:" "names the fix for $form"
+  done
 }
 
 test_deploy_check_fails_when_linger_off() {
@@ -1507,6 +1595,134 @@ test_deploy_missing_unit_hint_mentions_the_user_bus() {
   assert_contains "$(cat "$T/err")" "systemctl --user status" "how to check the user manager"
 }
 
+# ------------------------------------------------------------ backup agent tests
+
+# agent_env: fake launchctl (stateful: bootstrap loads, bootout unloads, list checks), a fake
+# HOME-like LAUNCHAGENTS_DIR and an env file. Never touches the real launchd.
+agent_env() {
+  mkdir -p "$T/agents" "$T/home" "$T/bin"
+  cat > "$T/launchctl" <<'EOS'
+#!/bin/sh
+echo "$*" >> "$LC_CALLS"
+case "$1" in
+  bootstrap) : > "$LC_STATE" ;;
+  bootout) [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
+  list) [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
+esac
+EOS
+  chmod +x "$T/launchctl"
+  export LC_CALLS="$T/lc_calls" LC_STATE="$T/lc_state"
+  : > "$LC_CALLS"
+  export LAUNCHCTL="$T/launchctl" LAUNCHAGENTS_DIR="$T/agents" HOME="$T/home"
+  export ENV_FILE="$T/backup-pull.env"
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=goweb/data/backups\n' > "$ENV_FILE"
+}
+agent() { bash "$SCRIPT_DIR/install-backup-agent.sh" "$@" >"$T/out" 2>"$T/err"; }
+AGENT_PLIST() { echo "$T/agents/com.goweb.backup-pull.plist"; }
+
+test_agent_install_writes_a_plist_that_loads_the_env_file() {
+  agent_env
+  agent
+  assert_eq "$?" "0" "exit status"
+  local p; p="$(AGENT_PLIST)"
+  assert_true "plist written" test -f "$p"
+  local c; c="$(cat "$p")"
+  assert_contains "$c" "<string>com.goweb.backup-pull</string>" "label"
+  assert_contains "$c" "$ENV_FILE" "env file path in the command"
+  assert_contains "$c" "$SCRIPT_DIR/pull-backups.sh" "pull script path"
+  assert_contains "$c" "<key>Hour</key><integer>3</integer>" "hour"
+  assert_contains "$c" "<key>Minute</key><integer>30</integer>" "minute"
+  assert_contains "$c" "$T/home/Library/Logs/goweb/backup-pull.log" "log path"
+  assert_contains "$(cat "$LC_CALLS")" "bootstrap" "bootstrapped"
+}
+
+test_agent_install_is_idempotent() {
+  agent_env
+  agent; agent
+  assert_eq "$?" "0" "second run exit status"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "1" "exactly one plist"
+  assert_eq "$(grep -c '^bootstrap' "$LC_CALLS")" "2" "bootstrapped twice"
+  # the second bootstrap is preceded by a bootout (the first run found nothing loaded)
+  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '3p' | cut -d' ' -f1)" "bootout" "old agent booted out before the second bootstrap"
+  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '4p' | cut -d' ' -f1)" "bootstrap" "then bootstrap"
+}
+
+test_agent_install_fails_without_REMOTE_or_REMOTE_DIR() {
+  agent_env
+  printf 'REMOTE=deploy@host.example.com\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing REMOTE_DIR"
+  printf 'REMOTE_DIR=x\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing REMOTE"
+  rm -f "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing env file"
+  assert_contains "$(cat "$T/err")" "backup-pull.env.example" "points at the example file"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "0" "nothing written"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+}
+
+test_agent_install_verifies_with_launchctl_list() {
+  agent_env
+  FAKE_LIST_FAIL=1 agent
+  assert_eq "$?" "1" "exit status"
+  assert_contains "$(cat "$T/err")" "$T/home/Library/Logs/goweb/backup-pull.log" "message names the log path"
+}
+
+test_agent_uninstall_removes_plist_and_boots_out() {
+  agent_env
+  agent
+  agent --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_false "plist removed" test -e "$(AGENT_PLIST)"
+  assert_false "agent unloaded" test -e "$LC_STATE"
+  agent --uninstall
+  assert_eq "$?" "0" "uninstall twice is fine"
+}
+
+test_agent_passes_a_MIRROR_DIR_with_a_space_intact() {
+  agent_env
+  printf 'MIRROR_DIR="/tmp/x y"\n' >> "$ENV_FILE"
+  cat > "$T/fake-pull.sh" <<'EOS'
+#!/bin/sh
+printf '%s' "$MIRROR_DIR" > "$PULL_RECORD"
+EOS
+  chmod +x "$T/fake-pull.sh"
+  PULL_SCRIPT="$T/fake-pull.sh" agent
+  assert_eq "$?" "0" "install exit status"
+  # rebuild the plist's command line from its <string> entries and run it
+  local args=() line
+  while IFS= read -r line; do args+=("$line"); done < <(sed -n 's|^ *<string>\(.*\)</string>$|\1|p' "$(AGENT_PLIST)" | sed -n '2,7p')
+  assert_eq "${#args[@]}" "6" "six command-line entries"
+  assert_eq "${args[0]:-}" "/bin/bash" "runs through bash"
+  PULL_RECORD="$T/recorded" "${args[@]}" >/dev/null 2>&1
+  assert_eq "$(cat "$T/recorded" 2>/dev/null)" "/tmp/x y" "MIRROR_DIR reached the pull script intact"
+}
+
+test_agent_install_rejects_an_env_file_that_does_not_source_cleanly() {
+  agent_env
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=x\nMIRROR_DIR=/tmp/x y\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "unquoted value with a space"
+  assert_contains "$(cat "$T/err")" "$ENV_FILE" "names the file"
+  assert_contains "$(cat "$T/err")" "quoted" "says to quote values with spaces"
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=x\nif then fi (\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "plain syntax error"
+  assert_contains "$(cat "$T/err")" "$ENV_FILE" "names the file"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "0" "no plist written"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+}
+
+test_agent_plist_is_valid() {
+  command -v plutil >/dev/null 2>&1 || { echo "    (plutil missing, skipped)"; return; }
+  agent_env
+  printf 'MIRROR_DIR="/tmp/a & <b> y"\n' >> "$ENV_FILE"
+  agent
+  assert_true "plutil -lint" plutil -lint "$(AGENT_PLIST)"
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -1609,7 +1825,23 @@ for t in \
   test_smoke_fails_when_EXPECTED_BUILD_ID_is_not_in_the_app_html \
   test_smoke_compares_EXPECTED_BUILD_ID_literally \
   test_deploy_passes_the_build_id_to_the_build_and_to_smoke \
-  test_deploy_smoke_fails_when_the_site_serves_another_build_id
+  test_deploy_smoke_fails_when_the_site_serves_another_build_id \
+  test_deploy_refuses_a_port_already_in_use_by_another_service \
+  test_deploy_allows_the_port_when_our_own_service_is_active \
+  test_deploy_refuses_an_active_unit_when_the_listener_has_no_process_info \
+  test_deploy_refuses_an_inactive_unit_even_when_the_listener_has_process_info \
+  test_deploy_check_also_refuses_a_busy_port \
+  test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_env \
+  test_deploy_ignores_the_listener_checks_by_default \
+  test_listener_forms_public_vs_loopback \
+  test_agent_install_writes_a_plist_that_loads_the_env_file \
+  test_agent_install_is_idempotent \
+  test_agent_install_fails_without_REMOTE_or_REMOTE_DIR \
+  test_agent_install_verifies_with_launchctl_list \
+  test_agent_uninstall_removes_plist_and_boots_out \
+  test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
+  test_agent_plist_is_valid \
+  test_agent_install_rejects_an_env_file_that_does_not_source_cleanly
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
