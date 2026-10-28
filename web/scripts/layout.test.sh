@@ -73,9 +73,11 @@ if [ "$HOST" -eq 0 ]; then
 fi
 if [ -d docs ]; then
   have_docs="$(ls -A docs | sorted_set)"
-  [ "$have_docs" = "superpowers" ] && ok "docs/ holds only superpowers/ (design history)" || bad "docs/ is '$have_docs', want only 'superpowers'"
+  { [ "$have_docs" = "superpowers" ] || [ "$have_docs" = "logo.jpg superpowers" ]; } \
+    && ok "docs/ holds only superpowers/ (design history) and the starter's logo.jpg" \
+    || bad "docs/ is '$have_docs', want 'superpowers' (optionally with logo.jpg)"
 else
-  ok "docs/ absent (only superpowers/ may live there)"
+  ok "docs/ absent (only superpowers/ and logo.jpg may live there)"
 fi
 
 # web/scripts/ holds every script and its test. deploy-app.sh is the Mac-side wrapper that the
@@ -264,6 +266,9 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_set_fail "an extra file in docs/" "docs/ is" extra docs/deploy.md
   make_copy && mkdir -p "$WORK/c/docs/superpowers" && echo x > "$WORK/c/docs/superpowers/y.md" && git -C "$WORK/c" add -A
   inner && ok "guard allows docs/superpowers/" || bad "guard flags docs/superpowers/"
+  make_copy && mkdir -p "$WORK/c/docs" && echo x > "$WORK/c/docs/logo.jpg" && git -C "$WORK/c" add -A
+  inner && ok "guard allows docs/logo.jpg (the starter's logo)" || bad "guard flags docs/logo.jpg"
+  expect_set_fail "another image in docs/" "docs/ is" extra docs/banner.png
   make_copy && rm "$WORK/c/.gitattributes" && git -C "$WORK/c" add -A
   if out="$(inner_out)"; then bad "guard did not flag a missing .gitattributes"; elif printf '%s\n' "$out" | grep -q 'FAIL - \*.sql is not marked -text'; then ok "guard flags a missing .gitattributes"; else bad "missing .gitattributes failed for another reason"; fi
   # Host mode: the app lives inside a host repo (the wrapper writes the marker file, and moves the starter's

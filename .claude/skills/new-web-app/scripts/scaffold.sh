@@ -104,6 +104,12 @@ set_line() {
 # ---- 1. stage the starter's HEAD in a temp git repo (rename.sh needs tracked files and a clean tree)
 git -C "$GOWEB" archive HEAD | tar -x -C "$W"
 rm -rf "${W:?}/$SKILLS_DIR"     # the skills stay in the starter; a new app does not carry them
+# the starter's own logo and the README line that shows it stay in the starter too
+LOGO="docs/logo.jpg"
+if [ -f "$W/$LOGO" ]; then
+  rm -f "${W:?}/$LOGO"
+  [ ! -f "$W/$README_FILE" ] || { grep -v "$LOGO" "$W/$README_FILE" > "$W/$README_FILE.tmp" || true; mv "$W/$README_FILE.tmp" "$W/$README_FILE"; }
+fi
 gitc init -q; gitc add -A; gitc commit -q --allow-empty -m "starter $ORIGIN"
 cd "$W"
 

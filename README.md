@@ -1,5 +1,7 @@
 # app
 
+<p align="center"><img src="docs/logo.jpg" alt="logo" width="360"></p>
+
 A starter for a small, self-hosted web product. One Go binary serves a JSON API backed by
 SQLite, a React + TypeScript app and static public pages (home, FAQ, privacy, terms, support).
 It comes with automated backups and a tested restore, a deploy script for a plain Linux server,

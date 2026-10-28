@@ -55,7 +55,8 @@ ADDR=127.0.0.1:8080
 TRUSTED_PROXY=127.0.0.1/32
 EOS
   printf 'node_modules/\n*.log\n' > "$d/.gitignore"
-  printf '# app\n\nA starter. The app serves /app/. Binary: dist/app\n' > "$d/README.md"
+  printf '# app\n\n<p align="center"><img src="docs/logo.jpg" alt="logo" width="360"></p>\n\nA starter. The app serves /app/. Binary: dist/app\n' > "$d/README.md"
+  printf 'jpegbytes' > "$d/docs/logo.jpg"
   printf '# app CLAUDE\nbinary dist/app\n' > "$d/CLAUDE.md"
   printf '# app AGENTS\n' > "$d/AGENTS.md"
   printf '# ios\nreserved\n' > "$d/ios/README.md"
@@ -289,6 +290,16 @@ test_the_skills_directory_is_not_copied_into_the_app() {
   [ ! -e "$TARGET/.claude/skills" ]
   [ -f "$GW/.claude/skills/new-web-app/SKILL.md" ]   # still in the starter
   ! grep -rq "caritos.com" "$TARGET/.claude" 2>/dev/null
+}
+
+test_the_starters_logo_is_not_copied_into_the_app() {
+  new_env
+  [ -f "$GW/docs/logo.jpg" ]
+  run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
+  [ ! -e "$TARGET/docs/logo.jpg" ]
+  ! grep -q "logo.jpg" "$TARGET/README.md"
+  assert_eq "# Shop" "$(sed -n 1p "$TARGET/README.md")"
+  assert_contains "$(cat "$TARGET/README.md")" "The app serves /app/. Binary: dist/shop" "rest of the README survives"
 }
 
 test_prose_with_the_word_app_survives_and_display_spots_get_the_name() {
