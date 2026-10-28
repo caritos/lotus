@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "api/internal/web/app",
-    // The Go embed directory holds a committed .gitkeep; scripts/clean-app.mjs
+    // The Go embed directory holds a committed .gitkeep; web/scripts/clean-app.mjs
     // (the prebuild step) removes stale files instead.
     emptyOutDir: false,
   },

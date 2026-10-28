@@ -2,7 +2,7 @@
 
 The app speaks plain HTTP on the address in `.env` (`ADDR`). HTTPS is terminated by a
 reverse proxy in front of it. This page uses NGINX with certificates from Let's Encrypt;
-a complete server block is in [`deploy/nginx.conf.example`](../deploy/nginx.conf.example).
+a complete server block is in [`web/deploy/nginx.conf.example`](../deploy/nginx.conf.example).
 Replace `app.example.com` with your name.
 
 ## Server block
@@ -97,7 +97,7 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
 
 Some hosting panels put their own proxy in front of the app and speak HTTP/1.0 to it. Such proxies
 corrupt chunked or streamed static files. The app serves its static assets with a known `Content-Length`
-(no streaming compression), which is what these proxies need. `scripts/smoke.sh` checks this: it fetches
+(no streaming compression), which is what these proxies need. `web/scripts/smoke.sh` checks this: it fetches
 `/static/style.css` with `curl --http1.0 --compressed` and requires the bytes to equal the local file.
 A panel proxy that reaches the app through the host's public address needs `ADDR=0.0.0.0:<port>` (a
 loopback-only app shows as 502 there) and `TRUSTED_PROXY=<the proxy's address>/32` instead of

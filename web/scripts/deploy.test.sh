@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for scripts/restore.sh, scripts/pull-backups.sh, scripts/deploy.sh and scripts/smoke.sh.
+# Tests for web/scripts/restore.sh, web/scripts/pull-backups.sh, web/scripts/deploy.sh and web/scripts/smoke.sh.
 # Builds the binary once, builds fixtures with it and the sqlite3 CLI, and
-# uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash scripts/deploy.test.sh
-# (ONLY='test_deploy_*' bash scripts/deploy.test.sh runs the tests whose names match the glob).
+# uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash web/scripts/deploy.test.sh
+# (ONLY='test_deploy_*' bash web/scripts/deploy.test.sh runs the tests whose names match the glob).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
   echo "deploy.test.sh: the sqlite3 CLI is required to build fixtures but was not found on PATH" >&2
@@ -1002,21 +1002,20 @@ test_deploy_stops_when_pnpm_typecheck_fails() {
   gate_fails_and_changes_nothing "$?" "pnpm typecheck"
 }
 
-# The major the script reads from the real .nvmrc (web/.nvmrc, else the root one).
+# The major the script reads from the real web/.nvmrc.
 real_nvmrc_major() {
   local f="$REPO_ROOT/web/.nvmrc"
-  [ -f "$f" ] || f="$REPO_ROOT/.nvmrc"
   tr -d 'v \r\n' < "$f" | cut -d. -f1
 }
 
 # deploy_with_nvmrc <.nvmrc content> [deploy args]: run a copy of the scripts in a throwaway repo
-# whose root .nvmrc holds the given text (REPO_ROOT is derived from the script's location).
+# whose web/.nvmrc holds the given text (REPO_ROOT is derived from the script's location).
 deploy_with_nvmrc() {
   local v="$1"; shift
-  mkdir -p "$T/repo/scripts" "$T/repo/web/api"
-  cp "$SCRIPT_DIR/deploy.sh" "$SCRIPT_DIR/smoke.sh" "$SCRIPT_DIR/restore.sh" "$SCRIPT_DIR/build-id.sh" "$T/repo/scripts/"
-  printf '%s\n' "$v" > "$T/repo/.nvmrc"
-  VERSION=v2 bash "$T/repo/scripts/deploy.sh" "$@" >"$T/out" 2>"$T/err"
+  mkdir -p "$T/repo/web/scripts" "$T/repo/web/api"
+  cp "$SCRIPT_DIR/deploy.sh" "$SCRIPT_DIR/smoke.sh" "$SCRIPT_DIR/restore.sh" "$SCRIPT_DIR/build-id.sh" "$T/repo/web/scripts/"
+  printf '%s\n' "$v" > "$T/repo/web/.nvmrc"
+  VERSION=v2 bash "$T/repo/web/scripts/deploy.sh" "$@" >"$T/out" 2>"$T/err"
 }
 
 test_deploy_fails_early_when_node_major_differs_from_nvmrc() {
@@ -1072,7 +1071,7 @@ test_deploy_warns_but_continues_when_the_backup_timer_is_not_enabled() {
   FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_contains "$(cat "$T/err")" "app-backup.timer" "names the unit"
-  assert_contains "$(cat "$T/err")" "docs/deploy.md" "points at the install steps"
+  assert_contains "$(cat "$T/err")" "web/docs/deploy.md" "points at the install steps"
   assert_eq "$(active_release)" "releases/v2" "deployed"
 }
 
@@ -1510,7 +1509,7 @@ smoke_home() { # <config fragment: home_head/home_body> [APP_NAME]
   stop_smoke_server
 }
 
-# The tests use the project's own name (read from cmd/, so they survive scripts/rename.sh) because
+# The tests use the project's own name (read from cmd/, so they survive web/scripts/rename.sh) because
 # the APP_NAME default is renamed with the project.
 SMOKE_NAME="$(ls "$REPO_ROOT/web/api/cmd" | head -1)"
 SMOKE_NAME_UP="$(printf '%s' "$SMOKE_NAME" | tr '[:lower:]' '[:upper:]')"
@@ -1680,7 +1679,7 @@ deploy_site() {
 
 test_deploy_passes_the_build_id_to_the_build_and_to_smoke() {
   setup_deploy; make_release v1 0001_init.sql active
-  local id; id="$(bash "$REPO_ROOT/scripts/build-id.sh")"
+  local id; id="$(bash "$SCRIPT_DIR/build-id.sh")"
   deploy_site "$id" || { stop_smoke_server; return; }
   deploy deploy@host.example.com
   local rc=$?
@@ -2432,7 +2431,7 @@ for t in \
   test_deploy_check_covers_the_backup_timer \
   test_deploy_uses_SERVICE_for_the_timer_name
 do
-  # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
+  # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash web/scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
 done
 

@@ -1,4 +1,4 @@
-# Models only: no router, server or client. Run via scripts/gen-api.sh.
+# Models only: no router, server or client. Run via web/scripts/gen-api.sh.
 package: apigen
 output: internal/apigen/models.gen.go
 generate:

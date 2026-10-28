@@ -5,13 +5,13 @@ set -euo pipefail
 OAPI_CODEGEN_VERSION="v2.8.0"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/.." && pwd)"
+root="$(cd "$here/../.." && pwd)"
 spec="$root/web/api/openapi.yaml"
 
 die() { echo "gen-api: $*" >&2; exit 1; }
 
 command -v go >/dev/null 2>&1 || die "go is not installed or not on PATH (see web/api/go.mod for the required version)"
-command -v pnpm >/dev/null 2>&1 || die "pnpm not found on PATH: use Node 24 (see .nvmrc) and run 'corepack enable'"
+command -v pnpm >/dev/null 2>&1 || die "pnpm not found on PATH: use Node 24 (see web/.nvmrc) and run 'corepack enable'"
 
 cd "$root/web/api"
 go run "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION}" \

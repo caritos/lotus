@@ -7,14 +7,13 @@ import { TEST_EMAIL, TEST_PASSWORD } from "./support";
 
 const webDir = path.resolve(import.meta.dirname, "..", "..");
 const apiDir = path.join(webDir, "api");
-const repoDir = path.resolve(webDir, "..");
 
 /** The build id for the binary under test, from the same script every real build uses. */
 function buildId(): string {
-  const r = spawnSync("bash", [path.join(repoDir, "scripts", "build-id.sh")], { cwd: repoDir, encoding: "utf8" });
+  const r = spawnSync("bash", [path.join(webDir, "scripts", "build-id.sh")], { cwd: webDir, encoding: "utf8" });
   const id = r.stdout.trim();
   if (r.status !== 0 || !/^[0-9]{8}-\S+$/.test(id)) {
-    throw new Error(`e2e: scripts/build-id.sh gave no usable id (exit ${r.status}): ${r.stdout}${r.stderr}`);
+    throw new Error(`e2e: web/scripts/build-id.sh gave no usable id (exit ${r.status}): ${r.stdout}${r.stderr}`);
   }
   return id;
 }

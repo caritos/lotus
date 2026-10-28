@@ -1,7 +1,7 @@
 # Deploying the app
 
 One static Linux binary, run as a systemd **user** service by a non-root user, behind
-a reverse proxy that terminates HTTPS (see [https.md](https.md)). `scripts/deploy.sh`
+a reverse proxy that terminates HTTPS (see [https.md](https.md)). `web/scripts/deploy.sh`
 builds on your machine, uploads over SSH and switches releases; nothing is built on
 the server.
 
@@ -13,7 +13,7 @@ Everything is under the deploy user's home (the base directory is `REMOTE_BASE`,
 `<name>.service`, `<name>-backup.service`, `<name>-backup.timer` and the database `<name>.db` can
 clash with another app on a shared server while `web/api/cmd/` still holds `app` (two
 apps would share one directory, one `.env`, and so one port). The same holds on your Mac for the
-backup agent. For a real deployment run `scripts/rename.sh <module-path> <name>` before the first
+backup agent. For a real deployment run `web/scripts/rename.sh <module-path> <name>` before the first
 deploy: it renames the units, every path below, the `restore.sh` and `deploy.sh` defaults, the
 nginx example, the pull and agent names and the binary together. This is the supported route.
 Overriding single variables (`REMOTE_BASE`, `SERVICE`) is not: `restore.sh` has its own
@@ -34,7 +34,7 @@ Layout:
   current -> releases/<version>   the active release (a symlink)
   data/                      DATA_DIR: db/, logs/, storage/, backups/
   .env                       runtime configuration (never uploaded, never printed)
-  restore.sh                 copied there by every deploy (from scripts/restore.sh in the repository)
+  restore.sh                 copied there by every deploy (from web/scripts/restore.sh in the repository)
 ```
 
 ## 1. Prepare the server (once)
@@ -57,7 +57,7 @@ never enables linger by itself.
 
 ## 2. Configure `.env`
 
-Copy `.env.example` to `~/app/.env` on the server and edit it. It is the server template: it already
+Copy `web/deploy/.env.example` to `~/app/.env` on the server and edit it. It is the server template: it already
 says `APP_ENV=production` and leaves the two required values empty, so the app refuses to start until you
 fill them in. The common part:
 
@@ -129,11 +129,11 @@ printed restore command, and refuses to continue if that directory has no `db/ap
 
 ## 3. Install the units
 
-Copy from `deploy/` to `~/.config/systemd/user/` on the server (the first deploy does
+Copy from `web/deploy/` to `~/.config/systemd/user/` on the server (the first deploy does
 not install them):
 
 ```sh
-scp deploy/app.service deploy/app-backup.service deploy/app-backup.timer deploy@host.example.com:.config/systemd/user/
+scp web/deploy/app.service web/deploy/app-backup.service web/deploy/app-backup.timer deploy@host.example.com:.config/systemd/user/
 ssh deploy@host.example.com 'systemctl --user daemon-reload && systemctl --user enable app && systemctl --user enable --now app-backup.timer'
 ```
 
@@ -145,8 +145,8 @@ The service is enabled but not started yet: it starts on the first deploy.
 ## 4. Check, then deploy
 
 ```sh
-scripts/deploy.sh deploy@host.example.com --check   # preflight only, changes nothing
-PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
+web/scripts/deploy.sh deploy@host.example.com --check   # preflight only, changes nothing
+PUBLIC_URL=https://app.example.com web/scripts/deploy.sh deploy@host.example.com
 ```
 
 `--check` verifies the SSH login, linger, local tools, that `~/app/data`, `.env` and the
@@ -174,13 +174,13 @@ What a deploy does, in order:
    `go vet ./...` and `go test -short ./...` in `web/api` (run without the caller's `GOOS`/`GOARCH`, so test
    binaries run on this machine; the release build below keeps its own target), then `pnpm test` and `pnpm typecheck` in `web/`.
    The first failure stops the deploy. The Go tests run without `-race` on purpose: the gate has to stay fast
-   enough to run on every deploy. The full tier with `-race` is `make test` and CI; run it before you deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
-   major version in `.nvmrc` (`web/.nvmrc` if present) differs from the major of `node -v`. `v24`, `24`, `24.1.0` and
+   enough to run on every deploy. The full tier with `-race` is `make -C web test` and CI; run it before you deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
+   major version in `web/.nvmrc` differs from the major of `node -v`. `v24`, `24`, `24.1.0` and
    `v24.18.0` all mean 24. A value that is not a number (for example `lts/*`) prints "cannot compare .nvmrc value ..."
    and skips the check instead of failing.
 3. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
    commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
-   uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is
+   uncommitted changes to tracked files) comes from `web/scripts/build-id.sh`, is computed once, and is
    printed in the progress output and in the final "done" line.
 4. Takes a deploy lock on the server (`~/app/.deploy.lock`, holding who and when). A second deploy
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
@@ -199,7 +199,7 @@ What a deploy does, in order:
 9. Keeps the active release, the previous one and up to three older ones; deletes the
    rest inside `releases/` (never the active or previous release, and never an `*.uploading` directory
    younger than 30 minutes).
-10. When `PUBLIC_URL` is set, runs `scripts/smoke.sh` against it from your machine with
+10. When `PUBLIC_URL` is set, runs `web/scripts/smoke.sh` against it from your machine with
    `EXPECTED_BUILD_ID` set to the id it just built. A failing smoke check makes the deploy exit 1 but
    does not roll back.
 
@@ -211,7 +211,7 @@ curl -s https://app.example.com/ | grep -o 'Build [0-9a-z-]*'
 curl -s https://app.example.com/healthz
 ```
 
-Compare it with `scripts/build-id.sh` on the commit you meant to deploy. The first part is the UTC build
+Compare it with `web/scripts/build-id.sh` on the commit you meant to deploy. The first part is the UTC build
 date, the second the short commit, and a trailing `-dirty` means the build had uncommitted changes to
 tracked files. `smoke.sh` checks the id: `/healthz` must report a well-formed `build_id`, `/` must show
 the same id in its footer, and with `EXPECTED_BUILD_ID` set (as `deploy.sh` does; set it yourself when
@@ -287,7 +287,7 @@ the rsync package's documentation or scripts directory). With this key the backu
 directory is the root, so run the pull with `REMOTE_DIR=/`:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull scripts/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull web/scripts/pull-backups.sh
 ```
 
 Verify the restriction by hand: `ssh -i ~/.ssh/app-pull deploy@host.example.com whoami`

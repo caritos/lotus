@@ -6,7 +6,7 @@
 node_modules/
 web/test/e2e/test-results/
 web/test/e2e/playwright-report/
-/dist/
+web/dist/
 /bin/
 web/api/app
 web/api/internal/web/app/*

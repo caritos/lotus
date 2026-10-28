@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Print the build id, one line: YYYYMMDD-<7-char git commit>, for example 20261027-37434d8.
 #
-#   scripts/build-id.sh
+#   web/scripts/build-id.sh
 #
 # The date is the UTC build date. The commit is `git rev-parse --short=7 HEAD`, with
 # "-dirty" appended when tracked files have uncommitted changes (untracked files do not
@@ -12,7 +12,7 @@
 #   BUILD_DATE          YYYYMMDD, overrides the date (used by tests)
 #   SOURCE_DATE_EPOCH   Unix seconds; the date is taken from it (reproducible builds)
 #
-# The build (Makefile, scripts/deploy.sh, web/test/e2e/global-setup.ts) passes this id to the
+# The build (web/Makefile, web/scripts/deploy.sh, web/test/e2e/global-setup.ts) passes this id to the
 # binary with -ldflags; nothing else may hard-code it.
 set -euo pipefail
 

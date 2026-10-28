@@ -1,5 +1,5 @@
 # NGINX reverse proxy for the app. Replace app.example.com and the upstream port
-# (the ADDR port in the app's .env). See docs/https.md for the certbot steps.
+# (the ADDR port in the app's .env). See web/docs/https.md for the certbot steps.
 
 upstream app {
     server 127.0.0.1:8080;
@@ -27,7 +27,7 @@ server {
 
     # HSTS is set here, by the proxy; the app never sends it. Browsers remember it, so
     # start short (300 s) and raise it (for example to 31536000) only after every page
-    # works over HTTPS. See docs/https.md.
+    # works over HTTPS. See web/docs/https.md.
     add_header Strict-Transport-Security "max-age=300" always;
 
     # Photo uploads: the app caps request bodies at 8 MiB; keep this at or above that.

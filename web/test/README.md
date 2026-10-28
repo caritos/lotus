@@ -8,11 +8,13 @@ What lives where for the web app's tests:
 - Vitest unit and component tests are not here: they sit beside the source files in `web/src/`
   (`*.test.ts`, `*.test.tsx`).
 
-Run, from the repository root:
+Run, from `web/`:
 
 ```sh
 make e2e-install   # download Chromium once
 make e2e           # build the binary, start it on a free port with a temp database, run the specs
 ```
 
-Unit tests: `cd web && pnpm test`. Typecheck (app and e2e): `cd web && pnpm typecheck`.
+Unit tests: `pnpm test`. Typecheck (app and e2e): `pnpm typecheck`.
+
+The Playwright tests stay in `web/test/e2e/` (not under `web/scripts/`): `web/test/` is where every web-platform test tree that is not a unit test sits, and `web/scripts/layout.test.sh` guards it.

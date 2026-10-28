@@ -49,7 +49,7 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	}
 }
 
-// The reverse proxy owns HSTS (staged max-age rollout, docs/https.md); a second
+// The reverse proxy owns HSTS (staged max-age rollout, web/docs/https.md); a second
 // header from the app would win in the browser and defeat that rollout.
 func TestAppNeverSendsHSTS(t *testing.T) {
 	for _, cfg := range []config.Config{

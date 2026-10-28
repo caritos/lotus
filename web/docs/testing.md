@@ -8,34 +8,34 @@ full tier runs before every merge; end to end is separate because it downloads a
 | Go unit | package logic, handlers with `httptest`, in-memory or temp-file SQLite | beside the code (`foo_test.go`) | `go test -short ./...` |
 | Go integration | real server wiring, migrations on populated data, auth flow, upload to `storage/`, backup and restore round trip, embed and import-direction checks | `web/api/tests/` | `go test -race ./...` plus `go vet ./...` |
 | Web unit | components and hooks, Vitest + Testing Library, API mocked with MSW | beside the source in `web/src/` | `pnpm test` (and `pnpm typecheck`) |
-| End to end | Playwright against the built binary with a fresh temp database: sign in, create, edit and delete a note, upload a photo, sign out, 404 page | `web/test/e2e/` | `make e2e` |
+| End to end | Playwright against the built binary with a fresh temp database: sign in, create, edit and delete a note, upload a photo, sign out, 404 page | `web/test/e2e/` | `make -C web e2e` |
 
 Shell scripts (deploy, backup pull, restore, generator preflight, the Claude hook, the
-rename script and the build id script) have their own tests, run by `make test-scripts`.
+rename script and the build id script) have their own tests, run by `make -C web test-scripts`.
 
 ## Commands
 
 ```sh
-make test-fast                  # Go -short + Vitest + typecheck (seconds)
-make test                       # Go -race + vet, Vitest, typecheck, generated-code check, script tests
-make e2e-install                # once: downloads Chromium for Playwright
-make e2e                        # builds the frontend and the binary, then runs Playwright
-make test-scripts               # scripts/deploy.test.sh, gen-api preflight, hook test, rename test, build-id test, layout test
-make test-skills                # fast tier of the skill tests in .claude/skills/new-web-app/tests (part of make test)
+make -C web test-fast                  # Go -short + Vitest + typecheck (seconds)
+make -C web test                       # Go -race + vet, Vitest, typecheck, generated-code check, script tests
+make -C web e2e-install                # once: downloads Chromium for Playwright
+make -C web e2e                        # builds the frontend and the binary, then runs Playwright
+make -C web test-scripts               # web/scripts/deploy.test.sh, gen-api preflight, hook test, rename test, build-id test, layout test
+make -C web test-skills                # fast tier of the skill tests in .claude/skills/new-web-app/tests (part of make -C web test)
 ```
 
-Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `.nvmrc`).
+Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `web/.nvmrc`).
 
-The two skills in `.claude/skills/` have their own tests. `make test-skills` runs the fast tier of
+The two skills in `.claude/skills/` have their own tests. `make -C web test-skills` runs the fast tier of
 `new-web-app` (a small fixture stands in for this repo). The full tier,
 `bash .claude/skills/new-web-app/tests/run.sh`, scaffolds a real app from the committed `HEAD` of this
 repo (it refuses a dirty tree), runs that app's fast tier and layout guard, builds and serves it and
-runs `scripts/smoke.sh` against it; it needs Node, pnpm and Go and takes a few minutes.
+runs `web/scripts/smoke.sh` against it; it needs Node, pnpm and Go and takes a few minutes.
 
 ## Skipped under `-short`
 
 Integration tests in `web/api/tests/` call `integration(t)`, which skips them with `-short`,
-so `make test-fast` stays quick. The tests that check the embedded migrations and frontend
+so `make -C web test-fast` stays quick. The tests that check the embedded migrations and frontend
 (`TestEmbedded...`) and the import-direction guard run in every tier on purpose.
 `TestEmbeddedAppPresentWhenBuilt` and the deep-link test skip locally when the frontend has not
 been built, but **fail** when the `CI` environment variable is set, so CI can never skip them
@@ -48,9 +48,9 @@ when it is already built) and the Go binary into a temp directory, creates a use
 `user create` command in a fresh temp `DATA_DIR`, starts the server on a random free port and
 waits for `/healthz`. Everything is removed afterwards. No test touches your real data.
 The frontend build writes into `web/api/internal/web/app` (the embed directory), which is
-shared with `make build`; the prebuild step clears it first, and it stays out of git.
-This is not Vite's usual `dist/`: `go:embed` can only embed files inside the Go module. The repo-root
-`dist/` holds only the binary from `make build`; e2e builds its own binary in a temp directory.
+shared with `make -C web build`; the prebuild step clears it first, and it stays out of git.
+This is not Vite's usual `dist/`: `go:embed` can only embed files inside the Go module.
+`web/dist/` holds only the binary from `make -C web build`; e2e builds its own binary in a temp directory.
 
 Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/test-results` and
 `web/test/e2e/playwright-report`; both are gitignored.
@@ -68,10 +68,10 @@ Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/t
 - **End to end:** add `name.spec.ts` in `web/test/e2e/`. Use the helpers in `support.ts`. Keep it to
   journeys a browser must prove; push detail down to the cheaper tiers.
 - **Shell scripts:** extend the matching `*.test.sh`; use fake commands on `PATH` and temp
-  directories, never real servers. `ONLY='test_deploy_*' bash scripts/deploy.test.sh` runs a subset of the
+  directories, never real servers. `ONLY='test_deploy_*' bash web/scripts/deploy.test.sh` runs a subset of the
   deploy, restore, pull and smoke tests (add new test names to the list at the bottom of the file).
 
-`scripts/rename.test.sh` renames a copy of the repo, builds and tests it, and also runs the layout guard's
+`web/scripts/rename.test.sh` renames a copy of the repo, builds and tests it, and also runs the layout guard's
 self-tests in that copy, so it is slow (about a minute); run it before merging, not on every edit. The
 `deploy.test.sh` runner prints `SKIPPED: n` in its summary for tests that skipped themselves (for example the
 plist lint when `plutil` is missing); a skip is counted, never silent, and does not fail the run.
@@ -98,7 +98,7 @@ Write the failing test first, watch it fail for the right reason, then implement
 - `internal/backup/label_test.go`: labeled sets, per-label pruning in both directions, label validation.
 - `internal/app`: expired-session purge at start and on every tick (`maintenance_test.go`) and the
   start-up sweep of stale upload temp files.
-- `scripts/deploy.test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
+- `web/scripts/deploy.test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
@@ -108,26 +108,26 @@ Write the failing test first, watch it fail for the right reason, then implement
   database from before the checksum column all succeed and record each checksum once (run under `-race`).
   A recorded migration whose file is gone from the binary is not verified (a rolled-back binary keeps working).
   `.gitattributes` marks `*.sql` as `-text`, so autocrlf cannot change the bytes; `layout.test.sh` asserts it.
-- `scripts/deploy.test.sh` deploy gate: the backup timer has three outcomes (enabled; not enabled; could not
+- `web/scripts/deploy.test.sh` deploy gate: the backup timer has three outcomes (enabled; not enabled; could not
   determine because ssh or the user bus failed, which refuses with `REQUIRE_BACKUP_TIMER=1` and otherwise
   warns); the gate runs `go vet` and `go test -short` in `web/api` without the caller's `GOOS`/`GOARCH`; the
-  Node check compares majors for `v24`, `24`, `24.1.0` and `v24.18.0` and skips a non-numeric `.nvmrc` such as
+  Node check compares majors for `v24`, `24`, `24.1.0` and `v24.18.0` and skips a non-numeric `web/.nvmrc` such as
   `lts/*` with a message; after the restart a missing `ss` and an ssh failure are reported as such, not as a
   closed port. The fakes record the unit name and working directory they are called with.
-- `scripts/deploy.test.sh` backup agent: reinstall waits for `bootout` to finish and retries `bootstrap` on an
+- `web/scripts/deploy.test.sh` backup agent: reinstall waits for `bootout` to finish and retries `bootstrap` on an
   I/O error (fake `launchctl`), `--uninstall` with nothing installed says "nothing installed", `--dry-run` changes
   nothing; idempotence is asserted on call content, not call positions.
 
 ## Endpoint guard rails
 
 `web/api/tests/guardrails_test.go` keeps the API, its spec and its tests in step. It runs in the fast
-tier too (a file scan, no server). Adding an endpoint means doing all three, or `make test-fast` says
+tier too (a file scan, no server). Adding an endpoint means doing all three, or `make -C web test-fast` says
 which one is missing:
 
 1. Register the route with a literal `"METHOD /path"` pattern (`mux.HandleFunc("GET /api/things/{id}", ...)`).
    A route in code but not in `web/api/openapi.yaml`, or the reverse, fails
    `TestSpecAndRegisteredRoutesMatch`.
-2. Declare it in `openapi.yaml` with an `operationId`, then run `make api`.
+2. Declare it in `openapi.yaml` with an `operationId`, then run `make -C web api`.
 3. Write the integration test that exercises it and mark it with `// covers: <operationId>` (several ids
    may share a comment). An operation no test claims fails `TestEveryOperationHasAnIntegrationTest`,
    as does a `covers:` naming an operationId that no longer exists. Copy `notes_flow_test.go`.
@@ -154,17 +154,22 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
 
 ## Repository layout
 
-- `scripts/layout.test.sh`: `deploy/` holds no `*.sh` (only files installed on a server: units and the NGINX
-  example), the deploy, smoke, restore and pull-backups scripts and `deploy.test.sh` are in `scripts/`, every
-  test script ends in `.test.sh`, Playwright is in `web/test/e2e/` (the old e2e directory directly under `web/` is gone), `node_modules/` and
-  the e2e output directories are ignored at any depth, no tracked file is ignored, and no tracked file names
-  an old location: the old e2e directory, a deploy script addressed through `deploy/`
-  (by path, glob, `cd`, `bash`, `./` or `../`), or a bare script name on a line that mentions `deploy/` without
-  `scripts/`. `.gitattributes` must mark `*.sql` as `-text`. The `deploy/` self-tests (an extra and a missing
-  file) require the failure to come from the `deploy/` check itself, not from any other check.
+- `web/scripts/layout.test.sh` asserts the web layout: everything that belongs to the web platform lives under
+  `web/` (`Makefile`, `.nvmrc`, `deploy/`, `docs/`, `scripts/`, `dist/`, `test/e2e/`), and the repo root tracks only
+  `README.md`, `CLAUDE.md`, `AGENTS.md`, `.gitignore`, `.gitattributes`, `.github/`, `.claude/`, `docs/` (only
+  `docs/superpowers/`), `ios/` and `web/` (a stray root file fails; no root `deploy/`, `scripts/`, `Makefile`,
+  `dist/`, the env template or `.nvmrc`). `web/scripts/`, `web/deploy/` (units, NGINX example and the server env template, no
+  `*.sh`) and `web/docs/` must hold exactly their expected files (the wrapper's `deploy-app.sh` is the one optional
+  extra in `web/scripts/`), every test script ends in `.test.sh` (or `.test.ts`), Playwright is in `web/test/e2e/`
+  (it stays under `web/test/`, next to the Vitest config, and not in `web/scripts/`), `node_modules/` and
+  the e2e output directories are ignored at any depth, `web/dist/<name>` is ignored, no tracked file is ignored,
+  and no tracked file names an old location: the old e2e directory, a script, deploy file, doc, the env template or
+  binary written without its `web/` prefix. `web/Makefile` and `web/package.json` run inside `web/`
+  and are exempt from the prefix rule. `.gitattributes` must mark `*.sql` as `-text`. The set self-tests (an extra and
+  a missing file in each directory) require the failure to come from that directory's own check.
   **Host mode:** when the wrapper's marker file exists at the root (an external wrapper writes it when it turns the
   starter into an app; its fixed name is the wrapper's contract, NOT the project name, and is the `MARKER`
-  constant in `scripts/layout.test.sh`, built from two pieces so `scripts/rename.sh` cannot rewrite it) the app may live inside a host repo with its own `ios/` and root `CLAUDE.md`. The guard then
+  constant in `web/scripts/layout.test.sh`, built from two pieces so `web/scripts/rename.sh` cannot rewrite it) the app may live inside a host repo with its own `ios/` and root `CLAUDE.md`. The guard then
   skips only the starter-only checks (the `ios/` placeholder and the starter's own root `CLAUDE.md` headings) and exempts the
   `### Done` section of EACH of root `CLAUDE.md` and `web/CLAUDE.md` that has one (the host's own log and the starter's
   moved log, which the wrapper puts at `web/CLAUDE.md` when the host already has a root one; a section runs to the
@@ -180,8 +185,8 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   the FULL guard in it: it must pass, and the same app with a stale path outside the Done sections must fail.
   In host mode the stale-path scan skips the host-owned trees `ios/` and `android/` (the usage comments in a `new-ios-app` host's
   `ios/App/` scripts look like the old layout); the starter itself still scans `ios/`, and a stale path in `web/` or
-  `scripts/` of a host-shaped app still fails (the self-test fixture carries excerpts of the real iOS templates).
-  Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
+  `web/scripts/` of a host-shaped app still fails (the self-test fixture carries excerpts of the real iOS templates).
+  Every structural check (`web/scripts/`, `web/deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
   stays on. Without the marker the starter itself is fully guarded. The self-tests build a host layout in a
   throwaway copy: it passes with the marker, still fails without it (naming the `ios/` and `CLAUDE.md`
   problems), and a stale path in `web/CLAUDE.md` outside the Done section still fails.
@@ -189,11 +194,11 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   between the `### Done` and `### Not yet verified` headings) are exempt; the rest of `CLAUDE.md` is
   current-state text and is checked. The test also proves the guard works: it injects each stale pattern into
   a throwaway copy of the tracked files and expects a failure, and expects the legitimate lookalikes
-  (`scripts/deploy.sh`, `../deploy/nginx.conf.example`, `/home/deploy/...`) to pass.
+  (`web/scripts/deploy.sh`, `../deploy/nginx.conf.example`, `/home/deploy/...`) to pass.
 
 ## Build id
 
-- `scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
+- `web/scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
   untracked-only files (stay clean), no git, no commits (`unknown`), `BUILD_DATE`, `SOURCE_DATE_EPOCH`
   (UTC, BSD and GNU `date`) and the output format.
 - `internal/version`: the default id is well formed. `internal/web`: every page source under `pages/`
@@ -207,9 +212,9 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   `/healthz` reports.
 - `src/Footer.test.tsx`: the React footer reads the meta tag, shows `dev` for the placeholder or a
   missing tag, and is on the sign-in, notes and not-found routes.
-- `web/test/e2e/buildid.spec.ts`: a real id (from `scripts/build-id.sh`) in `/healthz` and in the footer of `/`,
+- `web/test/e2e/buildid.spec.ts`: a real id (from `web/scripts/build-id.sh`) in `/healthz` and in the footer of `/`,
   the sign-in page, the notes page and the 404 page.
-- `scripts/deploy.test.sh`: `smoke.sh` accepts a matching footer and fails on a footer id that differs from
+- `web/scripts/deploy.test.sh`: `smoke.sh` accepts a matching footer and fails on a footer id that differs from
   `/healthz`, a missing footer, a missing or malformed `build_id` and a wrong `EXPECTED_BUILD_ID`;
   `deploy.sh` passes the same id to its build ldflags and to the smoke run.
 
@@ -225,8 +230,8 @@ file deliberately, in its own commit.
 
 ## Generated code
 
-`make api` regenerates `web/api/internal/apigen/models.gen.go` and `web/src/api/schema.d.ts`
-from `web/api/openapi.yaml`. `scripts/gen-api.test.sh` (part of `make test`) fails when
+`make -C web api` regenerates `web/api/internal/apigen/models.gen.go` and `web/src/api/schema.d.ts`
+from `web/api/openapi.yaml`. `web/scripts/gen-api.test.sh` (part of `make -C web test`) fails when
 regenerating changes either file or the lockfile; the CI `full` job fails when regenerating leaves
 any change at all in `git status --porcelain`, including new untracked files.
 

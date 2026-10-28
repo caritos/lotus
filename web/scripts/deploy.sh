@@ -12,7 +12,7 @@
 #   current                    symlink to the active release
 #   data/                      the app's DATA_DIR (db/, logs/, storage/, backups/)
 #   .env                       the server's runtime config; never uploaded, never printed
-#   restore.sh                 copy of scripts/restore.sh, refreshed on every deploy
+#   restore.sh                 copy of web/scripts/restore.sh, refreshed on every deploy
 #
 # Steps: preflight; resolve APP_ENV, DATA_DIR and the app port from the server's .env
 # the way the service does (refusing unless APP_ENV=production); build (pnpm build,
@@ -24,7 +24,7 @@
 # place; atomically repoint `current`; restart the unit; poll /healthz on the
 # server's loopback until it reports the new version; prune old releases; run
 # smoke.sh against PUBLIC_URL when it is set (with EXPECTED_BUILD_ID, so the page footers and
-# /healthz must show the id this deploy built; see scripts/build-id.sh).
+# /healthz must show the id this deploy built; see web/scripts/build-id.sh).
 #
 # If the new release is not healthy: when it carries no migration (the highest
 # migration file is the same as in the previous release) `current` is switched
@@ -58,8 +58,7 @@
 #   Dependencies      unless both SKIP_TESTS=1 and SKIP_WEB_BUILD=1, `pnpm install --frozen-lockfile`
 #                     runs in web/ before the gate and the build (not in --check); a failure
 #                     stops the deploy with nothing changed
-#   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (else .nvmrc;
-#                     v24, 24, 24.1.0 and v24.18.0 all mean 24) must equal `node -v`'s major, or
+#   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (v24, 24, 24.1.0 and v24.18.0 all mean 24) must equal `node -v`'s major, or
 #                     the deploy stops early. A non-numeric value such as lts/* prints "cannot
 #                     compare" and skips the check. SKIP_TESTS does not skip it
 #   REQUIRE_BACKUP_TIMER=1  refuse to deploy (nothing changed) when `${SERVICE}-backup.timer`
@@ -80,7 +79,7 @@ set -euo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 SSH="${SSH:-ssh}"
 RSYNC="${RSYNC:-rsync}"
@@ -185,9 +184,9 @@ preflight() {
     && rc=0 || rc=$?
   case "$rc" in
     0) ;;
-    11) die "missing \$HOME/$B/data on the server; see docs/deploy.md (prepare the server)" ;;
-    12) die "missing \$HOME/$B/.env on the server (it is never uploaded); create it from .env.example, see docs/deploy.md" ;;
-    13) die "systemd user unit '$SERVICE' is not installed on the server, or 'systemctl --user' cannot reach the user manager: install deploy/app.service (see docs/deploy.md). If it is installed, a non-interactive SSH session may lack XDG_RUNTIME_DIR for the user bus; check on the server with: loginctl show-user \$(id -un)   (Linger=yes, State=active or lingering) and: systemctl --user status   (it must not say 'Failed to connect to bus')" ;;
+    11) die "missing \$HOME/$B/data on the server; see web/docs/deploy.md (prepare the server)" ;;
+    12) die "missing \$HOME/$B/.env on the server (it is never uploaded); create it from web/deploy/.env.example, see web/docs/deploy.md" ;;
+    13) die "systemd user unit '$SERVICE' is not installed on the server, or 'systemctl --user' cannot reach the user manager: install web/deploy/app.service (see web/docs/deploy.md). If it is installed, a non-interactive SSH session may lack XDG_RUNTIME_DIR for the user bus; check on the server with: loginctl show-user \$(id -un)   (Linger=yes, State=active or lingering) and: systemctl --user status   (it must not say 'Failed to connect to bus')" ;;
     14) die "neither curl nor wget is available on the server (needed for the health check)" ;;
     15) die "no sha256sum or shasum on the server" ;;
     *) die "server layout check failed (exit $rc)" ;;
@@ -218,9 +217,9 @@ preflight() {
   [ -z "$tstate" ] || tstate=" (state: $tstate)"
   if [ "$trc" -eq 1 ]; then
     if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
-      die "the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate (REQUIRE_BACKUP_TIMER=1). Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
+      die "the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate (REQUIRE_BACKUP_TIMER=1). Install the units from web/deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: web/docs/deploy.md, section 3). Nothing was changed."
     fi
-    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate, so no daily backups run. Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
+    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server$tstate, so no daily backups run. Install the units from web/deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see web/docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
   elif [ "$trc" -ne 0 ]; then
     if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
       die "could not determine whether the backup timer is enabled (ssh or user bus failed) (REQUIRE_BACKUP_TIMER=1). Check the connection and 'systemctl --user status' on the server, then deploy again. Nothing was changed."
@@ -234,8 +233,8 @@ case "$VERSION" in ""|.|..|-*|.*|*..*|*[!A-Za-z0-9._-]*) die "invalid VERSION '$
 COMMIT="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # YYYYMMDD-<short commit> (UTC date; "-dirty" for uncommitted changes), computed once: it goes
 # into the binary's ldflags and is what smoke.sh must then find on the public site.
-BUILD_ID="$(bash "$REPO_ROOT/scripts/build-id.sh" 2>/dev/null)" || BUILD_ID=""
-case "$BUILD_ID" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-?*) ;; *) die "scripts/build-id.sh did not print a build id (got '$BUILD_ID')" ;; esac
+BUILD_ID="$(bash "$SCRIPT_DIR/build-id.sh" 2>/dev/null)" || BUILD_ID=""
+case "$BUILD_ID" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-?*) ;; *) die "web/scripts/build-id.sh did not print a build id (got '$BUILD_ID')" ;; esac
 
 preflight
 
@@ -336,7 +335,7 @@ fi
 # Nothing has changed on the server yet; refuse to ship code that does not pass its tests.
 if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
   NVMRC=""
-  for f in "$REPO_ROOT/web/.nvmrc" "$REPO_ROOT/.nvmrc"; do
+  for f in "$REPO_ROOT/web/.nvmrc"; do
     if [ -f "$f" ]; then NVMRC="$f"; break; fi
   done
   if [ -n "$NVMRC" ]; then
@@ -543,7 +542,7 @@ if ! wait_healthy "$VERSION"; then
   echo "deploy: this release carries a migration (schema $PREV_SCHEMA -> $NEW_SCHEMA), so the binary was NOT rolled back: the previous binary may not work against the migrated schema." >&2
   echo "deploy: to go back, restore the pre-deploy backup with the previous release. On the server:" >&2
   echo "  cd \$HOME/$B && ln -sfn releases/$ACTIVE current && DATA_DIR=$DD APP_BIN=\$HOME/$B/releases/$ACTIVE/app SERVICE=$SERVICE PORT=$HEALTH_PORT bash restore.sh $BACKUP_DIR" >&2
-  echo "deploy: (run restore.sh --drill first if you want to rehearse; see docs/backups.md)" >&2
+  echo "deploy: (run restore.sh --drill first if you want to rehearse; see web/docs/backups.md)" >&2
   exit 1
 fi
 step "healthy: $VERSION is serving"

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signInAndWait } from "./support";
 
-// The harness builds the binary with scripts/build-id.sh, so the id is a real one:
+// The harness builds the binary with web/scripts/build-id.sh, so the id is a real one:
 // YYYYMMDD-<7 hex>, "unknown" outside git, "-dirty" for a modified tree.
 const FORMAT = /^[0-9]{8}-([0-9a-f]{7}|unknown)(-dirty)?$/;
 
@@ -16,7 +16,7 @@ async function healthBuildId(page: Page): Promise<string> {
 test("/healthz reports a real build id", async ({ page }) => {
   const id = await healthBuildId(page);
   expect(id).toMatch(FORMAT);
-  expect(id).not.toBe("00000000-unknown"); // the default of a binary built without scripts/build-id.sh
+  expect(id).not.toBe("00000000-unknown"); // the default of a binary built without web/scripts/build-id.sh
 });
 
 test("the footer shows the same build id on the public page, sign-in, notes and 404", async ({ page }) => {

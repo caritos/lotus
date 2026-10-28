@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rename the starter: scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>
+# Rename the starter: web/scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>
 #
 # --check runs every validation (name pattern, reserved words, the run-time reversibility check, module
 # path) without modifying anything and without requiring a clean tree: exit 0 when the rename would be
@@ -32,16 +32,16 @@
 #   - the page <title>, brand link, <h1> and "What is <name>?" heading of the HTML pages
 #
 # Prose that merely mentions the name is NOT rewritten; edit the README and page copy by hand.
-# Paths are moved only for web/api/cmd/<name>/ and deploy/<name>*; internal/app, internal/web/app
+# Paths are moved only for web/api/cmd/<name>/ and web/deploy/<name>*; internal/app, internal/web/app
 # and the /app/ URL mount are never touched. Rewrites tracked text files only (never .git,
 # node_modules, docs/superpowers, .claude/skills, pnpm-lock.yaml, this script and its test, or binary files). Refuses to run outside a git
 # work tree or with uncommitted changes unless --force.
-# --regen also runs scripts/gen-api.sh (the text replacement already keeps the generated
+# --regen also runs web/scripts/gen-api.sh (the text replacement already keeps the generated
 # files consistent, so this is optional).
 set -euo pipefail
 
 die() { echo "rename: $*" >&2; exit 1; }
-usage() { echo "usage: scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>" >&2; exit 2; }
+usage() { echo "usage: web/scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>" >&2; exit 2; }
 
 FORCE=0; REGEN=0; CHECK=0; ARGS=()
 for a in "$@"; do
@@ -63,7 +63,7 @@ NAME_RE='^[a-z][a-z0-9]*$'
 # path component (web/api/internal/..., deploy/, scripts/, data/, logs/, releases/, current/),
 # as a target after a $VAR/ or ~/ prefix (the rules turn "$root/web" into "$root/<name>"), or as a
 # common variable or fixture word in the scripts. Derived from `git ls-files` path components and
-# the `$VAR/<word>` / prefix uses in scripts/, web/test/, deploy/ and the Makefile. It also holds the
+# the `$VAR/<word>` / prefix uses in web/scripts/, web/test/, web/deploy/ and web/Makefile. It also holds the
 # names of the TOOLS the scripts, the Makefile and CI invoke (`command -v go`, `web/api/go.mod`,
 # `git describe`, `pnpm`) and the fixture words of the shell tests (`$T/notify`, `$T/style`): a
 # project with such a name would have those occurrences rewritten. rename.test.sh
@@ -73,10 +73,10 @@ reserved_word() { case " $RESERVED " in *" $1 "*) return 0 ;; esac; return 1; }
 [[ "$MODULE" =~ $MODULE_RE ]] || die "invalid module path '$MODULE': use lowercase letters, digits, '.', '_' and '-', with '/' separated segments (for example github.com/acme/shop)"
 [[ "$NAME" =~ $NAME_RE ]] || die "invalid name '$NAME': use a lowercase letter followed by lowercase letters and digits only (for example shop)"
 
-! reserved_word "$NAME" || die "the name '$NAME' is reserved: it is a directory or variable word of this repository and renaming to it would corrupt files. Pick another name (the list is RESERVED in scripts/rename.sh)"
+! reserved_word "$NAME" || die "the name '$NAME' is reserved: it is a directory or variable word of this repository and renaming to it would corrupt files. Pick another name (the list is RESERVED in web/scripts/rename.sh)"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$here/.." && pwd)"
+ROOT="$(cd "$here/../.." && pwd)"
 cd "$ROOT"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git work tree: run this in a clone of the starter"
 [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || die "this script must live in the root of its own git work tree"
@@ -87,7 +87,7 @@ OLD_MODULE="$(sed -n 's/^module[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:
 cmds=(); for d in web/api/cmd/*/; do [ -d "$d" ] && cmds+=("$(basename "$d")"); done
 [ "${#cmds[@]}" -eq 1 ] || die "expected exactly one directory under web/api/cmd/, found ${#cmds[@]}"
 OLD="${cmds[0]}"
-! reserved_word "$OLD" || die "the current name '$OLD' is reserved (a directory or variable word of this repository): scripts/rename.sh cannot rename away from it safely; rename by hand or restore a non-reserved name"
+! reserved_word "$OLD" || die "the current name '$OLD' is reserved (a directory or variable word of this repository): web/scripts/rename.sh cannot rename away from it safely; rename by hand or restore a non-reserved name"
 [[ "$OLD" =~ $NAME_RE ]] || die "the current command directory name '$OLD' is not a plain lowercase name"
 
 if [ "$MODULE" = "$OLD_MODULE" ] && [ "$NAME" = "$OLD" ]; then
@@ -106,7 +106,7 @@ TOKEN="@@RENAME_MODULE_PATH@@"
 excluded() {
   case "$1" in
     docs/superpowers/*|.claude/skills/*|*/node_modules/*|web/pnpm-lock.yaml|pnpm-lock.yaml|.git/*) return 0 ;;
-    scripts/rename.sh|scripts/rename.test.sh) return 0 ;;   # these read the names from the repo
+    web/scripts/rename.sh|web/scripts/rename.test.sh) return 0 ;;   # these read the names from the repo
   esac
   return 1
 }
@@ -220,7 +220,7 @@ MOVED=0
 while IFS= read -r -d '' f; do
   case "$f" in
     "web/api/cmd/$OLD/"*) new="web/api/cmd/$NAME/${f#web/api/cmd/$OLD/}" ;;
-    "deploy/$OLD.service"|"deploy/$OLD-backup.service"|"deploy/$OLD-backup.timer") new="deploy/$NAME${f#deploy/$OLD}" ;;
+    "web/deploy/$OLD.service"|"web/deploy/$OLD-backup.service"|"web/deploy/$OLD-backup.timer") new="web/deploy/$NAME${f#web/deploy/$OLD}" ;;
     *) continue ;;
   esac
   [ "$new" = "$f" ] && continue   # only the module path changed: nothing to move
@@ -231,7 +231,7 @@ while IFS= read -r -d '' f; do
 done < <(git ls-files -z)
 
 if [ "$REGEN" -eq 1 ]; then
-  bash scripts/gen-api.sh
+  bash web/scripts/gen-api.sh
 fi
 
 echo "rename: module '$MODULE', name '$NAME': $CHANGED files rewritten, $MOVED files moved."
@@ -243,7 +243,7 @@ page title. Prose that merely mentions it was left alone: read these by hand.
 Next steps:
   - update the README title and text, and the public page copy (web/api/internal/web/pages/)
   - add a LICENSE of your choice
-  - on the server, create .env from .env.example and set SESSION_SECRET and PUBLIC_ORIGIN
+  - on the server, create .env from web/deploy/.env.example and set SESSION_SECRET and PUBLIC_ORIGIN
   - point the git remote at your repository: git remote set-url origin <url>
-  - run: make test
+  - run: make -C web test
 NEXT

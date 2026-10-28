@@ -12,27 +12,34 @@ feature is notes with an optional photo, behind email + password sign-in.
 ## Layout and layering
 
 ```
-web/api/            Go module (go.mod, module path = see go.mod)
-  cmd/app/        CLI: serve (default), user create, backup, verify-backup, schema-version
-  internal/
-    config/ db/ uid/ version/ apigen/   leaf packages: import no feature package
-    auth/ notes/ storage/ backup/ logging/ web/   features and infrastructure
-    server/         HTTP wiring and middleware       app/   composition root
-    apptest/ testutil/   test-only helpers (never imported by production code)
-  tests/            integration tests, embed checks, import-direction guard
-  openapi.yaml      the API contract (source of truth)
-web/                Vite + React + TypeScript app (src/), Playwright (test/e2e/)
-deploy/             files installed on a server only: systemd units, nginx example
-scripts/            every repo-level script and its *.test.sh: deploy, smoke, restore, pull-backups, gen-api, rename, build-id, layout
-docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ holds design history)
-dist/              compiled binary from `make build` (ignored); the frontend build is NOT here, see below
-ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
+Repo root:  README.md  CLAUDE.md  AGENTS.md  .gitignore  .gitattributes
+.github/            CI workflow
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 .claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
+docs/superpowers/   design history (specs and plans), the only thing at the root docs/
+ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
+web/                everything for the web platform; run its commands from here or with `make -C web`
+  Makefile          test-fast, test, test-skills, e2e-install, e2e, api, build, dev
+  .nvmrc            Node pin
+  deploy/           files installed on a server only: systemd units, nginx example and the server env template
+  docs/             deploy.md, https.md, backups.md, testing.md
+  scripts/          every script and its *.test.sh: deploy, smoke, restore, pull-backups, install-backup-agent, gen-api, rename, build-id, layout
+  dist/             compiled binary from `make -C web build` (ignored); the frontend build is NOT here, see below
+  src/              React + TypeScript app
+  test/e2e/         Playwright (specs, global-setup, config); Vitest tests sit beside the sources in src/
+  api/              Go module (go.mod, module path = see go.mod)
+    cmd/app/        CLI: serve (default), user create, backup, verify-backup, schema-version
+    internal/
+      config/ db/ uid/ version/ apigen/   leaf packages: import no feature package
+      auth/ notes/ storage/ backup/ logging/ web/   features and infrastructure
+      server/       HTTP wiring and middleware       app/   composition root
+      apptest/ testutil/   test-only helpers (never imported by production code)
+    tests/          integration tests, embed checks, import-direction guard
+    openapi.yaml    the API contract (source of truth)
 ```
 
-`dist/` holds only the compiled Go binary. Vite's output (`pnpm build`) goes to
-`web/api/internal/web/app/` (ignored) instead of the usual `dist/`, because `go:embed` can only embed
+`web/dist/` holds only the compiled Go binary. Vite's output (`pnpm build`) goes to
+`web/api/internal/web/app/` (ignored) instead of Vite's usual `dist/`, because `go:embed` can only embed
 files inside the Go module.
 
 Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
@@ -47,14 +54,15 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 
 | Command | What |
 |---|---|
-| `make test-fast` | fast tier: `go test -short ./...`, `pnpm test`, `pnpm typecheck` |
-| `make test-skills` | fast tier of the skill tests (`.claude/skills/new-web-app/tests/run.sh --fast`; the full tier is `bash .claude/skills/new-web-app/tests/run.sh`, which scaffolds a real app from the committed `HEAD`, see `docs/testing.md`) |
-| `make test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
-| `make e2e-install` then `make e2e` | Playwright against the built binary (not part of the other tiers) |
-| `make api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
-| `make build` | `pnpm build` (fills the embed directory) then `go build` into `./dist/app` |
-| `make dev` | Go API on 127.0.0.1:8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
+| `make -C web test-fast` | fast tier: `go test -short ./...`, `pnpm test`, `pnpm typecheck` |
+| `make -C web test-skills` | fast tier of the skill tests (`.claude/skills/new-web-app/tests/run.sh --fast`; the full tier is `bash .claude/skills/new-web-app/tests/run.sh`, which scaffolds a real app from the committed `HEAD`, see `web/docs/testing.md`) |
+| `make -C web test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
+| `make -C web e2e-install` then `make -C web e2e` | Playwright against the built binary (not part of the other tiers) |
+| `make -C web api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
+| `make -C web build` | `pnpm build` (fills the embed directory) then `go build` into `web/dist/app` |
+| `make -C web dev` | Go API on 127.0.0.1:8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
 
+The Makefile lives in `web/`: run `cd web && make test`, or `make -C web test` from the repo root. Examples elsewhere in this file use `make -C web`.
 If the full suite is slow, run it in the background and wait for the result.
 
 ## Conventions
@@ -69,15 +77,15 @@ If the full suite is slow, run it in the background and wait for the result.
   file, applying nothing further) when an applied file's bytes change. Files must be named
   `NNNN_description.sql` (`^[0-9]{4}_[a-z0-9_]+\.sql$`) with unique `NNNN`; gaps are fine.
 - Never persist absolute file paths; store names relative to `DATA_DIR/storage`.
-- Configuration is environment variables only. `.env.example` is the server template
-  (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make dev` sets its
+- Configuration is environment variables only. `web/deploy/.env.example` is the server template
+  (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make -C web dev` sets its
   own environment. Production refuses to start without `SESSION_SECRET` and `PUBLIC_ORIGIN`;
   `PUBLIC_ORIGIN` is validated and normalized; development mode warns when it listens beyond loopback;
   `deploy.sh` refuses a server `.env` that is not `APP_ENV=production` (override: `ALLOW_DEV_DEPLOY=1`).
   `deploy.sh` also refuses a port already held by another service, and with `EXPECT_PUBLIC_LISTENER=1`
-  a loopback `ADDR` or a missing public listener (`ss`); see `docs/deploy.md`.
+  a loopback `ADDR` or a missing public listener (`ss`); see `web/docs/deploy.md`.
   `deploy.sh` runs a test gate (`go vet`, `go test -short`, `pnpm test`, `pnpm typecheck`) and a Node-major
-  check against `.nvmrc` before anything changes (`SKIP_TESTS=1` skips only the tests, not the Node check), and
+  check against `web/.nvmrc` before anything changes (`SKIP_TESTS=1` skips only the tests, not the Node check), and
   warns when `${SERVICE}-backup.timer` is not enabled, or its state cannot be determined, on the server
   (`REQUIRE_BACKUP_TIMER=1` refuses both).
   Secrets never go in the repo.
@@ -89,7 +97,7 @@ If the full suite is slow, run it in the background and wait for the result.
   logs and uploads live under `DATA_DIR`), secrets or large media. Every 200 from `internal/web` carries an
   `ETag` and a matching `If-None-Match` is a bodiless 304, because embedded files have no mod time.
 - A new endpoint needs three things, enforced by `web/api/tests/guardrails_test.go` (details in
-  `docs/testing.md`): a literal `"METHOD /path"` route pattern, an `operationId` in `openapi.yaml`, and an
+  `web/docs/testing.md`): a literal `"METHOD /path"` route pattern, an `operationId` in `openapi.yaml`, and an
   integration test marked `// covers: <operationId>` (copy `notes_flow_test.go`).
 - A new endpoint is private by default: `server.New` mounts everything under `/api/` behind `auth.Middleware` +
   `auth.Require`, so mount new routes inside that private mux (not directly on the top-level mux) and a signed-out
@@ -99,7 +107,7 @@ If the full suite is slow, run it in the background and wait for the result.
   `TestPublicAllowlistMatchesTheSpec` fail otherwise.
 - Money is stored as integer cents (no floats); the example schema has no money column.
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
-  run `make api`. API types in the frontend come only from the generated client.
+  run `make -C web api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
   `go vet` clean, API responses are typed structs with explicit `json` tags.
 - Web: TypeScript `strict`, no `any`, pnpm only (never npm, yarn, Jest or Bun).
@@ -110,14 +118,14 @@ If the full suite is slow, run it in the background and wait for the result.
   stack logged at Error), only logged when the response had already started, and `http.ErrAbortHandler` is
   re-panicked. Tests pin the order (`TestNewAppliesChain`, `TestWrapPanicOrder`).
 - HTTPS and HSTS belong to the reverse proxy: the app never sends `Strict-Transport-Security`
-  (see `docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
+  (see `web/docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
 - Public pages (`/`, `/faq`, `/privacy`, `/terms`, `/support`) are plain static HTML; keep them
   true to the behavior, including every third-party network call.
 - Build id: every HTML page the app serves (public pages, the 404 and "app not built" pages, the React
   app) has a footer with `Build YYYYMMDD-<short commit>` (UTC build date; `-dirty` when tracked files are
   modified; `unknown` as the commit outside git). `/healthz` reports it as `build_id`. The id is set only by
-  `scripts/build-id.sh` passed as `-ldflags -X <module>/internal/version.BuildID=...` (`make build`, `make dev`,
-  `scripts/deploy.sh`, `web/test/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
+  `web/scripts/build-id.sh` passed as `-ldflags -X <module>/internal/version.BuildID=...` (`make -C web build`, `make -C web dev`,
+  `web/scripts/deploy.sh`, `web/test/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
   startup (before ETags and lengths): new HTML pages in `internal/web/pages/` must contain the literal
   `@@BUILD_ID@@` exactly once inside a `site-footer` (a test enforces it); the React app reads it from the
   `build-id` meta tag in `web/index.html` (`__BUILD_ID__`). `smoke.sh` checks it after every deploy.
@@ -134,26 +142,26 @@ If the full suite is slow, run it in the background and wait for the result.
 - Sign-in lockout is a denial-of-service lever, by design of a simple in-memory throttle: 20 failed
   sign-ins for one email lock that account for 15 minutes, from anywhere; and with `TRUSTED_PROXY`
   empty behind a proxy, 50 failures from anyone lock every user behind the proxy's address for
-  15 minutes. Set `TRUSTED_PROXY` correctly; a restart clears the counters. See `docs/deploy.md`.
+  15 minutes. Set `TRUSTED_PROXY` correctly; a restart clears the counters. See `web/docs/deploy.md`.
 - The deploy health check probes `127.0.0.1:<ADDR port>`, so `ADDR` must be loopback, `0.0.0.0` or
   `:<port>`, never a single non-loopback address.
 
 ## Run, verify, deploy
 
-- Run locally: `make dev`, create a user with
+- Run locally: `make -C web dev`, create a user with
   `cd web/api && printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/app user create you@example.com`.
-- Verify: `make test-fast` while working, `make test` before merging, `make e2e` for UI changes.
-- Deploy, HTTPS and backups: [docs/deploy.md](docs/deploy.md), [docs/https.md](docs/https.md),
-  [docs/backups.md](docs/backups.md). Tests: [docs/testing.md](docs/testing.md).
-- Rename the starter for a real project with `scripts/rename.sh <module-path> <name>`. The shipped name `app`
+- Verify: `make -C web test-fast` while working, `make -C web test` before merging, `make -C web e2e` for UI changes.
+- Deploy, HTTPS and backups: [web/docs/deploy.md](web/docs/deploy.md), [web/docs/https.md](web/docs/https.md),
+  [web/docs/backups.md](web/docs/backups.md). Tests: [web/docs/testing.md](web/docs/testing.md).
+- Rename the starter for a real project with `web/scripts/rename.sh <module-path> <name>`. The shipped name `app`
   is also a Go package (`internal/app`), the embed directory (`internal/web/app`), the `/app/` URL mount and
   the `APP_` env prefix, so the script never replaces the bare word: it reads the current module path and name
   from `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (module path,
-  `cmd/<name>`, `dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
-  and `<h1>`; the full list is in the header of the script). Prose is not rewritten; `scripts/rename.test.sh`
+  `cmd/<name>`, `web/dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
+  and `<h1>`; the full list is in the header of the script). Prose is not rewritten; `web/scripts/rename.test.sh`
   renames to several names and back (byte-identical) and shows the generic uses are untouched.
 - A fresh checkout is called `app`, which is generic: the server and Mac names built from it (`~/<name>`,
-  `<name>.service`, `<name>.db`, `com.<name>.backup-pull`) can clash with another app. Run `scripts/rename.sh` before a real deployment. That is the only supported route;
+  `<name>.service`, `<name>.db`, `com.<name>.backup-pull`) can clash with another app. Run `web/scripts/rename.sh` before a real deployment. That is the only supported route;
   overriding `REMOTE_BASE`/`SERVICE` alone leaves `restore.sh`, the unit files and the Mac agent generic.
   `rename.sh` rejects a name that is reserved (directory and variable words such as `web`, `data`; the `RESERVED`
   list is only a fast pre-filter) or that already occurs in the tree in a context it rewrites (checked at run
@@ -161,13 +169,20 @@ If the full suite is slow, run it in the background and wait for the result.
 
 ## Node and pnpm
 
-Node 24 (`.nvmrc`, `engines`). pnpm comes from corepack: `corepack enable`; `package.json`
+Node 24 (`web/.nvmrc`, `engines`). pnpm comes from corepack: `corepack enable`; `package.json`
 pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x because
 `openapi-typescript` 7 needs the TypeScript 5 compiler API.
 
 ## Log
 
 ### Done (2026-10-27)
+
+- Web layout (2026-10-28): everything that belongs to the web platform moved under `web/`: `Makefile`, `.nvmrc`, `deploy/` (now with
+  `.env.example`), `docs/` (deploy, https, backups, testing), `scripts/` (every script and its test, including `rename.sh`,
+  `build-id.sh` and `layout.test.sh`) and the binary output `web/dist/`. The repo root keeps README, CLAUDE, AGENTS,
+  `.github/`, `.claude/`, `ios/` and `docs/superpowers/`; `web/scripts/layout.test.sh` asserts that exact root and the
+  tracked-file sets of `web/scripts`, `web/deploy` and `web/docs`. Playwright stays in `web/test/e2e/`. Server-side paths
+  (`~/<name>/...`, `~/.config/systemd/user`) are unchanged. The `new-web-app` wrapper generates `web/scripts/deploy-app.sh`.
 
 - Skills in the repo (2026-10-28): `new-web-app` and `new-ios-app` live in `.claude/skills/` and the wrapper's default starter is the repo it lives in (an environment variable still overrides it). The wrapper leaves `.claude/skills/` out of a new app, validates the slug with `scripts/rename.sh --check`, protects generic prose "app" in the pages while the display name replaces the title, brand link, first h1 and "What is" heading, and its L3 warning (host targets with ios/ or a root CLAUDE.md) is gone (the layout guard has a host mode). `scripts/rename.sh`, `scripts/layout.test.sh` and `scripts/rename.test.sh` ignore `.claude/skills/` like `docs/superpowers/`. `make test-skills` is part of `make test`.
 - Follow-ups batch (2026-10-27): `deploy.sh` separates timer enabled / not enabled / could not determine, runs
@@ -269,7 +284,7 @@ iOS (`ios/` is only a placeholder)
 - Decide native auth: the API uses a cookie session and checks `Origin` on mutating requests, so a native client
   needs matching cookie handling or a token login endpoint.
 - Example screens: sign in, notes list, a note with a photo.
-- `scripts/rename.sh` does not know about the bundle id, `project.yml` or Kit names; extend it when the app exists.
+- `web/scripts/rename.sh` does not know about the bundle id, `project.yml` or Kit names; extend it when the app exists.
 
 Server and HTTP
 - Login decoder accepts unknown fields and trailing data; require `Content-Type: application/json`.
@@ -291,7 +306,7 @@ Auth
 Frontend
 - Rejected fetches leave "Loading..." with an unhandled rejection in the session, list and edit views.
 - `NoteEdit` shows a stale note when the id changes; `RequireAuth` drops the requested path on redirect.
-- `make dev` only works from exactly http://localhost:5173 (127.0.0.1 fails the same-origin check).
+- `make -C web dev` only works from exactly http://localhost:5173 (127.0.0.1 fails the same-origin check).
 - The test setup swaps FormData/File/Request for a jsdom quirk; remove it when jsdom allows.
 - `openapi-typescript --binary` would type the photo as a Blob and remove the upload serializer workaround.
 - `clean-app.mjs` could guard that the directory is named `app`.

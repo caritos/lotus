@@ -2,8 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(make test-fast:*)",
+      "Bash(make -C web test-fast:*)",
       "Bash(make test:*)",
+      "Bash(make -C web test:*)",
       "Bash(make api:*)",
+      "Bash(make -C web api:*)",
       "Bash(go test:*)",
       "Bash(go vet:*)",
       "Bash(gofmt:*)",

@@ -3,7 +3,7 @@
 # i.e. the committed generated code is stale relative to web/api/openapi.yaml.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/.." && pwd)"
+root="$(cd "$here/../.." && pwd)"
 files=(
   "web/api/internal/apigen/models.gen.go"
   "web/src/api/schema.d.ts"

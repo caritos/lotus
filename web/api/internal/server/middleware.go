@@ -25,7 +25,7 @@ type Middleware = func(http.Handler) http.Handler
 
 // SecurityHeaders sets the baseline response headers. It never sets
 // Strict-Transport-Security: the reverse proxy that terminates TLS owns HSTS, so
-// its staged max-age rollout (docs/https.md) is the only one browsers see.
+// its staged max-age rollout (web/docs/https.md) is the only one browsers see.
 func SecurityHeaders() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

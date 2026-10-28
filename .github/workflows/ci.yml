@@ -27,7 +27,7 @@ jobs:
           cache-dependency-path: web/api/go.sum
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: web/.nvmrc
       - run: corepack enable
       - name: Install web dependencies
         working-directory: web
@@ -58,7 +58,7 @@ jobs:
           cache-dependency-path: web/api/go.sum
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: web/.nvmrc
       - run: corepack enable
       - name: Install web dependencies
         working-directory: web
@@ -76,7 +76,7 @@ jobs:
       - name: Generated code is up to date
         # status --porcelain also catches new untracked generated files, which diff misses.
         run: |
-          bash scripts/gen-api.sh
+          bash web/scripts/gen-api.sh
           if [ -n "$(git status --porcelain)" ]; then
             git status --porcelain
             git diff
@@ -92,17 +92,17 @@ jobs:
           pnpm test
           pnpm typecheck
       - name: Deploy, backup and restore script tests
-        run: bash scripts/deploy.test.sh
+        run: bash web/scripts/deploy.test.sh
       - name: Generator preflight tests
-        run: bash scripts/gen-api-preflight.test.sh
+        run: bash web/scripts/gen-api-preflight.test.sh
       - name: Hook tests
         run: bash .claude/hooks/post-edit.test.sh
       - name: Rename script test
-        run: bash scripts/rename.test.sh
+        run: bash web/scripts/rename.test.sh
       - name: Build id script test
-        run: bash scripts/build-id.test.sh
+        run: bash web/scripts/build-id.test.sh
       - name: Repository layout test
-        run: bash scripts/layout.test.sh
+        run: bash web/scripts/layout.test.sh
       - name: Skill tests (fast tier)
         run: bash .claude/skills/new-web-app/tests/run.sh --fast
 
@@ -117,7 +117,7 @@ jobs:
           cache-dependency-path: web/api/go.sum
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: web/.nvmrc
       - run: corepack enable
       - name: Install web dependencies
         working-directory: web
@@ -126,6 +126,7 @@ jobs:
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium
       - name: End-to-end tests
+        working-directory: web
         run: make e2e
       - name: Upload Playwright output
         if: failure()

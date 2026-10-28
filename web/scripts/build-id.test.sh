@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for scripts/build-id.sh. Each case copies the script into a throwaway directory
+# Tests for web/scripts/build-id.sh. Each case copies the script into a throwaway directory
 # (the script finds its repo from its own location) and runs it there.
-# Run: bash scripts/build-id.test.sh
+# Run: bash web/scripts/build-id.test.sh
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,11 +14,11 @@ bad() { fail=$((fail+1)); echo "FAIL - $1"; }
 
 FORMAT='^[0-9]{8}-([0-9a-f]{7}|unknown)(-dirty)?$'
 
-# new_dir <name>: a directory holding scripts/build-id.sh (no repo yet).
+# new_dir <name>: a directory holding web/scripts/build-id.sh (no repo yet).
 new_dir() {
   local d="$ROOT/$1"
-  mkdir -p "$d/scripts"
-  cp "$HERE/build-id.sh" "$d/scripts/build-id.sh"
+  mkdir -p "$d/web/scripts"
+  cp "$HERE/build-id.sh" "$d/web/scripts/build-id.sh"
   echo "$d"
 }
 
@@ -28,7 +28,7 @@ init_repo() {
     cd "$1" || exit 1
     git init -q
     echo one > tracked.txt
-    git add tracked.txt scripts/build-id.sh
+    git add tracked.txt web/scripts/build-id.sh
     git -c user.email=t@example.com -c user.name=t -c commit.gpgsign=false commit -q -m base
   )
 }
@@ -36,7 +36,7 @@ init_repo() {
 # run_id <dir> [VAR=value ...]: stdout of the script (run from an unrelated cwd), status in $RC.
 run_id() {
   local d="$1"; shift
-  OUT="$(cd "$ROOT" && env -u BUILD_DATE -u SOURCE_DATE_EPOCH GIT_CEILING_DIRECTORIES="$ROOT" "$@" bash "$d/scripts/build-id.sh" 2>"$ROOT/stderr")"
+  OUT="$(cd "$ROOT" && env -u BUILD_DATE -u SOURCE_DATE_EPOCH GIT_CEILING_DIRECTORIES="$ROOT" "$@" bash "$d/web/scripts/build-id.sh" 2>"$ROOT/stderr")"
   RC=$?
 }
 
@@ -100,7 +100,7 @@ printf '%s' "$OUT" | grep -Eq "$FORMAT" && [ "$RC" = 0 ]; check "garbage overrid
 
 # works from any cwd and through a different invocation path
 run_id "$d" BUILD_DATE=20261027
-(cd / && BUILD_DATE=20261027 bash "$d/scripts/build-id.sh") | grep -Eq "$FORMAT"; check "runs from any directory" $?
+(cd / && BUILD_DATE=20261027 bash "$d/web/scripts/build-id.sh") | grep -Eq "$FORMAT"; check "runs from any directory" $?
 
 # the real script in the real repo
 OUT="$(bash "$HERE/build-id.sh")"; RC=$?

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Full tier: scaffold from the REAL starter (the repo this skill lives in, or GOWEB_DIR; it must be a clean
 # committed tree) into a temp repo that already has ios/ and a root CLAUDE.md, run the starter's own fast tier
-# there, run its layout guard (scripts/layout.test.sh) in that host-shaped app and in a fresh scaffold, build the
-# binary, serve it locally and run the starter's scripts/smoke.sh against it with APP_NAME as written by
-# scripts/deploy-app.sh.
+# there, run its layout guard (web/scripts/layout.test.sh) in that host-shaped app and in a fresh scaffold, build the
+# binary, serve it locally and run the starter's web/scripts/smoke.sh against it with APP_NAME as written by
+# web/scripts/deploy-app.sh.
 # Needs Node (web/.nvmrc under ~/.nvm, or on PATH), pnpm and Go. goweb's `--check` logs in over ssh and
 # cannot run offline; the placeholder-port refusal before any ssh call is tested here and in the fast tier.
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,26 +60,26 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
   git -C "$r" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m start
   # the starter's own fast tier in the copy, and its layout guard in this host-shaped app (ios/ and a root
   # CLAUDE.md of its own, the marker tracked): host mode must accept it
-  (cd "$r" && bash scripts/layout.test.sh >"$F_ROOT/hostlayout.log" 2>&1) || { grep -v '^ok' "$F_ROOT/hostlayout.log" >&2; return 1; }
+  (cd "$r" && bash web/scripts/layout.test.sh >"$F_ROOT/hostlayout.log" 2>&1) || { grep -v '^ok' "$F_ROOT/hostlayout.log" >&2; return 1; }
   assert_contains "$(cat "$F_ROOT/hostlayout.log")" "host mode"
-  (cd "$r" && make test-fast >"$F_ROOT/fast.log" 2>&1) || { tail -n 30 "$F_ROOT/fast.log" >&2; return 1; }
+  (cd "$r" && make -C web test-fast >"$F_ROOT/fast.log" 2>&1) || { tail -n 30 "$F_ROOT/fast.log" >&2; return 1; }
 
   # deploy-app.sh refuses the placeholder port before any ssh call, and runs the real deploy.sh otherwise
   local r2="$F_ROOT/noport"; mkdir "$r2"
   GOWEB_DIR="$goweb" bash "$SCAFFOLD" "$r2" shop "$DISPLAY_NAME" "d" >/dev/null 2>&1
-  # the starter's layout guard must pass on the renamed scaffold, with the extra scripts/deploy-app.sh
+  # the starter's layout guard must pass on the renamed scaffold, with the extra web/scripts/deploy-app.sh
   git -C "$r2" init -q; git -C "$r2" add -A
   git -C "$r2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m start
-  (cd "$r2" && bash scripts/layout.test.sh >"$F_ROOT/layout.log" 2>&1) || { grep -v '^    ok' "$F_ROOT/layout.log" >&2; return 1; }
+  (cd "$r2" && bash web/scripts/layout.test.sh >"$F_ROOT/layout.log" 2>&1) || { grep -v '^    ok' "$F_ROOT/layout.log" >&2; return 1; }
   make_fakebin "$F_ROOT/bin" ssh 'exit 0'; : > "$F_ROOT/ssh.log"
-  ( cd "$r2"; PATH="$F_ROOT/bin:$PATH" FAKE_LOG="$F_ROOT/ssh.log" bash scripts/deploy-app.sh me@host --check ) >"$F_ROOT/np.log" 2>&1 && { echo "deploy-app accepted the placeholder port" >&2; return 1; }
+  ( cd "$r2"; PATH="$F_ROOT/bin:$PATH" FAKE_LOG="$F_ROOT/ssh.log" bash web/scripts/deploy-app.sh me@host --check ) >"$F_ROOT/np.log" 2>&1 && { echo "deploy-app accepted the placeholder port" >&2; return 1; }
   assert_contains "$(cat "$F_ROOT/np.log")" "port"
   [ ! -s "$F_ROOT/ssh.log" ]
 
   # build the binary and serve it
-  (cd "$r" && make build >"$F_ROOT/build.log" 2>&1) || { tail -n 30 "$F_ROOT/build.log" >&2; return 1; }
-  # `make build` writes dist/<name>.
-  bin="$r/dist/shop"
+  (cd "$r" && make -C web build >"$F_ROOT/build.log" 2>&1) || { tail -n 30 "$F_ROOT/build.log" >&2; return 1; }
+  # `make -C web build` writes web/dist/<name>.
+  bin="$r/web/dist/shop"
   [ -x "$bin" ]
   port=$((20000 + RANDOM % 20000))
   mkdir -p "$F_ROOT/data"
@@ -90,11 +90,11 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
   curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null || { cat "$F_ROOT/server.log" >&2; return 1; }
 
   local appname version
-  appname="$(sed -n 's/^export APP_NAME=//p' "$r/scripts/deploy-app.sh")"; eval "appname=$appname"
+  appname="$(sed -n 's/^export APP_NAME=//p' "$r/web/scripts/deploy-app.sh")"; eval "appname=$appname"
   assert_eq "Tom&#39;s Notes" "$appname"
   version="$(curl -fsS "http://127.0.0.1:$port/healthz?verbose" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
   [ -n "$version" ] || version="$(curl -fsS "http://127.0.0.1:$port/healthz" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
-  APP_NAME="$appname" bash "$r/scripts/smoke.sh" "http://127.0.0.1:$port" "$version" >"$F_ROOT/smoke.log" 2>&1 \
+  APP_NAME="$appname" bash "$r/web/scripts/smoke.sh" "http://127.0.0.1:$port" "$version" >"$F_ROOT/smoke.log" 2>&1 \
     || { cat "$F_ROOT/smoke.log" >&2; return 1; }
 }
 

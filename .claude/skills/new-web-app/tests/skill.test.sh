@@ -30,8 +30,8 @@ test_skill_has_no_dead_references() {
     case "$t" in
       scripts/scaffold.sh|*/new-web-app/scripts/scaffold.sh) [ -f "$SKILL_DIR/scripts/scaffold.sh" ] || { echo "missing $t" >&2; rc=1; } ;;
       */new-web-app/tests/run.sh) [ -f "$SKILL_DIR/tests/run.sh" ] || { echo "missing $t" >&2; rc=1; } ;;
-      scripts/deploy-app.sh) grep -q 'deploy-app.sh' "$SKILL_DIR/scripts/scaffold.sh" || { echo "scaffold never writes $t" >&2; rc=1; } ;;
-      scripts/*) [ -f "$g/$t" ] || { echo "$t not in the starter" >&2; rc=1; } ;;
+      web/scripts/deploy-app.sh) grep -q 'deploy-app.sh' "$SKILL_DIR/scripts/scaffold.sh" || { echo "scaffold never writes $t" >&2; rc=1; } ;;
+      web/scripts/*) [ -f "$g/$t" ] || { echo "$t not in the starter" >&2; rc=1; } ;;
       *) echo "unexpected script reference $t" >&2; rc=1 ;;
     esac
   done

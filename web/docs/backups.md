@@ -16,7 +16,7 @@ Logs are not backed up.
 
 - **Server:** the `app-backup.timer` user unit runs `app backup --keep 14` daily at 03:15 (`Persistent=true`,
   so a missed run happens at the next start). The 14 newest sets are kept.
-- **Pull copies:** `scripts/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
+- **Pull copies:** `web/scripts/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
   each with `PRAGMA integrity_check`, quarantines failures in `failed/`, and keeps the newest 30 (`KEEP`).
   `failed/` is never pruned automatically.
 - **Pre-deploy sets:** every deploy runs `app backup --label predeploy --keep 5` with the running release.
@@ -37,7 +37,7 @@ in the privacy policy.
 
 ```sh
 # rehearsal: restores into a scratch directory, touches neither DATA_DIR nor the service
-# (on the server every deploy refreshes ~/app/restore.sh; from a checkout use scripts/restore.sh)
+# (on the server every deploy refreshes ~/app/restore.sh; from a checkout use web/scripts/restore.sh)
 export APP_BIN=$HOME/app/current/app      # must be the executable file, not a directory
 bash ~/app/restore.sh ~/app/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
 
@@ -75,7 +75,7 @@ Done log. A pulled copy that never went through a drill is a hope, not a backup.
 Set up the restricted key as described in [deploy.md](deploy.md), then schedule:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull DEST=$HOME/Backups/app scripts/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull DEST=$HOME/Backups/app web/scripts/pull-backups.sh
 ```
 
 Needs the `sqlite3` CLI on the pulling machine. Optional `MIRROR_DIR` (copied to only if it already exists) and
@@ -93,15 +93,15 @@ or `launchctl list`), and look at `DEST` now and then.
 
 ## Mac backup agent
 
-`scripts/install-backup-agent.sh` installs a launchd user agent (`com.app.backup-pull`) that runs
+`web/scripts/install-backup-agent.sh` installs a launchd user agent (`com.app.backup-pull`) that runs
 `pull-backups.sh` daily at 03:30. Settings live in one file, not in the plist:
 
 ```sh
 mkdir -p ~/.config/app
-cp scripts/backup-pull.env.example ~/.config/app/backup-pull.env   # set REMOTE and REMOTE_DIR, others optional
-scripts/install-backup-agent.sh               # install or replace the agent; verifies it with launchctl list
-scripts/install-backup-agent.sh --uninstall   # unload and remove it ("nothing installed" if there is nothing)
-scripts/install-backup-agent.sh --dry-run     # print what would be written and loaded; change nothing (also with --uninstall)
+cp web/scripts/backup-pull.env.example ~/.config/app/backup-pull.env   # set REMOTE and REMOTE_DIR, others optional
+web/scripts/install-backup-agent.sh               # install or replace the agent; verifies it with launchctl list
+web/scripts/install-backup-agent.sh --uninstall   # unload and remove it ("nothing installed" if there is nothing)
+web/scripts/install-backup-agent.sh --dry-run     # print what would be written and loaded; change nothing (also with --uninstall)
 ```
 
 - `REMOTE` and `REMOTE_DIR` are required (exit 2 and nothing written if either is missing). `DEST`, `KEEP`,

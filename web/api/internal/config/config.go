@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Config is the runtime configuration. Defaults live in Load; .env.example documents them.
+// Config is the runtime configuration. Defaults live in Load; web/deploy/.env.example documents them.
 type Config struct {
 	Addr          string
 	DataDir       string

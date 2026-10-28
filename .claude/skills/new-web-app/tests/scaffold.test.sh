@@ -16,8 +16,8 @@ MARK=".go""web-origin"
 # becomes the new name, plus dist/app in text files. Prose elsewhere stays.
 make_goweb() {
   local d="$1"
-  mkdir -p "$d/scripts" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
-  cat > "$d/scripts/rename.sh" <<'EOS'
+  mkdir -p "$d/web/scripts" "$d/web/deploy" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
+  cat > "$d/web/scripts/rename.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
 CHECK=0; A=(); for a in "$@"; do case "$a" in --check) CHECK=1 ;; --force|--regen) ;; *) A+=("$a") ;; esac; done
@@ -25,7 +25,7 @@ CHECK=0; A=(); for a in "$@"; do case "$a" in --check) CHECK=1 ;; --force|--rege
 FLAG=""; [ "$CHECK" = 1 ] && FLAG="--check "; echo "rename ${FLAG}${A[*]}" >> "${FAKE_LOG:-/dev/null}"
 case "${A[1]}" in verify|web) echo "rename: the name '${A[1]}' is reserved: pick another name" >&2; exit 1 ;; esac
 [ "$CHECK" = 0 ] || { echo "rename: --check: would be accepted"; exit 0; }
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 [ -z "$(git status --porcelain)" ] || { echo "rename: dirty tree" >&2; exit 1; }
 for f in $(git ls-files); do
   case "$f" in docs/superpowers/*|.claude/skills/*) continue ;; esac
@@ -35,19 +35,19 @@ for f in $(git ls-files); do
   esac
 done
 EOS
-  cat > "$d/scripts/deploy.sh" <<'EOS'
+  cat > "$d/web/scripts/deploy.sh" <<'EOS'
 #!/usr/bin/env bash
 { echo "PUBLIC_URL=${PUBLIC_URL:-}"; echo "EXPECT_PUBLIC_LISTENER=${EXPECT_PUBLIC_LISTENER:-}"
   echo "REQUIRE_BACKUP_TIMER=${REQUIRE_BACKUP_TIMER:-}"; echo "APP_NAME=${APP_NAME:-}"; echo "ARGS=$*"; } > "${DEPLOY_ENV_LOG:?}"
 EOS
-  cat > "$d/scripts/backup-pull.env.example" <<'EOS'
+  cat > "$d/web/scripts/backup-pull.env.example" <<'EOS'
 REMOTE=deploy@host.example.com
 REMOTE_DIR=app/data/backups
 #DEST=$HOME/Backups/app
 #KEEP=30
 #MIRROR_DIR="/path/to/second drive/backups/app"
 EOS
-  cat > "$d/.env.example" <<'EOS'
+  cat > "$d/web/deploy/.env.example" <<'EOS'
 APP_ENV=production
 PUBLIC_ORIGIN=
 # ADDR is the listen address
@@ -76,7 +76,7 @@ $h
 <p>The name in the header is a placeholder. Replace this footer with your own.</p>
 EOS
   done
-  printf 'test-fast:\n\t@test ! -f FAIL_TEST_FAST\n' > "$d/Makefile"
+  printf 'test-fast:\n\t@test ! -f FAIL_TEST_FAST\n' > "$d/web/Makefile"
   git -C "$d" init -q
   git -C "$d" add -A
   git -C "$d" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m fixture
@@ -171,7 +171,7 @@ test_does_not_commit_in_the_target() {
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
   # still no commit, files only
   ! git -C "$TARGET" rev-parse -q --verify HEAD >/dev/null
-  [ -f "$TARGET/scripts/deploy.sh" ]
+  [ -f "$TARGET/web/scripts/deploy.sh" ]
 }
 
 test_appends_only_missing_gitignore_lines() {
@@ -242,10 +242,10 @@ test_footer_and_support_address_use_caritos() {
 test_port_flag_sets_ADDR_and_without_it_the_placeholder_is_invalid() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" --port 8123 >/dev/null
-  assert_eq "ADDR=0.0.0.0:8123" "$(grep '^ADDR=' "$TARGET/.env.example")"
+  assert_eq "ADDR=0.0.0.0:8123" "$(grep '^ADDR=' "$TARGET/web/deploy/.env.example")"
   rm -rf "$TARGET"; mkdir "$TARGET"
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  local a; a="$(grep '^ADDR=' "$TARGET/.env.example")"
+  local a; a="$(grep '^ADDR=' "$TARGET/web/deploy/.env.example")"
   assert_contains "$a" "0.0.0.0:"
   case "${a##*:}" in *[!0-9]*) ;; *) echo "placeholder port is numeric: $a" >&2; return 1 ;; esac
 }
@@ -253,8 +253,8 @@ test_port_flag_sets_ADDR_and_without_it_the_placeholder_is_invalid() {
 test_applies_the_hosting_defaults() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" --port 8123 >/dev/null
-  assert_eq "PUBLIC_ORIGIN=https://shop.caritos.com" "$(grep '^PUBLIC_ORIGIN=' "$TARGET/.env.example")"
-  local b="$TARGET/scripts/backup-pull.env.example"
+  assert_eq "PUBLIC_ORIGIN=https://shop.caritos.com" "$(grep '^PUBLIC_ORIGIN=' "$TARGET/web/deploy/.env.example")"
+  local b="$TARGET/web/scripts/backup-pull.env.example"
   assert_eq 'MIRROR_DIR="/Volumes/Treasure Chest/backups/shop"' "$(grep '^MIRROR_DIR=' "$b")"
   assert_eq 'REMOTE_DIR=shop/data/backups' "$(grep '^REMOTE_DIR=' "$b")"
   assert_eq 'DEST=$HOME/Backups/shop' "$(grep '^DEST=' "$b")"
@@ -352,7 +352,7 @@ test_default_starter_is_the_repo_the_script_lives_in_also_through_a_symlink() {
 
 test_a_failing_fast_tier_leaves_the_target_untouched() {
   new_env
-  touch "$GW/FAIL_TEST_FAST"; git -C "$GW" add -A
+  touch "$GW/web/FAIL_TEST_FAST"; git -C "$GW" add -A
   git -C "$GW" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m fail
   echo keep > "$TARGET/mine.txt"
   local before after rc=0 out
@@ -386,18 +386,18 @@ test_prints_the_copy_rewrite_reminder_and_next_steps() {
   assert_contains "$out" "--port"
 }
 
-# ---- scripts/deploy-app.sh: the Mac-side deploy settings -------------------------------------
+# ---- web/scripts/deploy-app.sh: the Mac-side deploy settings -------------------------------------
 
 deploy_app_env() {  # runs the generated deploy-app.sh with a fake ssh first on PATH
   make_fakebin "$T_ROOT/fakebin" ssh 'exit 0'
   export DEPLOY_ENV_LOG="$T_ROOT/deploy-env.log"; rm -f "$DEPLOY_ENV_LOG"
-  PATH="$T_ROOT/fakebin:$PATH" bash "$TARGET/scripts/deploy-app.sh" "$@" 2>&1
+  PATH="$T_ROOT/fakebin:$PATH" bash "$TARGET/web/scripts/deploy-app.sh" "$@" 2>&1
 }
 
 test_deploy_app_exports_the_deploy_settings_and_runs_deploy_sh() {
   new_env
   run_scaffold "$TARGET" shop "Tom's & <Notes> \$HOME \`x\`" "desc" --port 8123 >/dev/null
-  [ -x "$TARGET/scripts/deploy-app.sh" ]
+  [ -x "$TARGET/web/scripts/deploy-app.sh" ]
   deploy_app_env me@host --check >/dev/null
   local log; log="$(cat "$DEPLOY_ENV_LOG")"
   assert_contains "$log" "PUBLIC_URL=https://shop.caritos.com"
@@ -423,7 +423,7 @@ test_deploy_app_rejects_the_placeholder_port_before_any_ssh_call() {
 test_deploy_app_follows_the_port_edited_into_env_example() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  perl -pi -e 's/^ADDR=.*/ADDR=0.0.0.0:8222/' "$TARGET/.env.example"
+  perl -pi -e 's/^ADDR=.*/ADDR=0.0.0.0:8222/' "$TARGET/web/deploy/.env.example"
   deploy_app_env me@host >/dev/null
   [ -e "$DEPLOY_ENV_LOG" ]
 }
@@ -432,7 +432,7 @@ test_deploy_app_is_not_a_stale_layout_violation() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" --port 8123 >/dev/null
   # layout.test.sh scans for "deploy/<script>.sh"-style stale paths; the new script must not trip it
-  ! grep -nE '(^|[^A-Za-z0-9_/])deploy/' "$TARGET/scripts/deploy-app.sh"
+  ! grep -nE '(^|[^A-Za-z0-9_/])deploy/' "$TARGET/web/scripts/deploy-app.sh"
 }
 
 # ---- host targets: the starter's layout guard is host-aware now, so no warning ------------------------
@@ -454,7 +454,7 @@ test_relative_dot_target_lands_in_the_current_directory() {
   new_env
   local out
   out="$(cd "$TARGET" && bash "$SCAFFOLD" . shop "Shop" "desc" 2>&1)"
-  [ -f "$TARGET/scripts/deploy-app.sh" ]; [ -f "$TARGET/$MARK" ]
+  [ -f "$TARGET/web/scripts/deploy-app.sh" ]; [ -f "$TARGET/$MARK" ]
   local real; real="$(cd "$TARGET" && pwd -P)"
   assert_contains "$out" "written to $real"
   assert_not_contains "$out" "written to ."
@@ -465,13 +465,13 @@ test_relative_sibling_target_lands_in_the_intended_directory() {
   mkdir "$T_ROOT/sib"
   local out
   out="$(cd "$T_ROOT/sib" && bash "$SCAFFOLD" ../app shop "Shop" "desc" 2>&1)"
-  [ -f "$T_ROOT/app/scripts/deploy-app.sh" ]; [ ! -e "$T_ROOT/sib/app" ]
+  [ -f "$T_ROOT/app/web/scripts/deploy-app.sh" ]; [ ! -e "$T_ROOT/sib/app" ]
   assert_contains "$out" "written to $(cd "$T_ROOT/app" && pwd -P)"
 }
 
 test_a_failure_does_not_leave_a_new_target_dir_behind() {
   new_env
-  touch "$GW/FAIL_TEST_FAST"; git -C "$GW" add -A
+  touch "$GW/web/FAIL_TEST_FAST"; git -C "$GW" add -A
   git -C "$GW" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m fail
   local rc=0
   (cd "$T_ROOT" && bash "$SCAFFOLD" newapp shop "Shop" "desc" >/dev/null 2>&1) || rc=$?

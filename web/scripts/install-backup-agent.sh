@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install (or remove) the macOS launchd agent that runs scripts/pull-backups.sh daily at 03:30.
+# Install (or remove) the macOS launchd agent that runs web/scripts/pull-backups.sh daily at 03:30.
 #
-#   scripts/install-backup-agent.sh               install or replace the agent
-#   scripts/install-backup-agent.sh --uninstall   unload and remove it ("nothing installed" when
+#   web/scripts/install-backup-agent.sh               install or replace the agent
+#   web/scripts/install-backup-agent.sh --uninstall   unload and remove it ("nothing installed" when
 #                                                 there is nothing to remove)
 #   add --dry-run to either to print what would be written, loaded or removed and change nothing
 #   (the settings are still validated).
@@ -11,7 +11,7 @@
 # bootstraps, retrying up to 3 times on launchd's transient "Input/output error".
 #
 # Settings come from ENV_FILE (default $HOME/.config/app/backup-pull.env; copy
-# scripts/backup-pull.env.example there). It must define REMOTE and REMOTE_DIR and may define
+# web/scripts/backup-pull.env.example there). It must define REMOTE and REMOTE_DIR and may define
 # DEST, MIRROR_DIR, KEEP, SSH_KEY, STALE_DAYS (see pull-backups.sh). The agent sources the file
 # at run time, so later edits apply without reinstalling.
 #
