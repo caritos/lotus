@@ -168,8 +168,8 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   `SKIPPED: n` total. The starter instead builds a host-shaped app in a throwaway copy (renamed to `shop`, no
   `ios/README.md`, a host root `CLAUDE.md` with its own log, goweb's log at `web/CLAUDE.md`, tracked marker) and runs
   the FULL guard in it: it must pass, and the same app with a stale path outside the Done sections must fail.
-  In host mode the stale-path scan skips the host-owned trees `ios/` and `android/` (a `new-ios-app` host has
-  `./deploy.sh` usage comments in `ios/App/`); the starter itself still scans `ios/`, and a stale path in `web/` or
+  In host mode the stale-path scan skips the host-owned trees `ios/` and `android/` (the usage comments in a `new-ios-app` host's
+  `ios/App/` scripts look like the old layout); the starter itself still scans `ios/`, and a stale path in `web/` or
   `scripts/` of a host-shaped app still fails (the self-test fixture carries excerpts of the real iOS templates).
   Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
   stays on. Without `.goweb-origin` goweb itself is fully guarded. The self-tests build a host layout in a
