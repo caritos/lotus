@@ -21,9 +21,9 @@ web/api/            Go module (go.mod, module path = see go.mod)
     apptest/ testutil/   test-only helpers (never imported by production code)
   tests/            integration tests, embed checks, import-direction guard
   openapi.yaml      the API contract (source of truth)
-web/                Vite + React + TypeScript app (src/), Playwright (e2e/)
-deploy/             systemd units, deploy.sh, restore.sh, pull-backups.sh, smoke.sh, nginx example
-scripts/            gen-api.sh, rename.sh, build-id.sh and their tests
+web/                Vite + React + TypeScript app (src/), Playwright (test/e2e/)
+deploy/             files installed on a server only: systemd units, nginx example
+scripts/            every repo-level script and its *.test.sh: deploy, smoke, restore, pull-backups, gen-api, rename, build-id, layout
 docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ holds design history)
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 ```
@@ -86,7 +86,7 @@ If the full suite is slow, run it in the background and wait for the result.
   app) has a footer with `Build YYYYMMDD-<short commit>` (UTC build date; `-dirty` when tracked files are
   modified; `unknown` as the commit outside git). `/healthz` reports it as `build_id`. The id is set only by
   `scripts/build-id.sh` passed as `-ldflags -X <module>/internal/version.BuildID=...` (`make build`, `make dev`,
-  `deploy/deploy.sh`, `web/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
+  `scripts/deploy.sh`, `web/test/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
   startup (before ETags and lengths): new HTML pages in `internal/web/pages/` must contain the literal
   `@@BUILD_ID@@` exactly once inside a `site-footer` (a test enforces it); the React app reads it from the
   `build-id` meta tag in `web/index.html` (`__BUILD_ID__`). `smoke.sh` checks it after every deploy.
@@ -160,6 +160,11 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   via `-ldflags` in the Makefile, `deploy.sh` and the e2e harness, `build_id` in `/healthz` and `openapi.yaml`,
   footer placeholder substitution in `internal/web` (static pages, 404, 503, the app's `index.html`), React
   `Footer`, Playwright spec, and `smoke.sh`/`deploy.sh` checks (`EXPECTED_BUILD_ID`).
+- Layout cleanup (2026-10-27): one `scripts/` for every repo-level script and its `*.test.sh` (`deploy.sh`,
+  `smoke.sh`, `restore.sh`, `pull-backups.sh`, `deploy.test.sh` moved from `deploy/`, which now holds only files
+  installed on a server); Playwright moved from `web/e2e/` to `web/test/e2e/` (+ `web/test/README.md`);
+  `scripts/layout.test.sh` guards both and is part of `make test-scripts` and the CI full job. Pure moves, no
+  behavior change; `deploy.sh` still uploads `restore.sh` to `~/goweb/restore.sh`.
 
 ### Not yet verified
 

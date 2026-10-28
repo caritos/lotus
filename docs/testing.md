@@ -8,7 +8,7 @@ full tier runs before every merge; end to end is separate because it downloads a
 | Go unit | package logic, handlers with `httptest`, in-memory or temp-file SQLite | beside the code (`foo_test.go`) | `go test -short ./...` |
 | Go integration | real server wiring, migrations on populated data, auth flow, upload to `storage/`, backup and restore round trip, embed and import-direction checks | `web/api/tests/` | `go test -race ./...` plus `go vet ./...` |
 | Web unit | components and hooks, Vitest + Testing Library, API mocked with MSW | beside the source in `web/src/` | `pnpm test` (and `pnpm typecheck`) |
-| End to end | Playwright against the built binary with a fresh temp database: sign in, create, edit and delete a note, upload a photo, sign out, 404 page | `web/e2e/` | `make e2e` |
+| End to end | Playwright against the built binary with a fresh temp database: sign in, create, edit and delete a note, upload a photo, sign out, 404 page | `web/test/e2e/` | `make e2e` |
 
 Shell scripts (deploy, backup pull, restore, generator preflight, the Claude hook, the
 rename script and the build id script) have their own tests, run by `make test-scripts`.
@@ -20,7 +20,7 @@ make test-fast                  # Go -short + Vitest + typecheck (seconds)
 make test                       # Go -race + vet, Vitest, typecheck, generated-code check, script tests
 make e2e-install                # once: downloads Chromium for Playwright
 make e2e                        # builds the frontend and the binary, then runs Playwright
-make test-scripts               # deploy/test.sh, gen-api preflight, hook test, rename test, build-id test
+make test-scripts               # scripts/deploy.test.sh, gen-api preflight, hook test, rename test, build-id test, layout test
 ```
 
 Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `.nvmrc`).
@@ -36,15 +36,15 @@ silently (both CI Go jobs run `pnpm build` first).
 
 ## How end to end works
 
-`web/e2e/global-setup.ts` builds the frontend (`pnpm build`, skipped with `E2E_SKIP_BUILD=1`
+`web/test/e2e/global-setup.ts` builds the frontend (`pnpm build`, skipped with `E2E_SKIP_BUILD=1`
 when it is already built) and the Go binary into a temp directory, creates a user with the
 `user create` command in a fresh temp `DATA_DIR`, starts the server on a random free port and
 waits for `/healthz`. Everything is removed afterwards. No test touches your real data.
 The frontend build writes into `web/api/internal/web/app` (the embed directory), which is
 shared with `make build`; the prebuild step clears it first, and it stays out of git.
 
-Failure artifacts (traces, screenshots, the HTML report) land in `web/e2e/test-results` and
-`web/e2e/playwright-report`; both are gitignored.
+Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/test-results` and
+`web/test/e2e/playwright-report`; both are gitignored.
 
 ## Adding a test
 
@@ -56,10 +56,10 @@ Failure artifacts (traces, screenshots, the HTML report) land in `web/e2e/test-r
   `apptest.NewServer(t, apptest.WithConfig(func(c *config.Config) { c.TrustedProxy = "127.0.0.1/32" }))`.
 - **Web unit:** add `Thing.test.tsx` beside the component. Render with `src/test/render.tsx`
   and add MSW handlers in `src/test/handlers.ts`. Query by role and label, as a user would.
-- **End to end:** add `name.spec.ts` in `web/e2e/`. Use the helpers in `support.ts`. Keep it to
+- **End to end:** add `name.spec.ts` in `web/test/e2e/`. Use the helpers in `support.ts`. Keep it to
   journeys a browser must prove; push detail down to the cheaper tiers.
 - **Shell scripts:** extend the matching `*.test.sh`; use fake commands on `PATH` and temp
-  directories, never real servers. `ONLY='test_deploy_*' bash deploy/test.sh` runs a subset of the
+  directories, never real servers. `ONLY='test_deploy_*' bash scripts/deploy.test.sh` runs a subset of the
   deploy, restore, pull and smoke tests (add new test names to the list at the bottom of the file).
 
 Write the failing test first, watch it fail for the right reason, then implement.
@@ -81,7 +81,7 @@ Write the failing test first, watch it fail for the right reason, then implement
 - `internal/backup/label_test.go`: labeled sets, per-label pruning in both directions, label validation.
 - `internal/app`: expired-session purge at start and on every tick (`maintenance_test.go`) and the
   start-up sweep of stale upload temp files.
-- `deploy/test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
+- `scripts/deploy.test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
@@ -102,6 +102,13 @@ which one is missing:
 The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
 the module has no YAML library; a differently laid-out spec makes the guard fail loudly, not pass.
 
+## Repository layout
+
+- `scripts/layout.test.sh`: `deploy/` holds no `*.sh` (only files installed on a server), the deploy, smoke,
+  restore and pull-backups scripts and `deploy.test.sh` are in `scripts/`, every test script ends in
+  `.test.sh`, Playwright is in `web/test/e2e/` (and `web/e2e` is gone), and no tracked file outside
+  `docs/superpowers/` names an old path.
+
 ## Build id
 
 - `scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
@@ -118,9 +125,9 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   `/healthz` reports.
 - `src/Footer.test.tsx`: the React footer reads the meta tag, shows `dev` for the placeholder or a
   missing tag, and is on the sign-in, notes and not-found routes.
-- `web/e2e/buildid.spec.ts`: a real id (from `scripts/build-id.sh`) in `/healthz` and in the footer of `/`,
+- `web/test/e2e/buildid.spec.ts`: a real id (from `scripts/build-id.sh`) in `/healthz` and in the footer of `/`,
   the sign-in page, the notes page and the 404 page.
-- `deploy/test.sh`: `smoke.sh` accepts a matching footer and fails on a footer id that differs from
+- `scripts/deploy.test.sh`: `smoke.sh` accepts a matching footer and fails on a footer id that differs from
   `/healthz`, a missing footer, a missing or malformed `build_id` and a wrong `EXPECTED_BUILD_ID`;
   `deploy.sh` passes the same id to its build ldflags and to the smoke run.
 

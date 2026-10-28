@@ -16,8 +16,8 @@ binary, with backups, deploy scripts and tests.
 - `web/api/internal/` packages: `config`, `db`, `auth`, `notes`, `storage`, `backup`,
   `server`, `app`, `web` (embedded pages and app), `apigen` (generated models)
 - `web/api/tests/` integration tests; `web/api/openapi.yaml` is the API contract
-- `web/src/` React app; `web/e2e/` Playwright tests
-- `deploy/` systemd units and deploy, restore, backup-pull and smoke scripts; `scripts/` tooling
+- `web/src/` React app; `web/test/e2e/` Playwright tests
+- `deploy/` files installed on a server (systemd units, NGINX example); `scripts/` every repo-level script and its test (deploy, smoke, restore, pull-backups, build-id, rename, gen-api)
   (`build-id.sh` prints the build id)
 
 ## Commands

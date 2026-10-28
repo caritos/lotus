@@ -16,7 +16,7 @@ Logs are not backed up.
 
 - **Server:** the `goweb-backup.timer` user unit runs `goweb backup --keep 14` daily at 03:15 (`Persistent=true`,
   so a missed run happens at the next start). The 14 newest sets are kept.
-- **Pull copies:** `deploy/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
+- **Pull copies:** `scripts/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
   each with `PRAGMA integrity_check`, quarantines failures in `failed/`, and keeps the newest 30 (`KEEP`).
   `failed/` is never pruned automatically.
 - **Pre-deploy sets:** every deploy runs `goweb backup --label predeploy --keep 5` with the running release.
@@ -37,7 +37,7 @@ in the privacy policy.
 
 ```sh
 # rehearsal: restores into a scratch directory, touches neither DATA_DIR nor the service
-# (on the server every deploy refreshes ~/goweb/restore.sh; from a checkout use deploy/restore.sh)
+# (on the server every deploy refreshes ~/goweb/restore.sh; from a checkout use scripts/restore.sh)
 export GOWEB_BIN=$HOME/goweb/current/goweb      # must be the executable file, not a directory
 bash ~/goweb/restore.sh ~/goweb/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
 
@@ -75,7 +75,7 @@ Done log. A pulled copy that never went through a drill is a hope, not a backup.
 Set up the restricted key as described in [deploy.md](deploy.md), then schedule:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull DEST=$HOME/Backups/goweb deploy/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull DEST=$HOME/Backups/goweb scripts/pull-backups.sh
 ```
 
 Needs the `sqlite3` CLI on the pulling machine. Optional `MIRROR_DIR` (copied to only if it already exists) and

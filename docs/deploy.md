@@ -1,7 +1,7 @@
 # Deploying goweb
 
 One static Linux binary, run as a systemd **user** service by a non-root user, behind
-a reverse proxy that terminates HTTPS (see [https.md](https.md)). `deploy/deploy.sh`
+a reverse proxy that terminates HTTPS (see [https.md](https.md)). `scripts/deploy.sh`
 builds on your machine, uploads over SSH and switches releases; nothing is built on
 the server.
 
@@ -15,7 +15,7 @@ Everything is under the deploy user's home (the base directory is `REMOTE_BASE`,
   current -> releases/<version>   the active release (a symlink)
   data/                      DATA_DIR: db/, logs/, storage/, backups/
   .env                       runtime configuration (never uploaded, never printed)
-  restore.sh                 copied there by every deploy
+  restore.sh                 copied there by every deploy (from scripts/restore.sh in the repository)
 ```
 
 ## 1. Prepare the server (once)
@@ -115,8 +115,8 @@ The service is enabled but not started yet: it starts on the first deploy.
 ## 4. Check, then deploy
 
 ```sh
-deploy/deploy.sh deploy@host.example.com --check   # preflight only, changes nothing
-PUBLIC_URL=https://app.example.com deploy/deploy.sh deploy@host.example.com
+scripts/deploy.sh deploy@host.example.com --check   # preflight only, changes nothing
+PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 ```
 
 `--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
@@ -155,7 +155,7 @@ What a deploy does, in order:
 8. Keeps the active release, the previous one and up to three older ones; deletes the
    rest inside `releases/` (never the active or previous release, and never an `*.uploading` directory
    younger than 30 minutes).
-9. When `PUBLIC_URL` is set, runs `deploy/smoke.sh` against it from your machine with
+9. When `PUBLIC_URL` is set, runs `scripts/smoke.sh` against it from your machine with
    `EXPECTED_BUILD_ID` set to the id it just built. A failing smoke check makes the deploy exit 1 but
    does not roll back.
 
@@ -243,7 +243,7 @@ the rsync package's documentation or scripts directory). With this key the backu
 directory is the root, so run the pull with `REMOTE_DIR=/`:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull deploy/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull scripts/pull-backups.sh
 ```
 
 Verify the restriction by hand: `ssh -i ~/.ssh/goweb-pull deploy@host.example.com whoami`

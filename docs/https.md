@@ -97,7 +97,7 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
 
 Some hosting panels put their own proxy in front of the app and speak HTTP/1.0 to it. Such proxies
 corrupt chunked or streamed static files. goweb serves its static assets with a known `Content-Length`
-(no streaming compression), which is what these proxies need. `deploy/smoke.sh` checks this: it fetches
+(no streaming compression), which is what these proxies need. `scripts/smoke.sh` checks this: it fetches
 `/static/style.css` with `curl --http1.0 --compressed` and requires the bytes to equal the local file.
 A panel proxy that reaches the app through the host's public address needs `ADDR=0.0.0.0:<port>` (a
 loopback-only app shows as 502 there) and `TRUSTED_PROXY=<the proxy's address>/32` instead of

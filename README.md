@@ -62,7 +62,7 @@ Every HTML page the app serves (the public pages, the 404 page and the React app
 `/healthz` reports the same value as `build_id`. The date is the UTC build date and the commit is
 the 7-character `git rev-parse --short=7 HEAD`; `-dirty` is appended when tracked files had
 uncommitted changes, and the commit part is `unknown` outside git. `scripts/build-id.sh` prints it;
-`make build`, `make dev`, `deploy/deploy.sh` and the e2e harness pass it to the binary with
+`make build`, `make dev`, `scripts/deploy.sh` and the e2e harness pass it to the binary with
 `-ldflags`. A plain `go build` shows `00000000-unknown`; the Vite dev server shows `Build dev`.
 
 ```sh
@@ -86,15 +86,15 @@ Details in [docs/testing.md](docs/testing.md).
 2. Create `~/goweb/.env` on the server from `.env.example` (`APP_ENV=production`; fill in
    `SESSION_SECRET` and `PUBLIC_ORIGIN`). `deploy.sh` refuses a server `.env` that is not production.
 3. Install the systemd user units from `deploy/`.
-4. Run `deploy/deploy.sh user@host --check`, then `PUBLIC_URL=https://app.example.com deploy/deploy.sh user@host`.
-5. Put NGINX with TLS in front and run `deploy/smoke.sh` against the public URL.
+4. Run `scripts/deploy.sh user@host --check`, then `PUBLIC_URL=https://app.example.com scripts/deploy.sh user@host`.
+5. Put NGINX with TLS in front and run `scripts/smoke.sh` against the public URL.
 
 Full walkthrough, rollback and restore: [docs/deploy.md](docs/deploy.md).
 
 ## Backups
 
-The binary writes a verified snapshot daily (systemd timer), `deploy/pull-backups.sh` copies them
-to another machine and alerts when the newest is stale, and `deploy/restore.sh --drill` proves a
+The binary writes a verified snapshot daily (systemd timer), `scripts/pull-backups.sh` copies them
+to another machine and alerts when the newest is stale, and `scripts/restore.sh --drill` proves a
 restore. See [docs/backups.md](docs/backups.md).
 
 ## HTTPS
@@ -119,12 +119,12 @@ files that carry the old name. Run it on a clean git tree; `scripts/rename.test.
 ├── CLAUDE.md  AGENTS.md  Makefile  .env.example  .nvmrc
 ├── .claude/                settings.json, hooks/post-edit.sh, commands/
 ├── .github/workflows/      ci.yml (fast, full, e2e)
-├── deploy/                 systemd units, deploy, restore, pull-backups, smoke scripts, nginx example
+├── deploy/                 files installed on a server: systemd units, nginx example
 ├── docs/                   deploy.md, https.md, backups.md, testing.md
-├── scripts/                gen-api.sh, rename.sh, build-id.sh and their tests
+├── scripts/                deploy, smoke, restore, pull-backups, gen-api, rename, build-id and their *.test.sh
 └── web/
     ├── src/                React app (pages, API client, tests)
-    ├── e2e/                Playwright tests
+    ├── test/               e2e/ (Playwright tests), README.md
     └── api/                Go module
         ├── cmd/goweb/      command line
         ├── internal/       config, db, auth, notes, storage, backup, server, app, web, ...
