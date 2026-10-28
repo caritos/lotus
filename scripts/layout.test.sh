@@ -60,7 +60,7 @@ badnames="$(ls scripts/ | grep -i 'test' | grep -v '\.test\.sh$')"
 # ios/ is reserved at the repo root for the native app and stays tracked (git keeps no empty directories).
 # Starter only: a host repo owns its own ios/.
 if [ "$HOST" -eq 1 ]; then
-  ok "host mode (.goweb-origin): ios/ placeholder checks skipped"
+  ok "host mode ($MARKER): ios/ placeholder checks skipped; ios/ and android/ are not scanned for stale paths"
 else
   [ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
   if [ -f ios/README.md ] || [ -f ios/Package.swift ]; then ok "ios/ has a README (placeholder) or a scaffolded Package.swift"; else bad "ios/ has neither README.md nor Package.swift"; fi
@@ -92,12 +92,17 @@ grep -E '^[[:space:]]*cd web/api && go build' Makefile | grep -q 'dist/' && ok "
 # including the rest of that file, is current-state text and covered. The log is in CLAUDE.md, or in
 # web/CLAUDE.md when the app lives in a host repo (host mode only; both files are exempt for their own Done section).
 SCRIPT_RE='(deploy|smoke|restore|pull-backups)\.sh'
+# In host mode the repo also holds the host's own trees, which goweb does not own and must not police:
+# ios/ (new-ios-app scripts say "./deploy.sh" in their usage comments) and android/. In the starter itself
+# they are scanned like everything else.
+EXCL=(':!docs/superpowers' ':!scripts/layout.test.sh')
+if [ "$HOST" -eq 1 ]; then EXCL+=(':!ios' ':!android'); fi
 stale_report() {
   {
-    git grep -nE 'web/e2e' -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
-    git grep -nE "deploy/($SCRIPT_RE|test([^A-Za-z]|$)|\*\.sh)|(^|[^A-Za-z0-9_/])(cd|bash|sh) +\.?/?deploy( |/|\$)|(^|[^.])\./deploy|\.\./deploy( |/$|/\*|/($SCRIPT_RE)|\`|\$)" -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
+    git grep -nE 'web/e2e' -- . "${EXCL[@]}"
+    git grep -nE "deploy/($SCRIPT_RE|test([^A-Za-z]|$)|\*\.sh)|(^|[^A-Za-z0-9_/])(cd|bash|sh) +\.?/?deploy( |/|\$)|(^|[^.])\./deploy|\.\./deploy( |/$|/\*|/($SCRIPT_RE)|\`|\$)" -- . "${EXCL[@]}"
     # bare script name on a line that also names deploy/ (unless it is clearly about scripts/)
-    git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . ':!docs/superpowers' ':!scripts/layout.test.sh' |
+    git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . "${EXCL[@]}" |
       grep -E "$SCRIPT_RE" | grep -v 'scripts/'
   } 2>/dev/null | sort -u | awk -F: -v ranges="$DONE_RANGES" 'BEGIN { n = split(ranges, r, " ") }
       { for (i = 1; i <= n; i++) { split(r[i], x, ","); if ($1 == x[1] && $2 > x[2] && $2 < x[3]) next } print }'
@@ -249,7 +254,24 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   # A host-shaped APP, built the way the wrapper builds one, runs the FULL guard (self-tests included) and
   # passes: renamed to "shop", README title of its own, ios/ with a file but no README.md or Package.swift,
   # a host root CLAUDE.md with its own log, goweb's log already at web/CLAUDE.md, the marker tracked.
-  make_app() { # [stale]: a committed host-shaped app in $WORK/c
+  # What a host scaffolded with the new-ios-app skill carries in ios/App/: usage comments such as
+  # "./deploy.sh" that look like the old deploy/ layout to a repo-wide scan (excerpted from the real
+  # deploy.sh and ship.sh templates, so this test does not depend on any other checkout).
+  write_ios_template() { # <dir>
+    mkdir -p "$1/ios/App" && cat > "$1/ios/App/deploy.sh" <<'EOT'
+#!/usr/bin/env bash
+# Usage: ./deploy.sh [--list] [device-name-substring]
+#   ./deploy.sh                 # first connected iPhone/iPad
+#   ./deploy.sh "16 Plus"       # first connected device whose name contains this
+#   ./deploy.sh --list          # show devices and what would be picked, then exit
+echo "Plug the phone in (or enable wireless debugging), unlock it, and run ./deploy.sh --list." >&2
+EOT
+    cat > "$1/ios/App/ship.sh" <<'EOT'
+#!/usr/bin/env bash
+# Usage: ./ship.sh [--check]   (build, bump, upload to TestFlight; ./ship.sh --check validates only)
+EOT
+  }
+  make_app() { # [stale|stale-scripts|stale-web]: a committed host-shaped app in $WORK/c
     make_copy || return 1
     ( cd "$WORK/c" && git -c user.email=t@example.com -c user.name=t commit -qm base \
       && { ! grep -q '^module go''web$' web/api/go.mod || bash scripts/rename.sh example.com/acme/shop shop >/dev/null 2>&1; } \
@@ -258,16 +280,31 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
       && printf '# Host\n\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' > CLAUDE.md \
       && sed -i.bak '1s/.*/# Shop App/' README.md && rm -f README.md.bak \
       && echo 0123456789abcdef > "$MARKER" ) || return 1
-    if [ "${1:-}" = stale ]; then printf '\nweb/e2e/ holds Playwright\n' >> "$WORK/c/web/CLAUDE.md"; fi
+    write_ios_template "$WORK/c" || return 1
+    case "${1:-}" in
+      stale) printf '\nweb/e2e/ holds Playwright\n' >> "$WORK/c/web/CLAUDE.md" ;;
+      stale-scripts) printf '\n# run deploy/deploy.sh now\n' >> "$WORK/c/scripts/gen-api.sh" ;;
+      stale-web) printf '\nrun deploy/deploy.sh now\n' >> "$WORK/c/web/test/README.md" ;;
+    esac
     git -C "$WORK/c" add -A && git -C "$WORK/c" -c user.email=t@example.com -c user.name=t commit -qm app || return 1
     # Prove the fixture is the shape described above before trusting the result.
     [ ! -e "$WORK/c/ios/README.md" ] && [ ! -e "$WORK/c/ios/Package.swift" ] && [ -e "$WORK/c/ios/App.swift" ] \
+      && grep -q '\./deploy\.sh' "$WORK/c/ios/App/deploy.sh" \
       && grep -q '^### Done' "$WORK/c/web/CLAUDE.md" && grep -q '^### Done' "$WORK/c/CLAUDE.md" \
       && [ "$(head -n 1 "$WORK/c/README.md")" = "# Shop App" ] && [ -n "$(git -C "$WORK/c" ls-files "$MARKER")" ] \
       && ! grep -q '^module go''web$' "$WORK/c/web/api/go.mod" || return 1
   }
   if must "host-shaped app" make_app; then
     if out="$(cd "$WORK/c" && bash scripts/layout.test.sh 2>&1)"; then ok "the full guard passes in a host-shaped app (renamed, no ios README, two logs, tracked marker)"; else bad "the full guard fails in a host-shaped app: $(printf '%s\n' "$out" | grep -A3 FAIL | head -8)"; fi
+  fi
+  for mode in stale-scripts stale-web; do
+    if must "host-shaped app with a stale path in ${mode#stale-}" make_app "$mode"; then
+      if out="$(cd "$WORK/c" && bash scripts/layout.test.sh 2>&1)"; then bad "host mode skipped more than the host-owned trees: a stale path in ${mode#stale-}/ passed"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "host mode still flags a stale path in ${mode#stale-}/"; else bad "stale path in ${mode#stale-}/ failed for another reason"; fi
+    fi
+  done
+  # The same ios/ content in the STARTER (no marker) is still scanned.
+  if must "ios template in the starter" make_copy && write_ios_template "$WORK/c" && git -C "$WORK/c" add -A; then
+    if out="$(inner_out)"; then bad "the starter ignored stale-looking text under ios/"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "the starter (no marker) still scans ios/"; else bad "ios text in the starter failed for another reason"; fi
   fi
   if must "host-shaped app with a stale path" make_app stale; then
     if out="$(cd "$WORK/c" && bash scripts/layout.test.sh 2>&1)"; then bad "the full guard passed a host-shaped app with a stale path outside the Done sections"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "the full guard still fails a host-shaped app with a stale path outside the Done sections"; else bad "host-shaped app with a stale path failed for another reason"; fi
