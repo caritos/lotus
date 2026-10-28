@@ -37,6 +37,10 @@ badnames="$(ls scripts/ | grep -i 'test' | grep -v '\.test\.sh$')"
 [ -f web/test/e2e/playwright.config.ts ] && ok "web/test/e2e/playwright.config.ts exists" || bad "web/test/e2e/playwright.config.ts missing"
 [ -f web/test/README.md ] && ok "web/test/README.md exists" || bad "web/test/README.md missing"
 
+# ios/ is reserved at the repo root for the native app and stays tracked (git keeps no empty directories).
+[ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
+[ -f ios/README.md ] || [ -f ios/Package.swift ] && ok "ios/ has a README (placeholder) or a scaffolded Package.swift" || bad "ios/ has neither README.md nor Package.swift"
+
 # Build outputs and node_modules are ignored at any depth; nothing tracked is ignored.
 ign=1
 for p in web/node_modules/x node_modules/x web/test/e2e/node_modules/x \
