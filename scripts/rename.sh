@@ -34,7 +34,7 @@
 # Prose that merely mentions the name is NOT rewritten; edit the README and page copy by hand.
 # Paths are moved only for web/api/cmd/<name>/ and deploy/<name>*; internal/app, internal/web/app
 # and the /app/ URL mount are never touched. Rewrites tracked text files only (never .git,
-# node_modules, docs/superpowers, pnpm-lock.yaml, this script and its test, or binary files). Refuses to run outside a git
+# node_modules, docs/superpowers, .claude/skills, pnpm-lock.yaml, this script and its test, or binary files). Refuses to run outside a git
 # work tree or with uncommitted changes unless --force.
 # --regen also runs scripts/gen-api.sh (the text replacement already keeps the generated
 # files consistent, so this is optional).
@@ -105,7 +105,7 @@ TOKEN="@@RENAME_MODULE_PATH@@"
 
 excluded() {
   case "$1" in
-    docs/superpowers/*|*/node_modules/*|web/pnpm-lock.yaml|pnpm-lock.yaml|.git/*) return 0 ;;
+    docs/superpowers/*|.claude/skills/*|*/node_modules/*|web/pnpm-lock.yaml|pnpm-lock.yaml|.git/*) return 0 ;;
     scripts/rename.sh|scripts/rename.test.sh) return 0 ;;   # these read the names from the repo
   esac
   return 1

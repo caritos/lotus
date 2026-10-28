@@ -109,7 +109,7 @@ SCRIPT_RE='(deploy|smoke|restore|pull-backups)\.sh'
 # In host mode the repo also holds the host's own trees, which the starter does not own and must not police:
 # ios/ (new-ios-app scripts say "./deploy.sh" in their usage comments) and android/. In the starter itself
 # they are scanned like everything else.
-EXCL=(':!docs/superpowers' ':!scripts/layout.test.sh')
+EXCL=(':!docs/superpowers' ':!.claude/skills' ':!scripts/layout.test.sh')
 if [ "$HOST" -eq 1 ]; then EXCL+=(':!ios' ':!android'); fi
 stale_report() {
   {
@@ -181,6 +181,9 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_fail "../deploy/smoke.sh" README.md 'source ../deploy/smoke.sh'
   expect_fail "../deploy/*.sh" README.md 'ls ../deploy/*.sh'
   expect_fail "bare script names beside deploy/" README.md '- `deploy/`: units, `deploy.sh`, `smoke.sh`, NGINX example'
+  # The skills under .claude/skills/ describe other trees (scripts say "./deploy.sh"): exempt like docs/superpowers.
+  expect_pass "an old-style path inside .claude/skills/" .claude/skills/new-ios-app/SKILL.md 'run ./deploy.sh or deploy/deploy.sh or web/e2e/x'
+  expect_fail "the same line in .claude/hooks (only skills are exempt)" .claude/hooks/post-edit.sh 'run deploy/deploy.sh'
   expect_fail "root binary ./$NAME in README" README.md "run ./$NAME serve"
   expect_fail "root binary ./$NAME at the end of a sentence" README.md "build it, then run ./$NAME."
   expect_fail "root binary ./$NAME. followed by a space" README.md "run ./$NAME. Then wait"

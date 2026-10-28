@@ -68,7 +68,7 @@ rm -rf "$d"
 # The list must not drift: every tool the scripts probe with `command -v` or the CI workflow runs
 # is a word the context rules could corrupt ("command -v go", "web/api/go.mod"), so it is reserved.
 drift=""
-for w in $(cd "$REPO" && { git grep -ohE 'command -v [a-z0-9]+' -- scripts Makefile .github .claude | sed 's/command -v //'; git grep -ohE 'run: [a-z0-9]+' -- .github | sed 's/run: //'; } | sort -u); do
+for w in $(cd "$REPO" && { git grep -ohE 'command -v [a-z0-9]+' -- scripts Makefile .github .claude ':!.claude/skills' | sed 's/command -v //'; git grep -ohE 'run: [a-z0-9]+' -- .github | sed 's/run: //'; } | sort -u); do
   [ "$w" = "$CUR" ] && continue
   case " $RESERVED_LIST " in *" $w "*) ;; *) drift="$drift $w" ;; esac
 done
@@ -83,7 +83,7 @@ done
 [ -z "$fix" ] && ok "every \$VAR/<word> fixture target is in the RESERVED list" || bad "fixture words missing from RESERVED:$fix"
 # Every tracked directory name must be reserved (apart from the shipped name's own directories).
 missing=""
-for dn in $(cd "$REPO" && git ls-files | grep -v '^docs/superpowers/' | sed 's#/[^/]*$##' | grep -v '^[^/]*$' | tr '/' '\n' | sort -u | grep -E '^[a-z][a-z0-9]*$'); do
+for dn in $(cd "$REPO" && git ls-files | grep -v '^docs/superpowers/' | grep -v '^.claude/skills/' | sed 's#/[^/]*$##' | grep -v '^[^/]*$' | tr '/' '\n' | sort -u | grep -E '^[a-z][a-z0-9]*$'); do
   case "$dn" in app|superpowers) continue ;; esac
   case " $RESERVED_LIST " in *" $dn "*) ;; *) missing="$missing $dn" ;; esac
 done
@@ -160,7 +160,7 @@ if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && 
 # word (prose, internal/app, internal/web/app, the /app/ mount, APP_ENV) is NOT such a context.
 name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
-  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
+  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
 }
 
 # Module-path-only change (same name): used to die in git mv onto itself after rewriting files.
@@ -171,6 +171,25 @@ for mode in starter renamed; do
   if [ $rc -eq 0 ] && grep -qx "module github.com/other/$cur" "$X/web/api/go.mod" && [ -d "$X/web/api/cmd/$cur" ] && (cd "$X/web/api" && go build ./... >/dev/null 2>&1); then ok "module-path-only rename on the $mode (name $cur) works and builds"; else bad "module-path-only rename on the $mode (rc=$rc): $out"; fi
   rm -rf "$X"
 done
+
+# The skills under .claude/skills/ are not part of the starter's own text: rename.sh neither rewrites
+# them nor counts what they say when it checks a name. Put project-name contexts into one, then
+# rename (and rename to a name that occurs only there) and check it came out byte for byte.
+SK="$ROOT/skills"; cp -R "$BASE" "$SK"
+mkdir -p "$SK/.claude/skills/demo"
+printf 'cmd/%s dist/%s %s.service com.%s.backup-pull dist/zzonlyskill\n' "$CUR" "$CUR" "$CUR" "$CUR" > "$SK/.claude/skills/demo/SKILL.md"
+(cd "$SK" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m skill)
+sk_before="$(cksum < "$SK/.claude/skills/demo/SKILL.md")"
+out="$(cd "$SK" && bash scripts/rename.sh --check example.com/acme/zzonlyskill zzonlyskill 2>&1)"; rc=$?
+[ $rc -eq 0 ] && ok "--check ignores a name that occurs only under .claude/skills" || bad "--check counted .claude/skills (rc=$rc out=$out)"
+out="$(cd "$SK" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ "$sk_before" = "$(cksum < "$SK/.claude/skills/demo/SKILL.md")" ] && [ -z "$(cd "$SK" && git status --porcelain -- .claude/skills)" ] && ok "rename leaves .claude/skills untouched" || bad "rename touched .claude/skills (rc=$rc out=$out)"
+# the same text anywhere else IS rewritten (the exemption is only for the skills)
+SK2="$ROOT/skills2"; cp -R "$BASE" "$SK2"
+printf 'cmd/%s dist/%s\n' "$CUR" "$CUR" > "$SK2/docs/zz-note.md"
+(cd "$SK2" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m note && bash scripts/rename.sh "$NEW_MODULE" "$NEW" >/dev/null 2>&1)
+grep -q "dist/$NEW" "$SK2/docs/zz-note.md" && ok "the same contexts outside .claude/skills are still rewritten" || bad "docs/ line not rewritten"
+rm -rf "$SK" "$SK2"
 
 # The real rename. The shipped name "app" is also a package, a directory, a URL prefix and an
 # environment variable prefix, so only the project-name contexts may change.
