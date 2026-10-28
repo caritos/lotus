@@ -149,9 +149,13 @@ What a deploy does, in order:
    instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
    from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
 2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips the tests only, not the Node check):
+   first `pnpm install --frozen-lockfile` in `web/` (so the tests and the build never run against stale
+   `node_modules`; skipped only when both `SKIP_TESTS=1` and `SKIP_WEB_BUILD=1`; a failure stops the deploy
+   with nothing changed). Then
    `go vet ./...` and `go test -short ./...` in `web/api` (run without the caller's `GOOS`/`GOARCH`, so test
    binaries run on this machine; the release build below keeps its own target), then `pnpm test` and `pnpm typecheck` in `web/`.
-   The first failure stops the deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
+   The first failure stops the deploy. The Go tests run without `-race` on purpose: the gate has to stay fast
+   enough to run on every deploy. The full tier with `-race` is `make test` and CI; run it before you deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
    major version in `.nvmrc` (`web/.nvmrc` if present) differs from the major of `node -v`. `v24`, `24`, `24.1.0` and
    `v24.18.0` all mean 24. A value that is not a number (for example `lts/*`) prints "cannot compare .nvmrc value ..."
    and skips the check instead of failing.

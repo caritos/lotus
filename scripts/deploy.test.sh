@@ -881,6 +881,68 @@ test_deploy_skips_the_test_gate_with_SKIP_TESTS() {
   assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
 }
 
+test_deploy_installs_frozen_dependencies_before_the_tests_and_the_build() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran frozen in web/" grep -q "^pnpm ARGS=install --frozen-lockfile PWD=.*/web$" "$DCALLS"
+  local i t c b
+  i="$(grep -n '^pnpm ARGS=install' "$DCALLS" | head -1 | cut -d: -f1)"
+  t="$(grep -n '^pnpm ARGS=test' "$DCALLS" | head -1 | cut -d: -f1)"
+  c="$(grep -n '^pnpm ARGS=typecheck' "$DCALLS" | head -1 | cut -d: -f1)"
+  b="$(grep -n '^pnpm ARGS=build' "$DCALLS" | head -1 | cut -d: -f1)"
+  assert_true "install before pnpm test" test "${i:-99}" -lt "${t:-0}"
+  assert_true "install before typecheck" test "${i:-99}" -lt "${c:-0}"
+  assert_true "install before pnpm build" test "${i:-99}" -lt "${b:-0}"
+  assert_eq "$(grep -c '^pnpm ARGS=install' "$DCALLS")" "1" "installed once"
+}
+
+test_deploy_stops_before_anything_changes_when_the_install_fails() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 FAKE_PNPM_FAIL=install deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "pnpm install --frozen-lockfile failed" "names the step"
+  assert_contains "$(cat "$T/err")" "Nothing was changed" "says nothing changed"
+  assert_false "no pnpm test" grep -q "^pnpm ARGS=test" "$DCALLS"
+  assert_false "no pnpm build" grep -q "^pnpm ARGS=build" "$DCALLS"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+  assert_false "no lock taken" grep -q "deploy.lock" "$DCALLS"
+}
+
+test_deploy_still_installs_for_the_build_when_only_the_tests_are_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=1 SKIP_WEB_BUILD=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran" grep -q "^pnpm ARGS=install --frozen-lockfile" "$DCALLS"
+  assert_true "build ran" grep -q "^pnpm ARGS=build" "$DCALLS"
+  assert_false "no tests" grep -q "^pnpm ARGS=test" "$DCALLS"
+}
+
+test_deploy_still_installs_for_the_tests_when_only_the_build_is_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "install ran" grep -q "^pnpm ARGS=install --frozen-lockfile" "$DCALLS"
+  assert_true "tests ran" grep -q "^pnpm ARGS=test" "$DCALLS"
+  assert_false "no build" grep -q "^pnpm ARGS=build" "$DCALLS"
+}
+
+test_deploy_does_not_install_when_both_the_tests_and_the_build_are_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=1 SKIP_WEB_BUILD=1 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_false "no pnpm at all" grep -q "^pnpm" "$DCALLS"
+}
+
+test_deploy_check_does_not_install() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 SKIP_WEB_BUILD=0 deploy deploy@host.example.com --check
+  assert_eq "$?" "0" "exit status"
+  assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
+}
+
 test_deploy_check_does_not_run_the_test_gate() {
   setup_deploy; make_release v1 0001_init.sql active
   SKIP_TESTS=0 deploy deploy@host.example.com --check
@@ -2169,6 +2231,12 @@ for t in \
   test_deploy_runs_the_test_gate_before_anything_changes \
   test_deploy_skips_the_test_gate_with_SKIP_TESTS \
   test_deploy_check_does_not_run_the_test_gate \
+  test_deploy_installs_frozen_dependencies_before_the_tests_and_the_build \
+  test_deploy_stops_before_anything_changes_when_the_install_fails \
+  test_deploy_still_installs_for_the_build_when_only_the_tests_are_skipped \
+  test_deploy_still_installs_for_the_tests_when_only_the_build_is_skipped \
+  test_deploy_does_not_install_when_both_the_tests_and_the_build_are_skipped \
+  test_deploy_check_does_not_install \
   test_deploy_stops_when_go_vet_fails \
   test_deploy_stops_when_go_tests_fail \
   test_deploy_stops_when_pnpm_tests_fail \

@@ -52,7 +52,12 @@
 #   SKIP_TESTS=1      skip the test gate only (the Node check below still runs). Otherwise, after the preflight and before anything
 #                     changes on the server (not in --check), deploy runs `go vet ./...` and
 #                     `go test -short ./...` in web/api and `pnpm test` and `pnpm typecheck`
-#                     in web/, and stops on the first failure
+#                     in web/, and stops on the first failure. The Go tests run WITHOUT -race on
+#                     purpose: the gate must stay quick enough to run on every deploy; the full
+#                     tier with -race is `make test` and CI
+#   Dependencies      unless both SKIP_TESTS=1 and SKIP_WEB_BUILD=1, `pnpm install --frozen-lockfile`
+#                     runs in web/ before the gate and the build (not in --check); a failure
+#                     stops the deploy with nothing changed
 #   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (else .nvmrc;
 #                     v24, 24, 24.1.0 and v24.18.0 all mean 24) must equal `node -v`'s major, or
 #                     the deploy stops early. A non-numeric value such as lts/* prints "cannot
@@ -332,8 +337,15 @@ if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
   fi
 fi
 
+# Dependencies: the gate and the build must run against node_modules that match pnpm-lock.yaml, not
+# whatever an earlier checkout left behind. Skipped only when neither the gate nor the build runs.
+if [ "${SKIP_TESTS:-0}" != 1 ] || [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
+  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to install the web dependencies (or set SKIP_TESTS=1 and SKIP_WEB_BUILD=1)"
+  step "installing web dependencies (pnpm install --frozen-lockfile)"
+  (cd "$REPO_ROOT/web" && pnpm install --frozen-lockfile) >&2 || die "pnpm install --frozen-lockfile failed (the lockfile and package.json disagree, or the registry is unreachable). Nothing was changed."
+fi
+
 if [ "${SKIP_TESTS:-0}" != 1 ]; then
-  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to run the web tests (or set SKIP_TESTS=1)"
   step "test gate: go vet, go test -short, pnpm test, pnpm typecheck (SKIP_TESTS=1 skips the tests)"
   # The caller's GOOS/GOARCH (say, linux exported on a Mac) must not reach the gate: the test
   # binaries have to run here. The release build below keeps its own target.
