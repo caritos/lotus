@@ -159,9 +159,14 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   skips only the starter-only checks (the `ios/` placeholder and goweb's own root `CLAUDE.md` headings) and exempts the
   `### Done` section of EACH of root `CLAUDE.md` and `web/CLAUDE.md` that has one (the host's own log and goweb's
   moved log, which the wrapper puts at `web/CLAUDE.md` when the host already has a root one; a section runs to the
-  next `### ` heading or the end of the file). The rest of both files is current-state text and stays checked.
+  next `## ` or `### ` heading or the end of the file). The rest of both files is current-state text and stays checked.
   If `.goweb-origin` exists but `README.md` still starts with `# goweb`, the guard fails loudly: the marker is for
-  apps created from the starter, not for the starter itself.
+  apps created from the starter, not for the starter itself (a CRLF README title counts too).
+  The self-tests that build host fixtures from the starter's own layout run in the starter only; in an app created
+  from it (marker present) they print `SKIPPED: starter-only self-tests (host mode)` and the summary ends with a
+  `SKIPPED: n` total. The starter instead builds a host-shaped app in a throwaway copy (renamed to `shop`, no
+  `ios/README.md`, a host root `CLAUDE.md` with its own log, goweb's log at `web/CLAUDE.md`, tracked marker) and runs
+  the FULL guard in it: it must pass, and the same app with a stale path outside the Done sections must fail.
   Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
   stays on. Without `.goweb-origin` goweb itself is fully guarded. The self-tests build a host layout in a
   throwaway copy: it passes with `.goweb-origin`, still fails without it (naming the `ios/` and `CLAUDE.md`
