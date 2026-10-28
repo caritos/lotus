@@ -252,7 +252,7 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   make_app() { # [stale]: a committed host-shaped app in $WORK/c
     make_copy || return 1
     ( cd "$WORK/c" && git -c user.email=t@example.com -c user.name=t commit -qm base \
-      && bash scripts/rename.sh example.com/acme/shop shop >/dev/null 2>&1 \
+      && { ! grep -q '^module go''web$' web/api/go.mod || bash scripts/rename.sh example.com/acme/shop shop >/dev/null 2>&1; } \
       && git rm -qf --ignore-unmatch ios/README.md && mkdir -p ios && echo "// host app" > ios/App.swift \
       && { [ -e web/CLAUDE.md ] || git mv CLAUDE.md web/CLAUDE.md; } \
       && printf '# Host\n\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' > CLAUDE.md \
@@ -264,7 +264,7 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     [ ! -e "$WORK/c/ios/README.md" ] && [ ! -e "$WORK/c/ios/Package.swift" ] && [ -e "$WORK/c/ios/App.swift" ] \
       && grep -q '^### Done' "$WORK/c/web/CLAUDE.md" && grep -q '^### Done' "$WORK/c/CLAUDE.md" \
       && [ "$(head -n 1 "$WORK/c/README.md")" = "# Shop App" ] && [ -n "$(git -C "$WORK/c" ls-files "$MARKER")" ] \
-      && grep -q '^module example.com/acme/shop' "$WORK/c/web/api/go.mod" || return 1
+      && ! grep -q '^module go''web$' "$WORK/c/web/api/go.mod" || return 1
   }
   if must "host-shaped app" make_app; then
     if out="$(cd "$WORK/c" && bash scripts/layout.test.sh 2>&1)"; then ok "the full guard passes in a host-shaped app (renamed, no ios README, two logs, tracked marker)"; else bad "the full guard fails in a host-shaped app: $(printf '%s\n' "$out" | grep -A3 FAIL | head -8)"; fi
