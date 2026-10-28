@@ -5,7 +5,8 @@
 #   smoke.sh <url> <expected-version>
 #
 # Checks: /healthz is JSON with status ok, the expected version and a well-formed build_id
-# (YYYYMMDD-<short commit>); / is 200 HTML containing the app name and a "Build <id>"
+# (YYYYMMDD-<short commit>); / is 200 HTML whose <title> or first <h1> contains the app name as a
+# whole word (case-insensitive) and a "Build <id>"
 # footer whose id equals the /healthz build_id; /privacy is 200 with real body text; /app/ is 200;
 # /nope is 404; /static/style.css fetched over HTTP/1.0 with compression is
 # byte-identical to the local file; unauthenticated GET /api/notes is 401.
@@ -16,7 +17,8 @@
 # Exit status: 0 all checks passed, 1 a check failed, 2 bad usage.
 #
 # Environment:
-#   APP_NAME   text the home page must contain, default app
+#   APP_NAME   name that the home page's <title> or first <h1> must contain as a whole word,
+#              default app (set it to your project name)
 #   CSS_FILE   local stylesheet to compare, default <repo>/web/api/internal/web/static/style.css
 #              (the check is skipped with a note when the file is absent)
 #   CURL       curl binary, default curl
@@ -58,6 +60,22 @@ fetch() {
 
 snippet() { head -c 200 "$TMP/body" | tr '\n' ' '; }
 
+# name_in_heading <html file>: true when APP_NAME occurs, case-insensitively and as a WHOLE WORD,
+# in the page's <title> or in its first <h1>. A match inside another word (application, mapp), in
+# a link or in body text does not count. Sets PAGE_TITLE and PAGE_H1 for the failure message.
+# (Explicit character classes: \b is not portable in grep -E.)
+heading_text() { # <html file> <tag, as a bracket-class pattern>: text of the first such tag, tags stripped
+  tr '\n\r' '  ' < "$1" | grep -oE "<$2[ >].*" | head -n 1 |
+    sed -E "s#</$2>.*##; s#^<$2[^>]*>##; s#<[^>]*># #g"
+}
+name_in_heading() {
+  local esc re
+  PAGE_TITLE="$(heading_text "$1" "[Tt][Ii][Tt][Ll][Ee]")"; PAGE_H1="$(heading_text "$1" "[Hh]1")"
+  esc="$(printf '%s' "$APP_NAME" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+  re="(^|[^A-Za-z0-9_])${esc}([^A-Za-z0-9_]|\$)"
+  printf '%s\n' "$PAGE_TITLE" | grep -Eiq -- "$re" || printf '%s\n' "$PAGE_H1" | grep -Eiq -- "$re"
+}
+
 # /healthz
 fetch /healthz
 if [ "$STATUS" != "200" ]; then
@@ -93,10 +111,10 @@ if [ "$STATUS" != "200" ]; then
   fail "/: status $STATUS, want 200"
 elif ! grep -qi '<html' "$TMP/body"; then
   fail "/: not HTML: $(snippet)"
-elif ! grep -qiF -- "$APP_NAME" "$TMP/body"; then
-  fail "/: home page does not contain '$APP_NAME'"
+elif ! name_in_heading "$TMP/body"; then
+  fail "/: neither the <title> nor the first <h1> contains '$APP_NAME' as a whole word (found: title '$PAGE_TITLE', h1 '$PAGE_H1')"
 else
-  pass "/ is HTML and contains '$APP_NAME'"
+  pass "/ is HTML and its title or first <h1> contains '$APP_NAME' as a whole word"
 fi
 
 # The footer of / shows "Build <id>"; it must be the id /healthz reports (and the deployed one).

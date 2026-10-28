@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for scripts/restore.sh, scripts/pull-backups.sh, scripts/deploy.sh and scripts/smoke.sh.
-# Builds the app binary once, builds fixtures with it and the sqlite3 CLI, and
+# Builds the binary once, builds fixtures with it and the sqlite3 CLI, and
 # uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash scripts/deploy.test.sh
 # (ONLY='test_deploy_*' bash scripts/deploy.test.sh runs the tests whose names match the glob).
 set -u
@@ -866,7 +866,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 h["build_id"] = cfg.get("build_id", "20261027-abc1234")
             self.reply(200, "application/json", json.dumps(h))
         elif p == "/":
-            self.reply(200, "text/html", "<html><body><h1>app</h1>" + footer() + "</body></html>")
+            self.reply(200, "text/html", "<html>" + cfg.get("home_head", "") + "<body>" + cfg.get("home_body", "<h1>app</h1>") + footer() + "</body></html>")
         elif p == "/privacy":
             self.reply(200, "text/html", "<html><body><h1>Privacy</h1><p>" + "We keep your data private. " * 5 + "</p></body></html>")
         elif p == "/app/":
@@ -979,6 +979,48 @@ EOS
   CURL="$T/fakecurl" smoke "https://app.example.com" v9
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "301" "shows observed status"
+}
+
+# The home page must carry the app name as a WHOLE WORD in its <title> or first <h1>. The name
+# appearing inside another word, only in a link or in the body text does not count.
+smoke_home() { # <config fragment: home_head/home_body> [APP_NAME]
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n",'"$1"'}' || { stop_smoke_server; return 1; }
+  if [ -n "${2:-}" ]; then APP_NAME="$2" smoke "$SITE_URL" v9; else smoke "$SITE_URL" v9; fi
+  SMOKE_RC=$?
+  stop_smoke_server
+}
+
+test_smoke_passes_when_the_h1_has_the_name() {
+  smoke_home '"home_body":"<h1 class=\"x\">Welcome to <b>App</b> now</h1>"'
+  assert_true "exit zero" test "$SMOKE_RC" -eq 0
+  assert_contains "$(cat "$T/out")" "whole word" "says it checked a whole word"
+}
+
+test_smoke_passes_when_only_the_title_has_the_name() {
+  smoke_home '"home_head":"<head><title>Notes - app</title></head>","home_body":"<h1>Notes</h1>"'
+  assert_true "exit zero" test "$SMOKE_RC" -eq 0
+}
+
+test_smoke_name_is_case_insensitive_and_overridable() {
+  smoke_home '"home_head":"<title>SHOP | Notes</title>","home_body":"<h1>Notes</h1>"' shop
+  assert_true "exit zero" test "$SMOKE_RC" -eq 0
+}
+
+test_smoke_fails_when_the_name_is_only_part_of_another_word() {
+  smoke_home '"home_head":"<title>Notes application</title>","home_body":"<h1>My mapp and app2 and snapp_x</h1>"'
+  assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
+  assert_contains "$(cat "$T/err")" "whole word" "explains the failure"
+}
+
+test_smoke_fails_when_the_name_is_only_in_a_link() {
+  smoke_home '"home_head":"<title>Notes</title>","home_body":"<h1>Notes</h1><a href=\"/app/\">Open it</a><p>the app is here</p>"'
+  assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
+}
+
+test_smoke_fails_when_the_name_is_absent() {
+  smoke_home '"home_head":"<title>Notes</title>","home_body":"<h1>Notes</h1>"'
+  assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
 }
 
 test_smoke_requires_arguments() {
@@ -1517,6 +1559,12 @@ for t in \
   test_smoke_fails_on_unauthenticated_notes_not_401 \
   test_smoke_skips_css_when_local_file_is_absent \
   test_smoke_fails_on_redirect_to_another_host \
+  test_smoke_passes_when_the_h1_has_the_name \
+  test_smoke_passes_when_only_the_title_has_the_name \
+  test_smoke_name_is_case_insensitive_and_overridable \
+  test_smoke_fails_when_the_name_is_only_part_of_another_word \
+  test_smoke_fails_when_the_name_is_only_in_a_link \
+  test_smoke_fails_when_the_name_is_absent \
   test_smoke_requires_arguments \
   test_deploy_second_deploy_aborts_while_lock_is_held \
   test_deploy_takes_over_a_stale_lock_with_a_message \
