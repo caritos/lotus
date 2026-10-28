@@ -240,3 +240,100 @@ func TestMigrateUpgradesPreChecksumTable(t *testing.T) {
 		t.Fatalf("later edit not detected: %v", err)
 	}
 }
+
+func TestMigrateConcurrentUpgradeOfPreChecksumDatabase(t *testing.T) {
+	ctx := context.Background()
+	d, err := db.Open(filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	body := "CREATE TABLE a (id TEXT);"
+	// A database created by the schema that had no checksum column, with one migration applied.
+	for _, q := range []string{
+		"CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)",
+		body,
+		"INSERT INTO schema_migrations (version, applied_at) VALUES ('0001_a.sql', 1)",
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fsys := fstest.MapFS{"0001_a.sql": {Data: []byte(body)}}
+	const workers = 6
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = db.MigrateFS(ctx, d, fsys)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("worker %d: %v", i, e)
+		}
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name = 'checksum'"); n != 1 {
+		t.Fatalf("checksum columns = %d, want 1", n)
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations WHERE checksum IS NOT NULL"); n != 1 {
+		t.Fatalf("recorded checksums = %d, want exactly 1", n)
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations"); n != 1 {
+		t.Fatalf("rows = %d, want 1", n)
+	}
+	if got := checksumOf(t, d, "0001_a.sql"); got != sum(body) {
+		t.Fatalf("checksum = %q, want %q", got, sum(body))
+	}
+}
+
+func TestMigrateRejectsBadFileNames(t *testing.T) {
+	for _, name := range []string{"init.sql", "1_init.sql", "0001-init.sql", "0001_Init.sql", "0001_.sql", "00001_a.sql", "0001_a b.sql", "0001_a.SQL.sql"} {
+		d := openMem(t)
+		fsys := fstest.MapFS{name: {Data: []byte("CREATE TABLE a (id TEXT);")}}
+		err := db.MigrateFS(context.Background(), d, fsys)
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%q: err = %v, want an error naming the file", name, err)
+		}
+		if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='a'"); n != 0 {
+			t.Errorf("%q: a migration ran despite the bad name", name)
+		}
+	}
+}
+
+func TestMigrateRejectsDuplicateVersions(t *testing.T) {
+	d := openMem(t)
+	fsys := fstest.MapFS{
+		"0001_a.sql": {Data: []byte("CREATE TABLE a (id TEXT);")},
+		"0002_b.sql": {Data: []byte("CREATE TABLE b (id TEXT);")},
+		"0002_c.sql": {Data: []byte("CREATE TABLE c (id TEXT);")},
+	}
+	err := db.MigrateFS(context.Background(), d, fsys)
+	if err == nil || !strings.Contains(err.Error(), "0002_b.sql") || !strings.Contains(err.Error(), "0002_c.sql") {
+		t.Fatalf("err = %v, want both 0002 files named", err)
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='a'"); n != 0 {
+		t.Fatal("a migration ran before the set was rejected")
+	}
+}
+
+func TestMigrateAcceptsAValidSetWithAGapInNumbering(t *testing.T) {
+	d := openMem(t)
+	fsys := fstest.MapFS{
+		"0001_a.sql":        {Data: []byte("CREATE TABLE a (id TEXT);")},
+		"0005_b_more_2.sql": {Data: []byte("CREATE TABLE b (id TEXT);")},
+		"README.md":         {Data: []byte("not a migration")},
+	}
+	if err := db.MigrateFS(context.Background(), d, fsys); err != nil {
+		t.Fatal(err)
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations"); n != 2 {
+		t.Fatalf("rows = %d, want 2", n)
+	}
+}

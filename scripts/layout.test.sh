@@ -42,6 +42,10 @@ badnames="$(ls scripts/ | grep -i 'test' | grep -v '\.test\.sh$')"
 [ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
 [ -f ios/README.md ] || [ -f ios/Package.swift ] && ok "ios/ has a README (placeholder) or a scaffolded Package.swift" || bad "ios/ has neither README.md nor Package.swift"
 
+# Migrations are checksummed over their exact bytes, so git must never rewrite their line endings.
+attr="$(git check-attr text -- web/api/internal/db/migrations/0001_init.sql)"
+case "$attr" in *": text: unset") ok "*.sql is -text (autocrlf cannot alter migration bytes)" ;; *) bad "*.sql is not marked -text in .gitattributes (got: $attr)" ;; esac
+
 # Build outputs and node_modules are ignored at any depth; nothing tracked is ignored.
 ign=1
 for p in web/node_modules/x node_modules/x web/test/e2e/node_modules/x \
