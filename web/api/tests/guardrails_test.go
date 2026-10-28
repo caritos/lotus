@@ -303,7 +303,26 @@ components:
 	}
 }
 
-var apiLiteralRe = regexp.MustCompile(`"(?:[A-Z]+ )?(/api/[^"\s]*)"`)
+var apiLiteralRe = regexp.MustCompile("[\"`](?:[A-Z]+ )?(/api/[^\"`\\s]*)[\"`]")
+
+// codeOf drops a trailing // comment (outside string literals) so a comment cannot hide or fake a mount.
+func codeOf(line string) string {
+	var quote rune
+	rs := []rune(line)
+	for i, r := range rs {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '"' || r == '`':
+			quote = r
+		case r == '/' && i+1 < len(rs) && rs[i+1] == '/':
+			return string(rs[:i])
+		}
+	}
+	return line
+}
 
 // unsafeAPIMounts returns the "/api/..." string literals in server wiring source that are neither a public
 // path nor the "/api/" catch-all nor on a line that mounts into the `private` mux. Such a literal is a route
@@ -311,10 +330,11 @@ var apiLiteralRe = regexp.MustCompile(`"(?:[A-Z]+ )?(/api/[^"\s]*)"`)
 func unsafeAPIMounts(src string, publicPaths map[string]bool) []string {
 	var out []string
 	for _, line := range strings.Split(src, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "//") || strings.Contains(line, "private.") {
+		code := codeOf(line)
+		if strings.TrimSpace(code) == "" || strings.Contains(code, "private.") {
 			continue
 		}
-		for _, m := range apiLiteralRe.FindAllStringSubmatch(line, -1) {
+		for _, m := range apiLiteralRe.FindAllStringSubmatch(code, -1) {
 			if m[1] != "/api/" && !publicPaths[m[1]] {
 				out = append(out, strings.TrimSpace(line))
 			}
@@ -355,9 +375,18 @@ func TestUnsafeAPIMounts(t *testing.T) {
 	// mux.Handle("/api/commented", h)
 	mux.HandleFunc("/api/admin", admin)
 	mux.HandleFunc("GET /api/export", export)
+	mux.Handle(` + "`/api/raw`" + `, h)
+	mux.HandleFunc("/api/sneaky", h) // private.Handle would be fine here
+	private.Handle("/api/ok", h) // mux.Handle("/api/not-a-mount", h)
 `
 	got := unsafeAPIMounts(src, pub)
-	if len(got) != 2 || !strings.Contains(got[0], "/api/admin") || !strings.Contains(got[1], "/api/export") {
-		t.Errorf("got %q, want the /api/admin and /api/export lines", got)
+	want := []string{"/api/admin", "/api/export", "/api/raw", "/api/sneaky"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want lines for %v", got, want)
+	}
+	for i, w := range want {
+		if !strings.Contains(got[i], w) {
+			t.Errorf("got[%d] = %q, want it to contain %s", i, got[i], w)
+		}
 	}
 }

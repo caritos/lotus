@@ -137,8 +137,9 @@ endpoint public, add it to `publicRoutes` with a reason, register it explicitly 
 `mux.HandleFunc("GET /api/x", ...)` in `server.New` and watch the test fail. A method-less mount such as
 `mux.HandleFunc("/api/admin", ...)` is invisible to the spec-drift test and to the probe, so
 `TestServerMountsNothingPublicUnderAPI` scans the `"/api/..."` string literals of `internal/server/server.go` and
-fails on any that is not public, the `/api/` catch-all or on the `private` mux. Remaining limit: it reads literals in
-that one file; a route mounted through a variable or from another file escapes it (the probe still catches one that is
+fails on any that is not public, the `/api/` catch-all or on the `private` mux. The scan ignores comments (a trailing comment mentioning `private.` does not exempt a mount) and sees both
+`"..."` and backtick literals. Remaining limit: it reads literals in
+that one file; a path built by concatenation (`prefix+"/x"`), a route mounted through a variable, or one registered from another file escapes it (the probe still catches one that is
 in the spec or has a literal `"METHOD /path"` pattern).
 
 The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
