@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/apptest"
-	"goweb/internal/web"
+	"app/internal/apptest"
+	"app/internal/web"
 )
 
 // covers: getHealth
@@ -126,7 +126,7 @@ func TestLogsWrittenToDataDir(t *testing.T) {
 	mustLogin(t, a, c, testEmail, testPassword)
 	var token string
 	for _, ck := range c.Jar.Cookies(mustURL(t, a.URL)) {
-		if ck.Name == "goweb_session" {
+		if ck.Name == "app_session" {
 			token = ck.Value
 		}
 	}

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"goweb/internal/apptest"
+	"app/internal/apptest"
 )
 
 // covers: login, logout, getMe
@@ -27,12 +27,12 @@ func TestAuthFlow(t *testing.T) {
 	var cookie *http.Cookie
 	resp := &http.Response{Header: hdr}
 	for _, c := range resp.Cookies() {
-		if c.Name == "goweb_session" {
+		if c.Name == "app_session" {
 			cookie = c
 		}
 	}
 	if cookie == nil {
-		t.Fatal("no goweb_session cookie")
+		t.Fatal("no app_session cookie")
 	}
 	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/" || cookie.MaxAge <= 0 || cookie.Value == "" {
 		t.Fatalf("cookie attributes wrong: %+v", cookie)

@@ -1,0 +1,21 @@
+# systemd USER unit: one backup run, started by app-backup.timer.
+# Install both files in ~/.config/systemd/user/, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now app-backup.timer
+#
+# DATA_DIR: a DATA_DIR in app/.env overrides the Environment= line below (systemd
+# applies EnvironmentFile= last; a relative value is relative to WorkingDirectory).
+# Keep one value, or leave DATA_DIR out of .env.
+[Unit]
+Description=app daily backup
+
+[Service]
+Type=oneshot
+ExecStart=%h/app/current/app backup --keep 14
+WorkingDirectory=%h/app/data
+EnvironmentFile=-%h/app/.env
+Environment=DATA_DIR=%h/app/data
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=%h/app/data
+PrivateTmp=yes

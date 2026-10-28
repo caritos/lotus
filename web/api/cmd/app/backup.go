@@ -8,9 +8,9 @@ import (
 	"io"
 	"time"
 
-	"goweb/internal/backup"
-	"goweb/internal/config"
-	"goweb/internal/db"
+	"app/internal/backup"
+	"app/internal/config"
+	"app/internal/db"
 )
 
 func init() {
@@ -18,7 +18,7 @@ func init() {
 	commands["verify-backup"] = verifyBackupCmd
 }
 
-const backupUsage = "usage: goweb backup [--keep N] [--label NAME]"
+const backupUsage = "usage: app backup [--keep N] [--label NAME]"
 
 // backupCmd writes a backup set and prints its directory. Without --label it is
 // the daily set <timestamp>, pruned to the newest N daily sets; with --label it
@@ -59,7 +59,7 @@ func backupCmd(args []string, getenv func(string) string, stdout io.Writer) erro
 // verifyBackupCmd checks a backup set and prints ok, or fails listing problems.
 func verifyBackupCmd(args []string, _ func(string) string, stdout io.Writer) error {
 	if len(args) != 1 {
-		return errors.New("usage: goweb verify-backup <backup-dir>")
+		return errors.New("usage: app verify-backup <backup-dir>")
 	}
 	if err := backup.Verify(args[0]); err != nil {
 		return err

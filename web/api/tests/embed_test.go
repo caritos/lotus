@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/apptest"
-	"goweb/internal/db/migrations"
-	"goweb/internal/version"
-	"goweb/internal/web"
+	"app/internal/apptest"
+	"app/internal/db/migrations"
+	"app/internal/version"
+	"app/internal/web"
 )
 
 // These tests are about the embeds, so they must not skip under -short.

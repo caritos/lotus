@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"goweb/internal/db"
+	"app/internal/db"
 )
 
 func openMem(t *testing.T) *sql.DB {

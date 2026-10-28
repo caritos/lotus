@@ -1,4 +1,4 @@
-# goweb
+# app
 
 A starter for a small, self-hosted web product. One Go binary serves a JSON API backed by
 SQLite, a React + TypeScript app and static public pages (home, FAQ, privacy, terms, support).
@@ -36,7 +36,7 @@ http://localhost:5173/app/ and sign in:
 
 ```sh
 cd web/api
-printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/goweb user create you@example.com
+printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/app user create you@example.com
 ```
 
 Open http://localhost:5173 exactly as written (not 127.0.0.1): the same-origin check compares it.
@@ -45,9 +45,9 @@ Development data lives under `web/` (`db/`, `logs/`, `storage/`, all gitignored)
 ## Build and run
 
 ```sh
-make build                        # pnpm build, then go build -> ./dist/goweb
+make build                        # pnpm build, then go build -> ./dist/app
 # try the binary locally (development mode, loopback only, data under ./data):
-ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://127.0.0.1:8080 DATA_DIR=./data ./dist/goweb serve
+ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://127.0.0.1:8080 DATA_DIR=./data ./dist/app serve
 ```
 
 Configuration is environment variables only. `.env.example` is the template for the **server's**
@@ -84,7 +84,7 @@ Details in [docs/testing.md](docs/testing.md).
 ## Deploy in five steps
 
 1. Prepare a Linux server with a normal user, key-only SSH and `loginctl enable-linger`.
-2. Create `~/goweb/.env` on the server from `.env.example` (`APP_ENV=production`; fill in
+2. Create `~/app/.env` on the server from `.env.example` (`APP_ENV=production`; fill in
    `SESSION_SECRET` and `PUBLIC_ORIGIN`). `deploy.sh` refuses a server `.env` that is not production.
 3. Install the systemd user units from `deploy/`.
 4. Run `scripts/deploy.sh user@host --check`, then `PUBLIC_URL=https://app.example.com scripts/deploy.sh user@host`.
@@ -128,7 +128,7 @@ files that carry the old name. Run it on a clean git tree; `scripts/rename.test.
     ├── src/                React app (pages, API client, tests)
     ├── test/               e2e/ (Playwright tests), README.md
     └── api/                Go module
-        ├── cmd/goweb/      command line
+        ├── cmd/app/      command line
         ├── internal/       config, db, auth, notes, storage, backup, server, app, web, ...
         ├── tests/          integration tests
         └── openapi.yaml    API contract

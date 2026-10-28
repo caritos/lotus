@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/config"
-	"goweb/internal/testutil"
+	"app/internal/config"
+	"app/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -356,7 +356,7 @@ func TestLoginSuccessSetsCookieAttributes(t *testing.T) {
 		t.Fatalf("cookies = %v", cs)
 	}
 	c := cs[0]
-	if c.Name != "goweb_session" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != "/" || c.Value == "" {
+	if c.Name != "app_session" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != "/" || c.Value == "" {
 		t.Errorf("cookie = %+v", c)
 	}
 	if c.MaxAge != 7200 {
@@ -455,7 +455,7 @@ func TestMeAndLogoutFlow(t *testing.T) {
 		t.Fatalf("logout = %d", out.Code)
 	}
 	cleared := out.Result().Cookies()
-	if len(cleared) != 1 || cleared[0].MaxAge >= 0 || cleared[0].Name != "goweb_session" {
+	if len(cleared) != 1 || cleared[0].MaxAge >= 0 || cleared[0].Name != "app_session" {
 		t.Fatalf("cookie not cleared: %v", cleared)
 	}
 	rec = httptest.NewRecorder()
@@ -492,7 +492,7 @@ func TestRequireAndMiddleware(t *testing.T) {
 		t.Fatalf("anon: %d %q", rec.Code, rec.Body)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
-	req.AddCookie(&http.Cookie{Name: "goweb_session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "app_session", Value: token})
 	rec = httptest.NewRecorder()
 	protected.ServeHTTP(rec, req)
 	if rec.Code != 204 || seen != "a@b.c" {

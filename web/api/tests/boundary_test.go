@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// The import-direction rules. Package names are relative to goweb/internal.
+// The import-direction rules. Package names are relative to app/internal.
 // These run in every tier: they are cheap and guard the layering.
 
 // forbidRules: each package in Pkgs must not import any package in Forbid.
@@ -39,7 +39,7 @@ var forbidRules = []struct {
 	{
 		Pkgs:   []string{"notes"},
 		Forbid: []string{"backup", "web", "logging", "db"},
-		Why:    "notes talks to auth only through its public context API (goweb/internal/auth) and gets *sql.DB injected",
+		Why:    "notes talks to auth only through its public context API (app/internal/auth) and gets *sql.DB injected",
 	},
 	{
 		Pkgs:   []string{"storage", "backup", "logging", "web"},
@@ -125,7 +125,7 @@ func TestCheckImportsFlagsForbiddenEdge(t *testing.T) {
 func importGraph(t *testing.T) map[string][]string {
 	t.Helper()
 	root := filepath.Join("..", "internal")
-	const prefix = "goweb/internal/"
+	const prefix = "app/internal/"
 	sets := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

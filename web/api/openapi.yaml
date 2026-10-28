@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: goweb API
+  title: app API
   version: 1.0.0
-  description: JSON API for the goweb starter. This file is the source of truth for the wire types.
+  description: JSON API for the app starter. This file is the source of truth for the wire types.
 servers:
   - url: /
 security:
@@ -246,7 +246,7 @@ components:
     cookieAuth:
       type: apiKey
       in: cookie
-      name: goweb_session
+      name: app_session
   parameters:
     NoteId:
       name: id

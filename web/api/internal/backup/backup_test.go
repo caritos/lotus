@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/db"
-	"goweb/internal/testutil"
+	"app/internal/db"
+	"app/internal/testutil"
 )
 
 var t0 = time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
@@ -233,8 +233,8 @@ func TestStalePartialRemoved(t *testing.T) {
 	d := testutil.NewDB(t)
 	dataDir := t.TempDir()
 	b := filepath.Join(dataDir, "backups")
-	writeFile(t, filepath.Join(b, "20261027T110000Z.partial", "goweb.db"), "junk")
-	writeFile(t, filepath.Join(b, "20261027T130000Z.partial", "goweb.db"), "future")
+	writeFile(t, filepath.Join(b, "20261027T110000Z.partial", "app.db"), "junk")
+	writeFile(t, filepath.Join(b, "20261027T130000Z.partial", "app.db"), "future")
 	if _, err := Run(context.Background(), d, dataDir, 5, t0); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestBackupFilesOwnerOnly(t *testing.T) {
 	check(filepath.Join(dataDir, "backups"), 0o700)
 	check(res.Dir, 0o700)
 	check(filepath.Join(res.Dir, "storage"), 0o700)
-	check(filepath.Join(res.Dir, "goweb.db"), 0o600)
+	check(filepath.Join(res.Dir, "app.db"), 0o600)
 	check(filepath.Join(res.Dir, "storage", photoA), 0o600)
 }
 
@@ -338,7 +338,7 @@ func TestVerifyDetectsArchivedNoteMissingPhoto(t *testing.T) {
 }
 
 func TestVerifyRejectsTraversalPhoto(t *testing.T) {
-	dir, _ := makeBackup(t, "../goweb.db")
+	dir, _ := makeBackup(t, "../app.db")
 	if err := Verify(dir); err == nil {
 		t.Fatal("want error")
 	}
@@ -346,7 +346,7 @@ func TestVerifyRejectsTraversalPhoto(t *testing.T) {
 
 func TestVerifyDetectsCorruptDB(t *testing.T) {
 	dir, _ := makeBackup(t, nil)
-	p := filepath.Join(dir, "goweb.db")
+	p := filepath.Join(dir, "app.db")
 	b, _ := os.ReadFile(p)
 	for i := 4096; i < len(b); i++ {
 		b[i] = 0xAB
@@ -398,7 +398,7 @@ func TestStalePartialCleanedOnlyWhileLockHeld(t *testing.T) {
 	d := testutil.NewDB(t)
 	dataDir := t.TempDir()
 	b := filepath.Join(dataDir, "backups")
-	writeFile(t, filepath.Join(b, "20261027T110000Z.partial", "goweb.db"), "in flight elsewhere")
+	writeFile(t, filepath.Join(b, "20261027T110000Z.partial", "app.db"), "in flight elsewhere")
 	holdLock(t, dataDir)
 	if _, err := Run(context.Background(), d, dataDir, 5, t0); !errors.Is(err, ErrBusy) {
 		t.Fatalf("err = %v", err)

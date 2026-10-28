@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"goweb/internal/config"
-	"goweb/internal/uid"
+	"app/internal/config"
+	"app/internal/uid"
 )
 
 var (
@@ -47,7 +47,7 @@ const (
 
 // devSessionKey is a DEVELOPMENT-ONLY HMAC key used when SESSION_SECRET is
 // empty. Config refuses an empty secret in production, so it is never used there.
-const devSessionKey = "goweb-development-only-session-key-do-not-use-in-production"
+const devSessionKey = "app-development-only-session-key-do-not-use-in-production"
 
 // Service owns users and sessions.
 type Service struct {

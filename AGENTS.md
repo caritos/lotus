@@ -11,7 +11,7 @@ binary, with backups, deploy scripts and tests.
 
 ## Layout
 
-- `web/api/cmd/goweb` command line (`serve`, `user create`, `backup [--label NAME]`, `verify-backup`,
+- `web/api/cmd/app` command line (`serve`, `user create`, `backup [--label NAME]`, `verify-backup`,
   `schema-version`)
 - `web/api/internal/` packages: `config`, `db`, `auth`, `notes`, `storage`, `backup`,
   `server`, `app`, `web` (embedded pages and app), `apigen` (generated models)

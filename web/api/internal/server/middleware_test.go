@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/auth"
-	"goweb/internal/config"
+	"app/internal/auth"
+	"app/internal/config"
 )
 
 var ok = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

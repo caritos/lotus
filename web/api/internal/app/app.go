@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"time"
 
-	"goweb/internal/auth"
-	"goweb/internal/config"
-	"goweb/internal/db"
-	"goweb/internal/server"
-	"goweb/internal/storage"
+	"app/internal/auth"
+	"app/internal/config"
+	"app/internal/db"
+	"app/internal/server"
+	"app/internal/storage"
 )
 
 // staleUploadAge is how old a leftover .upload-* temp file must be before New removes it.

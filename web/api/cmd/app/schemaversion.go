@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"sort"
 
-	"goweb/internal/db/migrations"
+	"app/internal/db/migrations"
 )
 
 func init() { commands["schema-version"] = schemaVersionCmd }
@@ -16,7 +16,7 @@ func init() { commands["schema-version"] = schemaVersionCmd }
 // deploy script compares it between releases to tell whether a release migrates.
 func schemaVersionCmd(args []string, _ func(string) string, stdout io.Writer) error {
 	if len(args) != 0 {
-		return errors.New("usage: goweb schema-version")
+		return errors.New("usage: app schema-version")
 	}
 	names, err := fs.Glob(migrations.FS, "*.sql")
 	if err != nil {

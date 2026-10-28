@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"goweb/internal/version"
+	"app/internal/version"
 )
 
 var builtApp = fstest.MapFS{

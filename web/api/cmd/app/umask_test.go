@@ -37,9 +37,9 @@ func checkMode(t *testing.T, path string, want os.FileMode) {
 func checkDBFiles(t *testing.T, dataDir string) {
 	t.Helper()
 	checkMode(t, filepath.Join(dataDir, "db"), 0o700)
-	checkMode(t, filepath.Join(dataDir, "db", "goweb.db"), 0o600)
+	checkMode(t, filepath.Join(dataDir, "db", "app.db"), 0o600)
 	for _, suffix := range []string{"-wal", "-shm"} {
-		p := filepath.Join(dataDir, "db", "goweb.db"+suffix)
+		p := filepath.Join(dataDir, "db", "app.db"+suffix)
 		if _, err := os.Stat(p); err == nil {
 			checkMode(t, p, 0o600)
 		}
@@ -72,5 +72,5 @@ func TestBackupMakesOwnerOnlyFilesUnderPermissiveUmask(t *testing.T) {
 	checkMode(t, filepath.Join(dir, "backups"), 0o700)
 	set := strings.TrimSpace(out.String())
 	checkMode(t, set, 0o700)
-	checkMode(t, filepath.Join(set, "goweb.db"), 0o600)
+	checkMode(t, filepath.Join(set, "app.db"), 0o600)
 }

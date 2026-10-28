@@ -2,10 +2,10 @@
 
 ## What is backed up
 
-`goweb backup` writes a set `<DATA_DIR>/backups/<UTC timestamp>/` (for example `20261027T031500Z`)
+`app backup` writes a set `<DATA_DIR>/backups/<UTC timestamp>/` (for example `20261027T031500Z`)
 containing:
 
-- `goweb.db`, a consistent SQLite snapshot (made with `VACUUM INTO`, never a plain
+- `app.db`, a consistent SQLite snapshot (made with `VACUUM INTO`, never a plain
   copy of a live database, so WAL state is included), and
 - `storage/`, a copy of the uploaded photos.
 
@@ -14,12 +14,12 @@ Logs are not backed up.
 
 ## Schedule and retention
 
-- **Server:** the `goweb-backup.timer` user unit runs `goweb backup --keep 14` daily at 03:15 (`Persistent=true`,
+- **Server:** the `app-backup.timer` user unit runs `app backup --keep 14` daily at 03:15 (`Persistent=true`,
   so a missed run happens at the next start). The 14 newest sets are kept.
 - **Pull copies:** `scripts/pull-backups.sh` runs on another machine (launchd or cron), copies new sets over SSH, verifies
   each with `PRAGMA integrity_check`, quarantines failures in `failed/`, and keeps the newest 30 (`KEEP`).
   `failed/` is never pruned automatically.
-- **Pre-deploy sets:** every deploy runs `goweb backup --label predeploy --keep 5` with the running release.
+- **Pre-deploy sets:** every deploy runs `app backup --label predeploy --keep 5` with the running release.
   A labeled set is named `<UTC timestamp>-<label>` (for example `20261027T031500Z-predeploy`) and is pruned
   only against sets with the same label: the 5 newest pre-deploy sets are kept, and deploys never push daily
   sets out (the daily prune never touches labeled sets either). Pre-deploy sets stay on the server only:
@@ -37,12 +37,12 @@ in the privacy policy.
 
 ```sh
 # rehearsal: restores into a scratch directory, touches neither DATA_DIR nor the service
-# (on the server every deploy refreshes ~/goweb/restore.sh; from a checkout use scripts/restore.sh)
-export GOWEB_BIN=$HOME/goweb/current/goweb      # must be the executable file, not a directory
-bash ~/goweb/restore.sh ~/goweb/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
+# (on the server every deploy refreshes ~/app/restore.sh; from a checkout use scripts/restore.sh)
+export APP_BIN=$HOME/app/current/app      # must be the executable file, not a directory
+bash ~/app/restore.sh ~/app/data/backups/20261027T031500Z --drill     # prints "DRILL OK <dir>"
 
 # real restore (on the server); DATA_DIR is the one the service really uses
-DATA_DIR=$HOME/goweb/data bash ~/goweb/restore.sh ~/goweb/data/backups/20261027T031500Z
+DATA_DIR=$HOME/app/data bash ~/app/restore.sh ~/app/data/backups/20261027T031500Z
 ```
 
 A real restore verifies the backup, stages a copy next to `DATA_DIR`, stops the service, saves the live data as
@@ -75,7 +75,7 @@ Done log. A pulled copy that never went through a drill is a hope, not a backup.
 Set up the restricted key as described in [deploy.md](deploy.md), then schedule:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull DEST=$HOME/Backups/goweb scripts/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull DEST=$HOME/Backups/app scripts/pull-backups.sh
 ```
 
 Needs the `sqlite3` CLI on the pulling machine. Optional `MIRROR_DIR` (copied to only if it already exists) and
@@ -98,4 +98,4 @@ or `launchctl list`), and look at `DEST` now and then.
   and alert at 80 percent.
 - The app rotates its own log under `<DATA_DIR>/logs/` by size (5 MiB, 5 generations kept); there is no system
   logrotate to configure for a non-root user.
-- The service's own output goes to the user journal (`journalctl --user -u goweb`).
+- The service's own output goes to the user journal (`journalctl --user -u app`).

@@ -128,7 +128,7 @@ func NormalizeOrigin(raw string) (string, error) {
 }
 
 // DBPath is the SQLite database file.
-func (c Config) DBPath() string { return filepath.Join(c.DataDir, "db", "goweb.db") }
+func (c Config) DBPath() string { return filepath.Join(c.DataDir, "db", "app.db") }
 
 // LogPath is the application log file.
 func (c Config) LogPath() string { return filepath.Join(c.DataDir, "logs", "app.log") }

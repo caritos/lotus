@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/testutil"
+	"app/internal/testutil"
 )
 
 func TestLabeledSetIsNamedStampDashLabel(t *testing.T) {
@@ -36,7 +36,7 @@ func TestLabeledSetIsNamedStampDashLabel(t *testing.T) {
 		}
 	}
 	checkPerm(res.Dir, 0o700)
-	checkPerm(filepath.Join(res.Dir, "goweb.db"), 0o600)
+	checkPerm(filepath.Join(res.Dir, "app.db"), 0o600)
 }
 
 func TestLabeledPruneNeverTouchesDailySets(t *testing.T) {
@@ -130,8 +130,8 @@ func TestStaleLabeledPartialRemoved(t *testing.T) {
 	d := testutil.NewDB(t)
 	dataDir := t.TempDir()
 	b := filepath.Join(dataDir, "backups")
-	writeFile(t, filepath.Join(b, "20261027T110000Z-predeploy.partial", "goweb.db"), "junk")
-	writeFile(t, filepath.Join(b, "20261027T130000Z-predeploy.partial", "goweb.db"), "future")
+	writeFile(t, filepath.Join(b, "20261027T110000Z-predeploy.partial", "app.db"), "junk")
+	writeFile(t, filepath.Join(b, "20261027T130000Z-predeploy.partial", "app.db"), "future")
 	if _, err := Run(context.Background(), d, dataDir, 5, t0); err != nil {
 		t.Fatal(err)
 	}

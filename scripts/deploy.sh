@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build goweb here, upload it to the server over SSH and switch to it, with a
+# Build app here, upload it to the server over SSH and switch to it, with a
 # health check and an automatic rollback when that is safe.
 #
 #   deploy.sh <user@host> [--check]
@@ -7,8 +7,8 @@
 # --check runs only the preflight (SSH login, linger, tools, server layout) and
 # changes nothing.
 #
-# Server layout, relative to the deploy user's $HOME (base dir REMOTE_BASE, default goweb):
-#   releases/<version>/goweb   the binary of each release
+# Server layout, relative to the deploy user's $HOME (base dir REMOTE_BASE, default app):
+#   releases/<version>/app   the binary of each release
 #   current                    symlink to the active release
 #   data/                      the app's DATA_DIR (db/, logs/, storage/, backups/)
 #   .env                       the server's runtime config; never uploaded, never printed
@@ -35,8 +35,8 @@
 # Environment:
 #   SSH, RSYNC        binaries to use, default ssh and rsync
 #   SSH_KEY           optional identity file passed with -i
-#   REMOTE_BASE       base directory on the server, default goweb (relative to $HOME)
-#   SERVICE           systemd user unit, default goweb
+#   REMOTE_BASE       base directory on the server, default app (relative to $HOME)
+#   SERVICE           systemd user unit, default app
 #   HEALTH_PORT       port of the app on the server; default: the port in ADDR of the
 #                     server's .env, else 8080
 #   HEALTH_TIMEOUT    seconds to wait for health, default 20
@@ -62,8 +62,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SSH="${SSH:-ssh}"
 RSYNC="${RSYNC:-rsync}"
 SSH_KEY="${SSH_KEY:-}"
-REMOTE_BASE="${REMOTE_BASE:-goweb}"
-SERVICE="${SERVICE:-goweb}"
+REMOTE_BASE="${REMOTE_BASE:-app}"
+SERVICE="${SERVICE:-app}"
 HEALTH_PORT="${HEALTH_PORT:-}"
 HEALTH_RECHECK_DELAY="${HEALTH_RECHECK_DELAY:-3}"
 LOCK_STALE_SECONDS=1800
@@ -164,7 +164,7 @@ preflight() {
     0) ;;
     11) die "missing \$HOME/$B/data on the server; see docs/deploy.md (prepare the server)" ;;
     12) die "missing \$HOME/$B/.env on the server (it is never uploaded); create it from .env.example, see docs/deploy.md" ;;
-    13) die "systemd user unit '$SERVICE' is not installed on the server, or 'systemctl --user' cannot reach the user manager: install deploy/goweb.service (see docs/deploy.md). If it is installed, a non-interactive SSH session may lack XDG_RUNTIME_DIR for the user bus; check on the server with: loginctl show-user \$(id -un)   (Linger=yes, State=active or lingering) and: systemctl --user status   (it must not say 'Failed to connect to bus')" ;;
+    13) die "systemd user unit '$SERVICE' is not installed on the server, or 'systemctl --user' cannot reach the user manager: install deploy/app.service (see docs/deploy.md). If it is installed, a non-interactive SSH session may lack XDG_RUNTIME_DIR for the user bus; check on the server with: loginctl show-user \$(id -un)   (Linger=yes, State=active or lingering) and: systemctl --user status   (it must not say 'Failed to connect to bus')" ;;
     14) die "neither curl nor wget is available on the server (needed for the health check)" ;;
     15) die "no sha256sum or shasum on the server" ;;
     *) die "server layout check failed (exit $rc)" ;;
@@ -250,11 +250,11 @@ if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
 fi
 [ -f "$EMBED_INDEX" ] || die "the web app is not built ($EMBED_INDEX is missing); run pnpm build in web/"
 
-step "building goweb $VERSION ($COMMIT), build id $BUILD_ID, for ${GOOS:-linux}/${GOARCH:-amd64}"
+step "building app $VERSION ($COMMIT), build id $BUILD_ID, for ${GOOS:-linux}/${GOARCH:-amd64}"
 (cd "$REPO_ROOT/web/api" && GOOS="${GOOS:-linux}" GOARCH="${GOARCH:-amd64}" CGO_ENABLED=0 go build \
-  -ldflags "-s -w -X goweb/internal/version.Version=$VERSION -X goweb/internal/version.Commit=$COMMIT -X goweb/internal/version.BuildID=$BUILD_ID" \
-  -o "$TMP/goweb" ./cmd/goweb) >&2 || die "go build failed"
-LOCAL_SUM="$(sha_local "$TMP/goweb")"
+  -ldflags "-s -w -X app/internal/version.Version=$VERSION -X app/internal/version.Commit=$COMMIT -X app/internal/version.BuildID=$BUILD_ID" \
+  -o "$TMP/app" ./cmd/app) >&2 || die "go build failed"
+LOCAL_SUM="$(sha_local "$TMP/app")"
 
 # ---------------------------------------------------------------- lock
 WHO="$(id -un 2>/dev/null | tr -c 'A-Za-z0-9._-' '_')@$(hostname -s 2>/dev/null | tr -c 'A-Za-z0-9._-' '_')"
@@ -314,9 +314,9 @@ LOAD_ENV='while IFS= read -r l || [ -n "$l" ]; do case "$l" in ""|"#"*) continue
 
 BACKUP_DIR=""
 if [ -n "$ACTIVE" ]; then
-  rsh "test -d '$DD' && test -f '$DD/db/goweb.db'" || die "the resolved DATA_DIR $DD is not a directory containing db/goweb.db. Check DATA_DIR in the server .env: the service would not be serving this data. Nothing was changed."
+  rsh "test -d '$DD' && test -f '$DD/db/app.db'" || die "the resolved DATA_DIR $DD is not a directory containing db/app.db. Check DATA_DIR in the server .env: the service would not be serving this data. Nothing was changed."
   step "taking a pre-deploy backup with $ACTIVE into $DD/backups (a <timestamp>-predeploy set; the 5 newest pre-deploy sets are kept, daily sets are not touched)"
-  BACKUP_DIR="$(rsh "cd '$B' && $LOAD_ENV; export DATA_DIR='$DD'; out=\$(./current/goweb backup --label predeploy --keep 5) || exit 1; d=\$(printf '%s\n' \"\$out\" | tail -n 1); [ -n \"\$d\" ] && [ -d \"\$d\" ] || exit 2; printf '%s\n' \"\$d\"")" \
+  BACKUP_DIR="$(rsh "cd '$B' && $LOAD_ENV; export DATA_DIR='$DD'; out=\$(./current/app backup --label predeploy --keep 5) || exit 1; d=\$(printf '%s\n' \"\$out\" | tail -n 1); [ -n \"\$d\" ] && [ -d \"\$d\" ] || exit 2; printf '%s\n' \"\$d\"")" \
     || die "pre-deploy backup failed; nothing was changed"
   [ -n "$BACKUP_DIR" ] || die "pre-deploy backup printed no directory; nothing was changed"
   step "backup written to $BACKUP_DIR"
@@ -325,22 +325,22 @@ fi
 # ---------------------------------------------------------------- upload
 step "uploading to releases/$VERSION.uploading"
 rsh "mkdir -p '$B/releases' && rm -rf '$B/releases/$VERSION.uploading' && mkdir '$B/releases/$VERSION.uploading'" || die "cannot create the upload directory"
-"$RSYNC" -a --timeout=60 -e "$SSH_E" "$TMP/goweb" "$TARGET:$B/releases/$VERSION.uploading/goweb" >/dev/null || die "upload failed; nothing was changed"
+"$RSYNC" -a --timeout=60 -e "$SSH_E" "$TMP/app" "$TARGET:$B/releases/$VERSION.uploading/app" >/dev/null || die "upload failed; nothing was changed"
 "$RSYNC" -a --timeout=60 -e "$SSH_E" "$SCRIPT_DIR/restore.sh" "$TARGET:$B/restore.sh" >/dev/null || die "upload of restore.sh failed; nothing was changed"
 
-REMOTE_SUM="$(rsh "f='$B/releases/$VERSION.uploading/goweb'; if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$f\"; else shasum -a 256 \"\$f\"; fi | cut -d' ' -f1")" || REMOTE_SUM=""
+REMOTE_SUM="$(rsh "f='$B/releases/$VERSION.uploading/app'; if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$f\"; else shasum -a 256 \"\$f\"; fi | cut -d' ' -f1")" || REMOTE_SUM=""
 if [ "$REMOTE_SUM" != "$LOCAL_SUM" ]; then
   rsh "rm -rf '$B/releases/$VERSION.uploading'" || true
   die "checksum mismatch after upload (local $LOCAL_SUM, server ${REMOTE_SUM:-unreadable}); aborted before switching, nothing changed"
 fi
 step "checksum verified"
-rsh "cd '$B/releases' && chmod 755 '$VERSION.uploading/goweb' && rm -rf '$VERSION' && mv '$VERSION.uploading' '$VERSION'" || die "cannot move the upload into place"
+rsh "cd '$B/releases' && chmod 755 '$VERSION.uploading/app' && rm -rf '$VERSION' && mv '$VERSION.uploading' '$VERSION'" || die "cannot move the upload into place"
 
 # Schema versions decide whether an automatic rollback is safe.
-NEW_SCHEMA="$(rsh "'$B/releases/$VERSION/goweb' schema-version" 2>/dev/null)" || die "the uploaded binary does not run on the server (schema-version failed); nothing was switched"
+NEW_SCHEMA="$(rsh "'$B/releases/$VERSION/app' schema-version" 2>/dev/null)" || die "the uploaded binary does not run on the server (schema-version failed); nothing was switched"
 PREV_SCHEMA=""
 if [ -n "$ACTIVE" ]; then
-  PREV_SCHEMA="$(rsh "'$B/releases/$ACTIVE/goweb' schema-version" 2>/dev/null || echo unknown)"
+  PREV_SCHEMA="$(rsh "'$B/releases/$ACTIVE/app' schema-version" 2>/dev/null || echo unknown)"
   [ -n "$PREV_SCHEMA" ] || PREV_SCHEMA=unknown
 fi
 
@@ -411,7 +411,7 @@ if ! wait_healthy "$VERSION"; then
   fi
   echo "deploy: this release carries a migration (schema $PREV_SCHEMA -> $NEW_SCHEMA), so the binary was NOT rolled back: the previous binary may not work against the migrated schema." >&2
   echo "deploy: to go back, restore the pre-deploy backup with the previous release. On the server:" >&2
-  echo "  cd \$HOME/$B && ln -sfn releases/$ACTIVE current && DATA_DIR=$DD GOWEB_BIN=\$HOME/$B/releases/$ACTIVE/goweb SERVICE=$SERVICE PORT=$HEALTH_PORT bash restore.sh $BACKUP_DIR" >&2
+  echo "  cd \$HOME/$B && ln -sfn releases/$ACTIVE current && DATA_DIR=$DD APP_BIN=\$HOME/$B/releases/$ACTIVE/app SERVICE=$SERVICE PORT=$HEALTH_PORT bash restore.sh $BACKUP_DIR" >&2
   echo "deploy: (run restore.sh --drill first if you want to rehearse; see docs/backups.md)" >&2
   exit 1
 fi

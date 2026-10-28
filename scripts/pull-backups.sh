@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Pull goweb backup sets from the server to this machine (run from cron/launchd on
+# Pull app backup sets from the server to this machine (run from cron/launchd on
 # another machine, usually a Mac). The server holds no credentials for this machine.
 #
 # For each completed remote set (<UTC timestamp>, never *.partial) not yet held
 # locally (labeled sets such as <timestamp>-predeploy are never pulled and count
-# neither toward KEEP nor toward the freshness check; they stay on the server): rsync it into DEST, run `PRAGMA integrity_check` on the pulled goweb.db
+# neither toward KEEP nor toward the freshness check; they stay on the server): rsync it into DEST, run `PRAGMA integrity_check` on the pulled app.db
 # with the sqlite3 CLI (this machine needs sqlite3 installed), move failures to
 # DEST/failed/ and notify. Then prune DEST to the newest KEEP sets (retention:
 # 30 snapshots by default, i.e. about a month of daily backups; DEST/failed/ is
@@ -27,8 +27,8 @@
 #
 # Environment:
 #   REMOTE      user@host; empty means REMOTE_DIR is a local path (tests)
-#   REMOTE_DIR  directory on the server holding the sets (e.g. goweb/data/backups)
-#   DEST        default $HOME/Backups/goweb
+#   REMOTE_DIR  directory on the server holding the sets (e.g. app/data/backups)
+#   DEST        default $HOME/Backups/app
 #   SSH_KEY     optional identity file passed to ssh with -i
 #   KEEP        snapshots to keep, default 30
 #   MIRROR_DIR  optional second destination; used only if it already exists and is a
@@ -45,7 +45,7 @@ umask 077
 
 REMOTE="${REMOTE:-}"
 REMOTE_DIR="${REMOTE_DIR:-}"
-DEST="${DEST:-$HOME/Backups/goweb}"
+DEST="${DEST:-$HOME/Backups/app}"
 SSH_KEY="${SSH_KEY:-}"
 KEEP="${KEEP:-30}"
 MIRROR_DIR="${MIRROR_DIR:-}"
@@ -63,7 +63,7 @@ notify() {
   if [ -n "${NOTIFY_CMD:-}" ]; then
     bash -c "$NOTIFY_CMD" notify "$1" >/dev/null 2>&1 || true
   elif [ "$(uname)" = "Darwin" ] && command -v osascript >/dev/null 2>&1; then
-    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "goweb backup"' -e 'end run' "$1" >/dev/null 2>&1 || true
+    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "app backup"' -e 'end run' "$1" >/dev/null 2>&1 || true
   fi
 }
 
@@ -260,7 +260,7 @@ for name in $(printf '%s\n' "$REMOTE_LIST" | grep -E "$PATTERN" | sort); do
     fail "snapshot $name is dated more than a day in the future; moved to $DEST/failed/"
     continue
   fi
-  result="$("$SQLITE3" -readonly "$tmp/goweb.db" 'PRAGMA integrity_check;' 2>&1)"
+  result="$("$SQLITE3" -readonly "$tmp/app.db" 'PRAGMA integrity_check;' 2>&1)"
   if [ "$result" = "ok" ]; then
     mv "$tmp" "$DEST/$name"
     echo "pull-backups: pulled $name" >&2
@@ -297,7 +297,7 @@ if [ -n "$MIRROR_DIR" ] && [ -d "$MIRROR_DIR" ]; then
       fail "mirror of $name to $MIRROR_DIR failed"
       continue
     fi
-    mres="$("$SQLITE3" -readonly "$mtmp/goweb.db" 'PRAGMA integrity_check;' 2>&1)"
+    mres="$("$SQLITE3" -readonly "$mtmp/app.db" 'PRAGMA integrity_check;' 2>&1)"
     if [ "$mres" = "ok" ]; then
       mv "$mtmp" "$MIRROR_DIR/$name" || fail "mirror of $name: rename failed"
     else

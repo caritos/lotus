@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"goweb/internal/apigen"
-	"goweb/internal/auth"
-	"goweb/internal/config"
+	"app/internal/apigen"
+	"app/internal/auth"
+	"app/internal/config"
 )
 
 // Middleware wraps a handler.

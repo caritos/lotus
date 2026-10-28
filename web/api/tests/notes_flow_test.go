@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"goweb/internal/apigen"
-	"goweb/internal/apptest"
+	"app/internal/apigen"
+	"app/internal/apptest"
 )
 
 // covers: listNotes, createNote, putNotePhoto, getNotePhoto, deleteNotePhoto, deleteNote

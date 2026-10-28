@@ -15,9 +15,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"goweb/internal/apigen"
-	"goweb/internal/auth"
-	"goweb/internal/storage"
+	"app/internal/apigen"
+	"app/internal/auth"
+	"app/internal/storage"
 )
 
 const (

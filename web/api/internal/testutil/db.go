@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"goweb/internal/db"
+	"app/internal/db"
 )
 
 // NewDB returns a migrated temp-file database, closed when the test ends.

@@ -1,7 +1,7 @@
-# NGINX reverse proxy for goweb. Replace app.example.com and the upstream port
+# NGINX reverse proxy for app. Replace app.example.com and the upstream port
 # (the ADDR port in the app's .env). See docs/https.md for the certbot steps.
 
-upstream goweb {
+upstream app {
     server 127.0.0.1:8080;
     keepalive 16;
 }
@@ -34,7 +34,7 @@ server {
     client_max_body_size 8m;
 
     location / {
-        proxy_pass http://goweb;
+        proxy_pass http://app;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"goweb/internal/auth"
-	"goweb/internal/config"
-	"goweb/internal/db"
+	"app/internal/auth"
+	"app/internal/config"
+	"app/internal/db"
 )
 
 // stdin is where `user create` reads the password; tests replace it.
@@ -20,7 +20,7 @@ var stdin io.Reader = os.Stdin
 
 func init() { commands["user"] = userCmd }
 
-const userUsage = "usage: goweb user create <email>   (password on the first line of stdin)"
+const userUsage = "usage: app user create <email>   (password on the first line of stdin)"
 
 func userCmd(args []string, getenv func(string) string, stdout io.Writer) error {
 	if len(args) != 2 || args[0] != "create" {

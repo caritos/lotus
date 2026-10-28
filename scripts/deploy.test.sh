@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for scripts/restore.sh, scripts/pull-backups.sh, scripts/deploy.sh and scripts/smoke.sh.
-# Builds the goweb binary once, builds fixtures with it and the sqlite3 CLI, and
+# Builds the app binary once, builds fixtures with it and the sqlite3 CLI, and
 # uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash scripts/deploy.test.sh
 # (ONLY='test_deploy_*' bash scripts/deploy.test.sh runs the tests whose names match the glob).
 set -u
@@ -18,12 +18,12 @@ case "$ROOT" in /tmp/*|/var/*|/private/*) ;; *) echo "deploy.test.sh: unexpected
 trap 'rm -rf "$ROOT"' EXIT
 umask 077
 
-echo "building goweb ..."
-if ! (cd "$REPO_ROOT/web/api" && go build -o "$ROOT/goweb" ./cmd/goweb); then
+echo "building app ..."
+if ! (cd "$REPO_ROOT/web/api" && go build -o "$ROOT/app" ./cmd/app); then
   echo "deploy.test.sh: go build failed" >&2
   exit 2
 fi
-export GOWEB_BIN="$ROOT/goweb"
+export APP_BIN="$ROOT/app"
 # 2026-10-28T00:00:00Z, so the fixture sets named 20261027T... are 1 day old.
 NOW_EPOCH_FIXED=1793145600
 
@@ -34,9 +34,9 @@ PHOTO="11111111-1111-1111-1111-111111111111.jpg"
 make_data() {
   local dir="$1" email="$2" photo="$3"
   mkdir -p "$dir/storage"
-  printf 'correct-horse-battery\n' | DATA_DIR="$dir" "$GOWEB_BIN" user create "$email" >/dev/null || return 1
+  printf 'correct-horse-battery\n' | DATA_DIR="$dir" "$APP_BIN" user create "$email" >/dev/null || return 1
   if [ -n "$photo" ]; then
-    sqlite3 "$dir/db/goweb.db" "INSERT INTO notes (id, user_id, title, photo, created_at, updated_at) SELECT 'n1', id, 't', '$photo', 1, 1 FROM users LIMIT 1;" || return 1
+    sqlite3 "$dir/db/app.db" "INSERT INTO notes (id, user_id, title, photo, created_at, updated_at) SELECT 'n1', id, 't', '$photo', 1, 1 FROM users LIMIT 1;" || return 1
     printf 'img-%s' "$email" > "$dir/storage/$photo"
   fi
 }
@@ -44,7 +44,7 @@ make_data() {
 # Master fixtures, copied per test.
 make_data "$ROOT/master-base" "backup@example.com" "$PHOTO" || { echo "fixture build failed" >&2; exit 2; }
 make_data "$ROOT/master-live" "live@example.com" "$PHOTO" || { echo "fixture build failed" >&2; exit 2; }
-MASTER_BACKUP="$(DATA_DIR="$ROOT/master-base" "$GOWEB_BIN" backup --keep 3)" || { echo "backup fixture failed" >&2; exit 2; }
+MASTER_BACKUP="$(DATA_DIR="$ROOT/master-base" "$APP_BIN" backup --keep 3)" || { echo "backup fixture failed" >&2; exit 2; }
 
 PASSED=0
 FAILED=0
@@ -88,7 +88,7 @@ EOS
   chmod +x "$T/bin/cp" "$T/bin/mv"
   export CALLS="$T/calls" NOTIFIED="$T/notified"
   : > "$CALLS"; : > "$NOTIFIED"
-  export SYSTEMCTL="$T/systemctl" SERVICE=goweb
+  export SYSTEMCTL="$T/systemctl" SERVICE=app
   export HEALTH_TIMEOUT=2
   export NOTIFY_CMD='sh '"$T/notify"' "$1"'
 }
@@ -103,9 +103,9 @@ new_backup() {
 restore() { PATH="$T/bin:$PATH" bash "$SCRIPT_DIR/restore.sh" "$@" >"$T/out" 2>"$T/err"; }
 
 # live_email prints the email stored in the live database.
-live_email() { sqlite3 "$T/data/db/goweb.db" 'select email from users'; }
+live_email() { sqlite3 "$T/data/db/app.db" 'select email from users'; }
 # healthy only while the original (live) data is in place.
-LIVE_HEALTH='test "$(sqlite3 "$DATA_DIR/db/goweb.db" "select email from users")" = live@example.com'
+LIVE_HEALTH='test "$(sqlite3 "$DATA_DIR/db/app.db" "select email from users")" = live@example.com'
 setup_live() {
   make_fakes
   cp -R "$ROOT/master-live" "$T/data"
@@ -140,10 +140,10 @@ test_restore_drill_fails_on_corrupt_db() {
   make_fakes
   local b; b="$(new_backup 20261027T120000Z)"
   # Overwrite everything after the first page with garbage.
-  local size; size="$(wc -c < "$b/goweb.db" | tr -d ' ')"
-  head -c 4096 "$b/goweb.db" > "$T/head"
+  local size; size="$(wc -c < "$b/app.db" | tr -d ' ')"
+  head -c 4096 "$b/app.db" > "$T/head"
   head -c $((size - 4096)) /dev/zero | tr '\0' 'x' > "$T/junk"
-  cat "$T/head" "$T/junk" > "$b/goweb.db"
+  cat "$T/head" "$T/junk" > "$b/app.db"
   restore "$b" --drill
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_false "no DRILL OK line" grep -q "DRILL OK" "$T/out"
@@ -165,20 +165,20 @@ test_restore_non_drill_replaces_data_and_restarts_service() {
   make_fakes
   cp -R "$ROOT/master-live" "$T/data"
   export DATA_DIR="$T/data" HEALTH_CMD="true"
-  echo stale > "$T/data/db/goweb.db-wal"
+  echo stale > "$T/data/db/app.db-wal"
   echo stale > "$T/data/storage/only-in-live.jpg"
   local b; b="$(new_backup 20261027T120000Z)"
   restore "$b"
   assert_eq "$?" "0" "exit status"
-  assert_eq "$(sqlite3 "$T/data/db/goweb.db" 'select email from users')" "backup@example.com" "db replaced"
+  assert_eq "$(sqlite3 "$T/data/db/app.db" 'select email from users')" "backup@example.com" "db replaced"
   assert_eq "$(cat "$T/data/storage/$PHOTO")" "img-backup@example.com" "photo replaced"
-  assert_false "stale wal removed" test -e "$T/data/db/goweb.db-wal"
+  assert_false "stale wal removed" test -e "$T/data/db/app.db-wal"
   assert_false "live-only file removed" test -e "$T/data/storage/only-in-live.jpg"
-  assert_eq "$(cat "$CALLS")" "stop goweb
-start goweb" "service calls"
+  assert_eq "$(cat "$CALLS")" "stop app
+start app" "service calls"
   local pre; pre="$(ls -d "$T"/data/backups/pre-restore-* 2>/dev/null | head -1)"
   assert_true "pre-restore copy exists" test -n "$pre"
-  assert_eq "$(sqlite3 "$pre/goweb.db" 'select email from users')" "live@example.com" "pre-restore db"
+  assert_eq "$(sqlite3 "$pre/app.db" 'select email from users')" "live@example.com" "pre-restore db"
   assert_true "pre-restore storage exists" test -f "$pre/storage/only-in-live.jpg"
 }
 
@@ -190,10 +190,10 @@ test_restore_rolls_back_when_health_check_fails() {
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_eq "$(live_email)" "live@example.com" "db rolled back"
   assert_eq "$(cat "$T/data/storage/$PHOTO")" "img-live@example.com" "storage rolled back"
-  assert_eq "$(cat "$CALLS")" "stop goweb
-start goweb
-stop goweb
-start goweb" "service calls"
+  assert_eq "$(cat "$CALLS")" "stop app
+start app
+stop app
+start app" "service calls"
   assert_contains "$(cat "$T/err")" "rolled back to the previous data; service is healthy" "stderr"
   assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
 }
@@ -207,13 +207,13 @@ test_restore_does_not_claim_rollback_when_still_unhealthy() {
   assert_eq "$(live_email)" "live@example.com" "db rolled back"
   assert_contains "$(cat "$T/err")" "RECOVERY INCOMPLETE" "stderr"
   assert_false "no false rollback claim" grep -q "service is healthy" "$T/err"
-  assert_eq "$(tail -1 "$CALLS")" "start goweb" "service left started"
+  assert_eq "$(tail -1 "$CALLS")" "start app" "service left started"
 }
 
 # #1: a failing cp while staging must abort before anything is touched.
 test_restore_aborts_when_staging_copy_fails() {
   local pat
-  for pat in "*/.restore-stage-*/goweb.db" "*/.restore-stage-*/storage*"; do
+  for pat in "*/.restore-stage-*/app.db" "*/.restore-stage-*/storage*"; do
     setup_live
     export HEALTH_CMD="$LIVE_HEALTH" FAIL_CP_DST="$pat"
     local b; b="$(new_backup 20261027T120000Z)"
@@ -230,7 +230,7 @@ test_restore_aborts_when_staging_copy_fails() {
 # #2: a corrupt copy must be caught before the swap.
 test_restore_catches_corrupt_copy_before_swap() {
   setup_live
-  export HEALTH_CMD="$LIVE_HEALTH" TRUNC_CP_DST="*/.restore-stage-*/goweb.db"
+  export HEALTH_CMD="$LIVE_HEALTH" TRUNC_CP_DST="*/.restore-stage-*/app.db"
   local b; b="$(new_backup 20261027T120000Z)"
   restore "$b"
   assert_false "exit status must be nonzero" test "$?" -eq 0
@@ -246,8 +246,8 @@ test_restore_restarts_service_when_safety_copy_fails() {
   local b; b="$(new_backup 20261027T120000Z)"
   restore "$b"
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_eq "$(cat "$CALLS")" "stop goweb
-start goweb" "service calls"
+  assert_eq "$(cat "$CALLS")" "stop app
+start app" "service calls"
   assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
   assert_eq "$(live_email)" "live@example.com" "data intact"
 }
@@ -260,7 +260,7 @@ test_restore_rolls_back_when_swap_fails_midway() {
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_eq "$(live_email)" "live@example.com" "db rolled back"
   assert_eq "$(cat "$T/data/storage/$PHOTO")" "img-live@example.com" "storage rolled back"
-  assert_eq "$(tail -1 "$CALLS")" "start goweb" "service restarted"
+  assert_eq "$(tail -1 "$CALLS")" "start app" "service restarted"
   assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
   assert_contains "$(cat "$T/err")" "rolled back to the previous data; service is healthy" "stderr"
 }
@@ -269,7 +269,7 @@ test_restore_rolls_back_when_swap_fails_midway() {
 test_restore_recovery_survives_repeated_signals() {
   setup_live
   export HEALTH_CMD="$LIVE_HEALTH" FAIL_MV_DST="*/data/storage"
-  export SLOW_CP_DST="*/data/db/goweb.db" SLOW_MARKER="$T/slow-started"
+  export SLOW_CP_DST="*/data/db/app.db" SLOW_MARKER="$T/slow-started"
   local b; b="$(new_backup 20261027T120000Z)"
   PATH="$T/bin:$PATH" bash "$SCRIPT_DIR/restore.sh" "$b" >"$T/out" 2>"$T/err" &
   local pid=$! i
@@ -283,18 +283,18 @@ test_restore_recovery_survives_repeated_signals() {
   assert_false "exit status must be nonzero" test "$rc" -eq 0
   assert_eq "$(live_email)" "live@example.com" "db restored"
   assert_eq "$(cat "$T/data/storage/$PHOTO")" "img-live@example.com" "storage restored"
-  assert_eq "$(tail -1 "$CALLS")" "start goweb" "service started"
+  assert_eq "$(tail -1 "$CALLS")" "start app" "service started"
   assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
   assert_contains "$(cat "$T/err")" "rolled back to the previous data; service is healthy" "completed"
 }
 
 test_restore_reports_when_rollback_copy_fails() {
   setup_live
-  export HEALTH_CMD="false" FAIL_CP_DST="*/data/db/goweb.db"
+  export HEALTH_CMD="false" FAIL_CP_DST="*/data/db/app.db"
   local b; b="$(new_backup 20261027T120000Z)"
   restore "$b"
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_eq "$(tail -1 "$CALLS")" "start goweb" "service restarted anyway"
+  assert_eq "$(tail -1 "$CALLS")" "start app" "service restarted anyway"
   assert_contains "$(cat "$T/err")" "RECOVERY INCOMPLETE" "stderr"
   assert_contains "$(cat "$T/err")" "pre-restore-" "names the safety copy"
   assert_false "no false rollback claim" grep -q "service is healthy" "$T/err"
@@ -311,11 +311,11 @@ test_restore_refuses_empty_or_missing_backup_dir_argument() {
   assert_false "missing dir" test "$?" -eq 0
   mkdir "$T/empty"
   restore "$T/empty"
-  assert_false "dir without goweb.db" test "$?" -eq 0
+  assert_false "dir without app.db" test "$?" -eq 0
   restore
   assert_false "no args" test "$?" -eq 0
   assert_eq "$(cat "$CALLS")" "" "service untouched"
-  assert_eq "$(sqlite3 "$T/data/db/goweb.db" 'select email from users')" "live@example.com" "data untouched"
+  assert_eq "$(sqlite3 "$T/data/db/app.db" 'select email from users')" "live@example.com" "data untouched"
 }
 
 # ------------------------------------------------------------------ pull tests
@@ -333,15 +333,15 @@ test_pull_rejects_corrupt_snapshot_into_failed() {
   make_fakes; pull_env
   remote_set 20261027T100000Z
   remote_set 20261027T110000Z
-  local size; size="$(wc -c < "$T/remote/20261027T110000Z/goweb.db" | tr -d ' ')"
-  head -c 4096 "$T/remote/20261027T110000Z/goweb.db" > "$T/head"
+  local size; size="$(wc -c < "$T/remote/20261027T110000Z/app.db" | tr -d ' ')"
+  head -c 4096 "$T/remote/20261027T110000Z/app.db" > "$T/head"
   head -c $((size - 4096)) /dev/zero | tr '\0' 'x' > "$T/junk"
-  cat "$T/head" "$T/junk" > "$T/remote/20261027T110000Z/goweb.db"
+  cat "$T/head" "$T/junk" > "$T/remote/20261027T110000Z/app.db"
   pull
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_true "good set kept" test -f "$T/dest/20261027T100000Z/goweb.db"
+  assert_true "good set kept" test -f "$T/dest/20261027T100000Z/app.db"
   assert_false "bad set not in dest" test -e "$T/dest/20261027T110000Z"
-  assert_true "bad set quarantined" test -f "$T/dest/failed/20261027T110000Z/goweb.db"
+  assert_true "bad set quarantined" test -f "$T/dest/failed/20261027T110000Z/app.db"
   assert_contains "$(cat "$NOTIFIED")" "20261027T110000Z" "notified"
 }
 
@@ -350,7 +350,7 @@ test_pull_alerts_when_newest_backup_is_stale() {
   remote_set 20261020T120000Z
   pull
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_true "set still pulled" test -f "$T/dest/20261020T120000Z/goweb.db"
+  assert_true "set still pulled" test -f "$T/dest/20261020T120000Z/app.db"
   assert_contains "$(cat "$NOTIFIED")" "stale" "notified"
 }
 
@@ -393,7 +393,7 @@ test_pull_mirror_cleans_leftovers_and_rejects_corrupt_copy() {
   remote_set 20261027T120000Z
   export MIRROR_DIR="$T/mirror"
   mkdir -p "$T/mirror/20261027T120000Z.pulling"
-  echo junk > "$T/mirror/20261027T120000Z.pulling/goweb.db"
+  echo junk > "$T/mirror/20261027T120000Z.pulling/app.db"
   mkdir -p "$T/mirror/keep-me.pulling-not"
   pull
   assert_eq "$?" "0" "exit status"
@@ -406,7 +406,7 @@ test_pull_mirror_cleans_leftovers_and_rejects_corrupt_copy() {
 #!/bin/sh
 /usr/bin/rsync "$@" || exit $?
 for last; do :; done
-case "$last" in */mirror/*.pulling/) echo garbage > "${last}goweb.db" ;; esac
+case "$last" in */mirror/*.pulling/) echo garbage > "${last}app.db" ;; esac
 EOS
   chmod +x "$T/rsync-corrupt"
   RSYNC="$T/rsync-corrupt" pull
@@ -433,7 +433,7 @@ test_pull_takes_over_lock_whose_pid_is_an_unrelated_live_process() {
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   assert_eq "$rc" "0" "exit status"
   assert_contains "$(cat "$T/err")" "taking over stale lock" "message"
-  assert_true "pulled" test -f "$T/dest/20261027T120000Z/goweb.db"
+  assert_true "pulled" test -f "$T/dest/20261027T120000Z/app.db"
 }
 
 test_pull_takes_over_an_old_lock_even_if_the_pid_is_alive() {
@@ -480,7 +480,7 @@ test_pull_takes_over_a_stale_lock_and_releases_its_own() {
   pull
   assert_eq "$?" "0" "exit status"
   assert_false "lock released" test -e "$T/dest/.lock"
-  assert_true "pulled" test -f "$T/dest/20261027T120000Z/goweb.db"
+  assert_true "pulled" test -f "$T/dest/20261027T120000Z/app.db"
 }
 
 # #7: future-dated sets are invalid.
@@ -531,7 +531,7 @@ test_pull_mirrors_only_when_MIRROR_DIR_exists() {
   mkdir "$T/mirror"
   pull
   assert_eq "$?" "0" "exit status (mirror present)"
-  assert_true "mirrored" test -f "$T/mirror/20261027T120000Z/goweb.db"
+  assert_true "mirrored" test -f "$T/mirror/20261027T120000Z/app.db"
   assert_true "mirrored storage" test -f "$T/mirror/20261027T120000Z/storage/$PHOTO"
   assert_eq "$(ls -A "$T/mirror" | tr '\n' ' ')" "20261027T120000Z " "mirror contents"
 }
@@ -552,24 +552,24 @@ make_fake_binary_script() {
 setup_deploy() {
   export DCALLS="$T/dcalls"; : > "$DCALLS"
   export FAKE_REMOTE_HOME="$T/home"
-  mkdir -p "$T/home/goweb/data/db" "$T/home/goweb/releases" "$T/rbin" "$T/lbin"
-  : > "$T/home/goweb/data/db/goweb.db"
+  mkdir -p "$T/home/app/data/db" "$T/home/app/releases" "$T/rbin" "$T/lbin"
+  : > "$T/home/app/data/db/app.db"
   cat > "$T/fakebin.tmpl" <<'EOT'
 #!/bin/sh
 case "$1" in
   schema-version)
-    if [ "@SCHEMA@" = NONE ]; then echo "goweb: unknown command" >&2; exit 1; fi
+    if [ "@SCHEMA@" = NONE ]; then echo "app: unknown command" >&2; exit 1; fi
     echo "@SCHEMA@" ;;
   __version) echo "@VERSION@" ;;
   backup)
     if [ -n "$FAKE_BACKUP_FAIL" ]; then echo "backup exploded" >&2; exit 1; fi
     if [ -n "$FAKE_BACKUP_EMPTY" ]; then exit 0; fi
-    dd="${DATA_DIR:-$HOME/goweb/data}"
+    dd="${DATA_DIR:-$HOME/app/data}"
     d="$dd/backups/pre-$(date +%s)-$$"
     mkdir -p "$d" && echo "backup DATA_DIR=$dd" >> "$DCALLS" && echo "backup ARGS=$*" >> "$DCALLS" && echo "$d" ;;
 esac
 EOT
-  printf 'APP_ENV=production\nSESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=do-not-print-me\nADDR=0.0.0.0:8080\n' > "$T/home/app/.env"
 
   cat > "$T/ssh" <<'EOS'
 #!/bin/bash
@@ -607,7 +607,7 @@ EOS
   cat > "$T/rbin/curl" <<'EOS'
 #!/bin/sh
 echo "curl $*" >> "$DCALLS"
-v="$("$HOME/goweb/current/goweb" __version 2>/dev/null)"
+v="$("$HOME/app/current/app" __version 2>/dev/null)"
 for bad in $FAKE_UNHEALTHY; do [ "$bad" = "$v" ] && exit 22; done
 for f in $FAKE_FLAP; do
   if [ "$f" = "$v" ]; then
@@ -644,13 +644,13 @@ EOS
 
 # make_release <name> <schema> [active]
 make_release() {
-  mkdir -p "$T/home/goweb/releases/$1"
-  make_fake_binary_script "$T/home/goweb/releases/$1/goweb" "$1" "$2"
-  if [ "${3:-}" = active ]; then ln -sfn "releases/$1" "$T/home/goweb/current"; fi
+  mkdir -p "$T/home/app/releases/$1"
+  make_fake_binary_script "$T/home/app/releases/$1/app" "$1" "$2"
+  if [ "${3:-}" = active ]; then ln -sfn "releases/$1" "$T/home/app/current"; fi
 }
 
 deploy() { VERSION="${DEPLOY_VERSION:-v2}" bash "$SCRIPT_DIR/deploy.sh" "$@" >"$T/out" 2>"$T/err"; }
-active_release() { readlink "$T/home/goweb/current" 2>/dev/null; }
+active_release() { readlink "$T/home/app/current" 2>/dev/null; }
 
 test_deploy_aborts_when_linger_is_off() {
   setup_deploy; make_release v1 0001_init.sql active
@@ -658,7 +658,7 @@ test_deploy_aborts_when_linger_is_off() {
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "loginctl enable-linger" "names the fix"
   assert_eq "$(active_release)" "releases/v1" "current unchanged"
-  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
   assert_false "service not touched" grep -q "^systemctl --user restart" "$DCALLS"
 }
 
@@ -688,10 +688,10 @@ test_deploy_keeps_previous_release() {
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_eq "$(active_release)" "releases/v2" "current is v2"
-  assert_true "v1 kept" test -x "$T/home/goweb/releases/v1/goweb"
-  assert_true "v2 present" test -x "$T/home/goweb/releases/v2/goweb"
+  assert_true "v1 kept" test -x "$T/home/app/releases/v1/app"
+  assert_true "v2 present" test -x "$T/home/app/releases/v2/app"
   assert_eq "$(grep -c '^backup DATA_DIR=' "$DCALLS")" "1" "pre-deploy backup ran once"
-  assert_false "no uploading leftovers" test -e "$T/home/goweb/releases/v2.uploading"
+  assert_false "no uploading leftovers" test -e "$T/home/app/releases/v2.uploading"
   assert_contains "$(cat "$T/out")" "healthy" "progress"
 }
 
@@ -701,8 +701,8 @@ test_deploy_aborts_on_checksum_mismatch_before_switching() {
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "checksum" "stderr"
   assert_eq "$(active_release)" "releases/v1" "current unchanged"
-  assert_false "no release dir" test -e "$T/home/goweb/releases/v2"
-  assert_false "no leftover" test -e "$T/home/goweb/releases/v2.uploading"
+  assert_false "no release dir" test -e "$T/home/app/releases/v2"
+  assert_false "no leftover" test -e "$T/home/app/releases/v2.uploading"
   assert_false "service not restarted" grep -q "^systemctl --user restart" "$DCALLS"
 }
 
@@ -777,10 +777,10 @@ test_deploy_refuses_to_redeploy_the_active_release() {
 
 test_deploy_replaces_an_inactive_release_with_the_same_name() {
   setup_deploy; make_release v1 0001_init.sql active; make_release v2 0001_init.sql
-  echo old > "$T/home/goweb/releases/v2/marker"
+  echo old > "$T/home/app/releases/v2/marker"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
-  assert_false "old content gone" test -e "$T/home/goweb/releases/v2/marker"
+  assert_false "old content gone" test -e "$T/home/app/releases/v2/marker"
   assert_eq "$(active_release)" "releases/v2" "current"
 }
 
@@ -789,20 +789,20 @@ test_deploy_prunes_old_releases_but_keeps_active_and_previous() {
   local i
   for i in 1 2 3 4 5 6 7; do
     make_release "r$i" 0001_init.sql
-    touch -t "20260101000$i" "$T/home/goweb/releases/r$i"
+    touch -t "20260101000$i" "$T/home/app/releases/r$i"
   done
   # previous (active) release is the OLDEST one, so only the retention rule saves it
-  ln -sfn releases/r1 "$T/home/goweb/current"
+  ln -sfn releases/r1 "$T/home/app/current"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
-  assert_true "active kept" test -d "$T/home/goweb/releases/v2"
-  assert_true "previous kept" test -d "$T/home/goweb/releases/r1"
-  assert_true "r7 kept" test -d "$T/home/goweb/releases/r7"
-  assert_true "r6 kept" test -d "$T/home/goweb/releases/r6"
-  assert_true "r5 kept" test -d "$T/home/goweb/releases/r5"
-  assert_false "r4 pruned" test -e "$T/home/goweb/releases/r4"
-  assert_false "r3 pruned" test -e "$T/home/goweb/releases/r3"
-  assert_false "r2 pruned" test -e "$T/home/goweb/releases/r2"
+  assert_true "active kept" test -d "$T/home/app/releases/v2"
+  assert_true "previous kept" test -d "$T/home/app/releases/r1"
+  assert_true "r7 kept" test -d "$T/home/app/releases/r7"
+  assert_true "r6 kept" test -d "$T/home/app/releases/r6"
+  assert_true "r5 kept" test -d "$T/home/app/releases/r5"
+  assert_false "r4 pruned" test -e "$T/home/app/releases/r4"
+  assert_false "r3 pruned" test -e "$T/home/app/releases/r3"
+  assert_false "r2 pruned" test -e "$T/home/app/releases/r2"
 }
 
 test_deploy_uses_atomic_mv_T_when_available() {
@@ -866,7 +866,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 h["build_id"] = cfg.get("build_id", "20261027-abc1234")
             self.reply(200, "application/json", json.dumps(h))
         elif p == "/":
-            self.reply(200, "text/html", "<html><body><h1>goweb</h1>" + footer() + "</body></html>")
+            self.reply(200, "text/html", "<html><body><h1>app</h1>" + footer() + "</body></html>")
         elif p == "/privacy":
             self.reply(200, "text/html", "<html><body><h1>Privacy</h1><p>" + "We keep your data private. " * 5 + "</p></body></html>")
         elif p == "/app/":
@@ -1094,7 +1094,7 @@ test_deploy_passes_the_build_id_to_the_build_and_to_smoke() {
   local rc=$?
   stop_smoke_server
   assert_eq "$rc" "0" "exit status ($(cat "$T/err"))"
-  assert_contains "$(grep '^go ' "$DCALLS")" "-X goweb/internal/version.BuildID=$id" "go build ldflags carry the id"
+  assert_contains "$(grep '^go ' "$DCALLS")" "-X app/internal/version.BuildID=$id" "go build ldflags carry the id"
   assert_contains "$(cat "$T/out")" "build id $id" "progress output names the id"
   assert_contains "$(cat "$T/out")" "done: v2 ($id) is live" "success line names the id"
   assert_contains "$(cat "$T/out")" "smoke OK" "smoke ran"
@@ -1114,7 +1114,7 @@ test_deploy_smoke_fails_when_the_site_serves_another_build_id() {
 
 # ---------------------------------------------------------------- review round 1 tests
 
-LOCKDIR_REL="goweb/.deploy.lock"
+LOCKDIR_REL="app/.deploy.lock"
 hold_lock() { # hold_lock <age-seconds>
   mkdir -p "$T/home/$LOCKDIR_REL"
   echo "othertoken alice@otherbox $(( $(date +%s) - $1 ))" > "$T/home/$LOCKDIR_REL/owner"
@@ -1162,71 +1162,71 @@ test_deploy_releases_the_lock_after_a_failed_health_check() {
 
 test_deploy_prune_keeps_a_fresh_uploading_dir_and_removes_an_old_one() {
   setup_deploy; make_release v1 0001_init.sql active
-  mkdir "$T/home/goweb/releases/other.uploading" "$T/home/goweb/releases/ancient.uploading"
-  touch -t 202001010000 "$T/home/goweb/releases/ancient.uploading"
+  mkdir "$T/home/app/releases/other.uploading" "$T/home/app/releases/ancient.uploading"
+  touch -t 202001010000 "$T/home/app/releases/ancient.uploading"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
-  assert_true "fresh upload of another deploy kept" test -d "$T/home/goweb/releases/other.uploading"
-  assert_false "old leftover removed" test -e "$T/home/goweb/releases/ancient.uploading"
+  assert_true "fresh upload of another deploy kept" test -d "$T/home/app/releases/other.uploading"
+  assert_false "old leftover removed" test -e "$T/home/app/releases/ancient.uploading"
 }
 
 test_deploy_backs_up_the_data_dir_from_dotenv() {
   setup_deploy; make_release v1 0001_init.sql active
-  mkdir -p "$T/custom/db"; : > "$T/custom/db/goweb.db"
-  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
+  mkdir -p "$T/custom/db"; : > "$T/custom/db/app.db"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/custom" "backup ran against the .env value"
   assert_true "backup landed in the custom dir" test -d "$T/custom/backups"
-  assert_false "default dir untouched" test -e "$T/home/goweb/data/backups"
+  assert_false "default dir untouched" test -e "$T/home/app/data/backups"
 }
 
 test_deploy_restore_command_names_the_resolved_data_dir() {
   setup_deploy; make_release v1 0001_init.sql active
-  mkdir -p "$T/custom/db"; : > "$T/custom/db/goweb.db"
-  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/goweb/.env"
+  mkdir -p "$T/custom/db"; : > "$T/custom/db/app.db"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\nDATA_DIR=%s\n' "$T/custom" > "$T/home/app/.env"
   FAKE_NEW_SCHEMA=0002_more.sql FAKE_UNHEALTHY=v2 deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "DATA_DIR=$T/custom" "restore command"
-  assert_contains "$(cat "$T/err")" "GOWEB_BIN=" "restore command sets GOWEB_BIN"
+  assert_contains "$(cat "$T/err")" "APP_BIN=" "restore command sets APP_BIN"
 }
 
 test_deploy_uses_the_default_data_dir_without_dotenv_setting() {
   setup_deploy; make_release v1 0001_init.sql active
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
-  assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/home/goweb/data" "default"
+  assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/home/app/data" "default"
 }
 
 test_deploy_resolves_a_relative_data_dir_against_the_data_dir() {
   setup_deploy; make_release v1 0001_init.sql active
-  mkdir -p "$T/home/goweb/data/alt/db"; : > "$T/home/goweb/data/alt/db/goweb.db"
-  printf 'APP_ENV=production\nDATA_DIR=alt\n' > "$T/home/goweb/.env"
+  mkdir -p "$T/home/app/data/alt/db"; : > "$T/home/app/data/alt/db/app.db"
+  printf 'APP_ENV=production\nDATA_DIR=alt\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
-  assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/home/goweb/data/alt" "relative value"
+  assert_contains "$(cat "$DCALLS")" "backup DATA_DIR=$T/home/app/data/alt" "relative value"
 }
 
 test_deploy_aborts_when_resolved_data_dir_has_no_database() {
   setup_deploy; make_release v1 0001_init.sql active
   mkdir -p "$T/empty"
-  printf 'APP_ENV=production\nDATA_DIR=%s\n' "$T/empty" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nDATA_DIR=%s\n' "$T/empty" > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
-  assert_contains "$(cat "$T/err")" "goweb.db" "message"
+  assert_contains "$(cat "$T/err")" "app.db" "message"
   assert_eq "$(active_release)" "releases/v1" "current unchanged"
   assert_false "no backup attempted" grep -q '^backup DATA_DIR=' "$DCALLS"
-  assert_false "no release uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "no release uploaded" test -e "$T/home/app/releases/v2"
   assert_false "lock released" test -e "$T/home/$LOCKDIR_REL"
 }
 
 test_deploy_rejects_quotes_and_carriage_returns_in_dotenv_keys_it_reads() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=production\nDATA_DIR="%s"\n' "$T/home/goweb/data" > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nDATA_DIR="%s"\n' "$T/home/app/data" > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_false "quotes rejected" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "DATA_DIR" "names the key"
-  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\r\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:8080\r\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_false "CR rejected" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "ADDR" "names the key"
@@ -1235,7 +1235,7 @@ test_deploy_rejects_quotes_and_carriage_returns_in_dotenv_keys_it_reads() {
 
 test_deploy_health_port_comes_from_dotenv_addr() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "http://127.0.0.1:9191/healthz" "port from ADDR"
@@ -1243,12 +1243,12 @@ test_deploy_health_port_comes_from_dotenv_addr() {
 
 test_deploy_health_port_defaults_to_8080_and_env_var_wins() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=production\nSESSION_SECRET=x\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=x\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "127.0.0.1:8080/healthz" "default"
   : > "$DCALLS"; make_release v3 0001_init.sql
-  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nADDR=0.0.0.0:9191\n' > "$T/home/app/.env"
   HEALTH_PORT=7000 DEPLOY_VERSION=v4 deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status 2"
   assert_contains "$(grep '^curl ' "$DCALLS" | head -1)" "127.0.0.1:7000/healthz" "HEALTH_PORT wins"
@@ -1301,9 +1301,9 @@ test_deploy_aborts_when_the_predeploy_backup_prints_nothing() {
 test_deploy_health_failure_hints_at_the_journal_and_resets_failed_state() {
   setup_deploy; make_release v1 0001_init.sql active
   FAKE_UNHEALTHY=v2 deploy deploy@host.example.com
-  assert_contains "$(cat "$T/err")" "journalctl --user -u goweb" "hint"
+  assert_contains "$(cat "$T/err")" "journalctl --user -u app" "hint"
   assert_contains "$(cat "$T/err")" "migration" "mentions a running migration"
-  assert_contains "$(grep '^systemctl' "$DCALLS" | tr '\n' ';')" "reset-failed goweb;systemctl --user restart goweb" "reset-failed before the rollback restart"
+  assert_contains "$(grep '^systemctl' "$DCALLS" | tr '\n' ';')" "reset-failed app;systemctl --user restart app" "reset-failed before the rollback restart"
 }
 
 test_deploy_treats_a_health_flap_as_failure() {
@@ -1343,19 +1343,19 @@ test_smoke_compares_the_version_exactly_not_as_a_pattern() {
   assert_contains "$(cat "$T/err")" "v09" "observed"
 }
 
-test_restore_rejects_a_directory_as_GOWEB_BIN() {
+test_restore_rejects_a_directory_as_APP_BIN() {
   make_fakes
   local b; b="$(new_backup 20261027T120000Z)"
-  GOWEB_BIN="$T" restore "$b" --drill
+  APP_BIN="$T" restore "$b" --drill
   assert_false "exit nonzero" test "$?" -eq 0
-  assert_contains "$(cat "$T/err")" "GOWEB_BIN" "names the variable"
+  assert_contains "$(cat "$T/err")" "APP_BIN" "names the variable"
 }
 
-test_restore_defaults_to_home_goweb_current_binary() {
+test_restore_defaults_to_home_app_current_binary() {
   make_fakes
   local b; b="$(new_backup 20261027T120000Z)"
-  mkdir -p "$T/h/goweb/current"; cp "$GOWEB_BIN" "$T/h/goweb/current/goweb"
-  unset GOWEB_BIN
+  mkdir -p "$T/h/app/current"; cp "$APP_BIN" "$T/h/app/current/app"
+  unset APP_BIN
   HOME="$T/h" restore "$b" --drill
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_contains "$(cat "$T/out")" "DRILL OK" "stdout"
@@ -1365,7 +1365,7 @@ test_restore_defaults_to_home_goweb_current_binary() {
 # no Secure cookies) is refused unless the operator opts in with ALLOW_DEV_DEPLOY=1.
 test_deploy_refuses_a_development_dotenv_and_changes_nothing() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/app/.env"
   local before; before="$(tree_of_home)"
   deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
@@ -1382,7 +1382,7 @@ test_deploy_refuses_a_development_dotenv_and_changes_nothing() {
 
 test_deploy_refuses_a_dotenv_without_APP_ENV() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'SESSION_SECRET=x\nADDR=0.0.0.0:8080\n# APP_ENV=production\n' > "$T/home/goweb/.env"
+  printf 'SESSION_SECRET=x\nADDR=0.0.0.0:8080\n# APP_ENV=production\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "APP_ENV" "names the key"
@@ -1392,7 +1392,7 @@ test_deploy_refuses_a_dotenv_without_APP_ENV() {
 
 test_deploy_check_refuses_a_development_dotenv() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=development\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=development\n' > "$T/home/app/.env"
   deploy deploy@host.example.com --check
   assert_false "exit nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "APP_ENV" "names the key"
@@ -1401,7 +1401,7 @@ test_deploy_check_refuses_a_development_dotenv() {
 
 test_deploy_accepts_a_production_dotenv() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'ADDR=0.0.0.0:8080\nAPP_ENV=development\nAPP_ENV=production\n' > "$T/home/goweb/.env"
+  printf 'ADDR=0.0.0.0:8080\nAPP_ENV=development\nAPP_ENV=production\n' > "$T/home/app/.env"
   deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_eq "$(active_release)" "releases/v2" "current is v2"
@@ -1410,7 +1410,7 @@ test_deploy_accepts_a_production_dotenv() {
 
 test_deploy_allows_a_development_dotenv_with_ALLOW_DEV_DEPLOY() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=development\nADDR=0.0.0.0:8080\n' > "$T/home/app/.env"
   ALLOW_DEV_DEPLOY=1 deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status ($(cat "$T/err"))"
   assert_eq "$(active_release)" "releases/v2" "current is v2"
@@ -1540,8 +1540,8 @@ for t in \
   test_deploy_health_timeout_counts_real_seconds \
   test_smoke_fails_on_a_real_redirect_to_another_host \
   test_smoke_compares_the_version_exactly_not_as_a_pattern \
-  test_restore_rejects_a_directory_as_GOWEB_BIN \
-  test_restore_defaults_to_home_goweb_current_binary \
+  test_restore_rejects_a_directory_as_APP_BIN \
+  test_restore_defaults_to_home_app_current_binary \
   test_deploy_refuses_a_development_dotenv_and_changes_nothing \
   test_deploy_refuses_a_dotenv_without_APP_ENV \
   test_deploy_check_refuses_a_development_dotenv \

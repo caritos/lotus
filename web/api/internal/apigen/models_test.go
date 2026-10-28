@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/apigen"
+	"app/internal/apigen"
 )
 
 func TestUserDecodesLoginResponse(t *testing.T) {
@@ -37,7 +37,7 @@ func TestSpecDeclaresContractPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := string(b)
-	for _, want := range []string{"openapi: 3.0.3", "/api/login:", "/api/me:", "/api/notes/{id}/photo:", "/healthz:", "goweb_session"} {
+	for _, want := range []string{"openapi: 3.0.3", "/api/login:", "/api/me:", "/api/notes/{id}/photo:", "/healthz:", "app_session"} {
 		if !strings.Contains(spec, want) {
 			t.Errorf("openapi.yaml missing %q", want)
 		}

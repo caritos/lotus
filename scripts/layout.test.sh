@@ -17,7 +17,7 @@ sh_in_deploy="$(ls deploy/*.sh 2>/dev/null)"
 [ -z "$sh_in_deploy" ] && ok "deploy/ contains no *.sh" || bad "deploy/ still has scripts: $sh_in_deploy"
 
 # deploy/ holds exactly the files installed or copied to a server.
-want="goweb-backup.service goweb-backup.timer goweb.service nginx.conf.example"
+want="app-backup.service app-backup.timer app.service nginx.conf.example"
 have="$(cd deploy 2>/dev/null && ls | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "deploy/ holds only server files" || bad "deploy/ is '$have', want '$want'"
 
@@ -54,8 +54,8 @@ tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
 # The compiled binary goes to dist/ (ignored); nothing named like the binary is tracked at the root.
-git check-ignore -q dist/goweb && ok ".gitignore ignores dist/goweb" || bad ".gitignore does not ignore dist/goweb"
-[ -z "$(git ls-files goweb)" ] && ok "no tracked root file named goweb" || bad "a root file named goweb is tracked"
+git check-ignore -q dist/app && ok ".gitignore ignores dist/app" || bad ".gitignore does not ignore dist/app"
+[ -z "$(git ls-files app)" ] && ok "no tracked root file named app" || bad "a root file named app is tracked"
 grep -E '^[[:space:]]*cd web/api && go build' Makefile | grep -q 'dist/' && ok "Makefile build target writes under dist/" || bad "Makefile build target does not mention dist/"
 
 # Stale references to the old locations, outside docs/superpowers (historical specs) and this
@@ -109,7 +109,7 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_fail "stale path in current-state text of CLAUDE.md" CLAUDE.md 'web/e2e/ holds Playwright'
   expect_pass "scripts/ path beside deploy/" README.md '- `deploy/` units; `scripts/deploy.sh` and `scripts/smoke.sh`'
   expect_pass "link to a file in deploy/" README.md 'see [x](../deploy/nginx.conf.example)'
-  expect_pass "a /home/deploy/ path" README.md 'DIR=/home/deploy/goweb/data/backups'
+  expect_pass "a /home/deploy/ path" README.md 'DIR=/home/deploy/app/data/backups'
   expect_pass "a file named like node_modules_notes" docs/node_modules_notes.md 'x'
   make_copy && mkdir -p "$WORK/c/web/node_modules" && echo x > "$WORK/c/web/node_modules/x" && git -C "$WORK/c" add -f web/node_modules/x
   inner && bad "guard did not flag a tracked node_modules file" || ok "guard flags a tracked node_modules file"

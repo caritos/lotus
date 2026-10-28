@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/auth"
-	"goweb/internal/config"
-	"goweb/internal/storage"
-	"goweb/internal/testutil"
-	"goweb/internal/version"
+	"app/internal/auth"
+	"app/internal/config"
+	"app/internal/storage"
+	"app/internal/testutil"
+	"app/internal/version"
 )
 
 func TestMain(m *testing.M) {
@@ -149,7 +149,7 @@ func TestNotesRoutesMountedOnlyWithAllDeps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := get(h, "/api/notes", &http.Cookie{Name: "goweb_session", Value: tok})
+	rec := get(h, "/api/notes", &http.Cookie{Name: "app_session", Value: tok})
 	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("authed list = %d %q", rec.Code, rec.Body)
 	}

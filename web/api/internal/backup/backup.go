@@ -22,7 +22,7 @@ import (
 
 const (
 	stampLayout = "20060102T150405Z"
-	dbName      = "goweb.db"
+	dbName      = "app.db"
 	storageName = "storage"
 )
 
@@ -44,7 +44,7 @@ type Result struct {
 	Files int    // storage files copied
 }
 
-// Run writes an unlabeled backup set <dataDir>/backups/<UTC timestamp>/ containing goweb.db
+// Run writes an unlabeled backup set <dataDir>/backups/<UTC timestamp>/ containing app.db
 // (a VACUUM INTO snapshot) and storage/ (a copy of <dataDir>/storage), then keeps
 // only the newest `keep` completed sets. The set is built in <name>.partial and
 // renamed into place last; the rename is the completion marker.

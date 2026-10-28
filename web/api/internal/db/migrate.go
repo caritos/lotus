@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"goweb/internal/db/migrations"
+	"app/internal/db/migrations"
 )
 
 // Migrate applies the embedded migrations.

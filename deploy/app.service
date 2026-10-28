@@ -1,39 +1,39 @@
-# systemd USER unit for goweb. Install as ~/.config/systemd/user/goweb.service, then:
-#   systemctl --user daemon-reload && systemctl --user enable --now goweb
+# systemd USER unit for app. Install as ~/.config/systemd/user/app.service, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now app
 # The user must have linger enabled (loginctl enable-linger), or the service stops
 # when the last SSH session ends.
 #
-# Layout (under the deploy user's home): goweb/current/goweb is the active
-# release, goweb/data is DATA_DIR, goweb/.env holds the runtime configuration
+# Layout (under the deploy user's home): app/current/app is the active
+# release, app/data is DATA_DIR, app/.env holds the runtime configuration
 # (ADDR=0.0.0.0:<port>, APP_ENV, SESSION_SECRET, PUBLIC_ORIGIN, ...).
 #
-# DATA_DIR: values in goweb/.env OVERRIDE Environment= lines (systemd applies
+# DATA_DIR: values in app/.env OVERRIDE Environment= lines (systemd applies
 # EnvironmentFile= last). A DATA_DIR in .env therefore wins over the
 # Environment=DATA_DIR line below, and a relative value is relative to
 # WorkingDirectory. deploy.sh resolves it the same way for the pre-deploy backup.
 # Simplest: do not set DATA_DIR in .env at all.
 #
 # The sandboxing lines (NoNewPrivileges, ProtectSystem, ReadWritePaths, PrivateTmp)
-# need unprivileged user namespaces on some hosts. If `systemctl --user status goweb`
+# need unprivileged user namespaces on some hosts. If `systemctl --user status app`
 # shows status=226/NAMESPACE or similar, delete those lines and restart; the app
 # still runs, just with less isolation.
 [Unit]
-Description=goweb
+Description=app
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/goweb/current/goweb serve
-WorkingDirectory=%h/goweb/data
-EnvironmentFile=-%h/goweb/.env
-Environment=DATA_DIR=%h/goweb/data
+ExecStart=%h/app/current/app serve
+WorkingDirectory=%h/app/data
+EnvironmentFile=-%h/app/.env
+Environment=DATA_DIR=%h/app/data
 UMask=0077
 Restart=on-failure
 RestartSec=2
 
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=%h/goweb/data
+ReadWritePaths=%h/app/data
 PrivateTmp=yes
 
 [Install]

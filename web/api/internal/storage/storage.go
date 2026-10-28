@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"goweb/internal/uid"
+	"app/internal/uid"
 )
 
 var (

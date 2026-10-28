@@ -16,7 +16,7 @@
 # Exit status: 0 all checks passed, 1 a check failed, 2 bad usage.
 #
 # Environment:
-#   APP_NAME   text the home page must contain, default goweb
+#   APP_NAME   text the home page must contain, default app
 #   CSS_FILE   local stylesheet to compare, default <repo>/web/api/internal/web/static/style.css
 #              (the check is skipped with a note when the file is absent)
 #   CURL       curl binary, default curl
@@ -26,7 +26,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP_NAME="${APP_NAME:-goweb}"
+APP_NAME="${APP_NAME:-app}"
 CSS_FILE="${CSS_FILE:-$REPO_ROOT/web/api/internal/web/static/style.css}"
 CURL="${CURL:-curl}"
 

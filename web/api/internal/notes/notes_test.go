@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/apigen"
-	"goweb/internal/auth"
-	"goweb/internal/config"
-	"goweb/internal/storage"
-	"goweb/internal/testutil"
+	"app/internal/apigen"
+	"app/internal/auth"
+	"app/internal/config"
+	"app/internal/storage"
+	"app/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -78,7 +78,7 @@ func newEnv(t *testing.T) *env {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &http.Cookie{Name: "goweb_session", Value: tok}, u.ID
+		return &http.Cookie{Name: "app_session", Value: tok}, u.ID
 	}
 	e.ca, e.idA = login("a@x.io")
 	e.cb, _ = login("b@x.io")

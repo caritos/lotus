@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"time"
 
-	"goweb/internal/apigen"
-	"goweb/internal/auth"
-	"goweb/internal/config"
-	"goweb/internal/notes"
-	"goweb/internal/storage"
-	"goweb/internal/version"
-	"goweb/internal/web"
+	"app/internal/apigen"
+	"app/internal/auth"
+	"app/internal/config"
+	"app/internal/notes"
+	"app/internal/storage"
+	"app/internal/version"
+	"app/internal/web"
 )
 
 // Deps carries the server's collaborators; it grows as features are added.

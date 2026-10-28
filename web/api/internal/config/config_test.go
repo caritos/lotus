@@ -87,7 +87,7 @@ func TestLoadInvalidValues(t *testing.T) {
 
 func TestDerivedPaths(t *testing.T) {
 	c := Config{DataDir: "/data"}
-	if got, want := c.DBPath(), filepath.Join("/data", "db", "goweb.db"); got != want {
+	if got, want := c.DBPath(), filepath.Join("/data", "db", "app.db"); got != want {
 		t.Errorf("DBPath = %q, want %q", got, want)
 	}
 	if got, want := c.LogPath(), filepath.Join("/data", "logs", "app.log"); got != want {

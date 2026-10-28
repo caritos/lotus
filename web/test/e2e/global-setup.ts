@@ -60,7 +60,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   if (!port) throw new Error("e2e: E2E_PORT is not set (playwright.config.ts sets it)");
   const base = `http://127.0.0.1:${port}`;
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "goweb-e2e-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "app-e2e-"));
   let child: ChildProcess | undefined;
   const cleanup = async (): Promise<void> => {
     if (child) await stop(child);
@@ -68,7 +68,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   };
 
   try {
-    const bin = path.join(tmp, "goweb");
+    const bin = path.join(tmp, "app");
     // E2E_SKIP_BUILD=1 reuses the existing frontend build; the Go binary is
     // always rebuilt (cached, fast) because it lives in the temp dir.
     if (process.env.E2E_SKIP_BUILD !== "1") run("pnpm", ["build"], webDir);
@@ -78,10 +78,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       [
         "build",
         "-ldflags",
-        `-X goweb/internal/version.Version=e2e -X goweb/internal/version.Commit=e2e -X goweb/internal/version.BuildID=${id}`,
+        `-X app/internal/version.Version=e2e -X app/internal/version.Commit=e2e -X app/internal/version.BuildID=${id}`,
         "-o",
         bin,
-        "./cmd/goweb",
+        "./cmd/app",
       ],
       apiDir,
     );

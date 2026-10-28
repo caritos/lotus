@@ -3,7 +3,7 @@ package testutil_test
 import (
 	"testing"
 
-	"goweb/internal/testutil"
+	"app/internal/testutil"
 )
 
 func TestNewDBIsMigrated(t *testing.T) {

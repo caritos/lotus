@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore a goweb backup set (as written by `goweb backup`), or rehearse it.
+# Restore a app backup set (as written by `app backup`), or rehearse it.
 #
 #   restore.sh <backup-dir> [--drill]
 #
@@ -17,11 +17,11 @@
 # A backup counts only after a drill has passed.
 #
 # Environment (all optional):
-#   DATA_DIR        default $HOME/goweb/data
-#   SERVICE         systemd unit name, default goweb
+#   DATA_DIR        default $HOME/app/data
+#   SERVICE         systemd unit name, default app
 #   SYSTEMCTL       default "systemctl --user"
-#   GOWEB_BIN       must be the goweb executable FILE. Default: $HOME/goweb/current/goweb if it
-#                   exists, else `goweb` on PATH, else <script dir>/../dist/goweb
+#   APP_BIN       must be the app executable FILE. Default: $HOME/app/current/app if it
+#                   exists, else `app` on PATH, else <script dir>/../dist/app
 #   PORT            default 8080 (used by the default HEALTH_URL)
 #   HEALTH_URL      default http://127.0.0.1:$PORT/healthz
 #   HEALTH_CMD      shell command that exits 0 when healthy (default: curl HEALTH_URL)
@@ -31,8 +31,8 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DATA_DIR="${DATA_DIR:-$HOME/goweb/data}"
-SERVICE="${SERVICE:-goweb}"
+DATA_DIR="${DATA_DIR:-$HOME/app/data}"
+SERVICE="${SERVICE:-app}"
 SYSTEMCTL="${SYSTEMCTL:-systemctl --user}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${PORT:-8080}/healthz}"
 HEALTH_CMD="${HEALTH_CMD:-curl -fsS --max-time 3 -o /dev/null \"$HEALTH_URL\"}"
@@ -40,19 +40,19 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-20}"
 
 die() { echo "restore: $*" >&2; exit 1; }
 
-if [ -n "${GOWEB_BIN:-}" ]; then
+if [ -n "${APP_BIN:-}" ]; then
   :
-elif [ -f "$HOME/goweb/current/goweb" ] && [ -x "$HOME/goweb/current/goweb" ]; then
-  GOWEB_BIN="$HOME/goweb/current/goweb"
-elif command -v goweb >/dev/null 2>&1; then
-  GOWEB_BIN="$(command -v goweb)"
-elif [ -f "$SCRIPT_DIR/../dist/goweb" ] && [ -x "$SCRIPT_DIR/../dist/goweb" ]; then
-  GOWEB_BIN="$SCRIPT_DIR/../dist/goweb"
+elif [ -f "$HOME/app/current/app" ] && [ -x "$HOME/app/current/app" ]; then
+  APP_BIN="$HOME/app/current/app"
+elif command -v app >/dev/null 2>&1; then
+  APP_BIN="$(command -v app)"
+elif [ -f "$SCRIPT_DIR/../dist/app" ] && [ -x "$SCRIPT_DIR/../dist/app" ]; then
+  APP_BIN="$SCRIPT_DIR/../dist/app"
 else
-  die "cannot find the goweb binary: set GOWEB_BIN to the path of the goweb executable file (for example \$HOME/goweb/current/goweb)"
+  die "cannot find the app binary: set APP_BIN to the path of the app executable file (for example \$HOME/app/current/app)"
 fi
-if [ ! -f "$GOWEB_BIN" ] || [ ! -x "$GOWEB_BIN" ]; then
-  die "GOWEB_BIN must be an executable file, not a directory or missing path: $GOWEB_BIN"
+if [ ! -f "$APP_BIN" ] || [ ! -x "$APP_BIN" ]; then
+  die "APP_BIN must be an executable file, not a directory or missing path: $APP_BIN"
 fi
 
 # safe_rm_rf <path>: refuse (return 1) to recursively delete anything dangerous.
@@ -82,29 +82,29 @@ for arg in "$@"; do
 done
 [ -n "$BACKUP" ] || { echo "restore: missing <backup-dir> argument" >&2; usage; }
 [ -d "$BACKUP" ] || die "backup dir does not exist: $BACKUP"
-[ -f "$BACKUP/goweb.db" ] || die "no goweb.db in $BACKUP"
+[ -f "$BACKUP/app.db" ] || die "no app.db in $BACKUP"
 BACKUP="$(cd "$BACKUP" && pwd)"
 
 # verify <backup-set-dir>: run verify-backup; on failure print its real output.
 verify() {
   local out
-  if out="$("$GOWEB_BIN" verify-backup "$1" 2>&1)"; then return 0; fi
+  if out="$("$APP_BIN" verify-backup "$1" 2>&1)"; then return 0; fi
   echo "restore: verification of $1 failed:" >&2
   echo "$out" | sed 's/^/  /' >&2
   return 1
 }
 
-# copy_set <backup-set-dir> <dest-set-dir>: copy goweb.db and storage/ (new dest).
+# copy_set <backup-set-dir> <dest-set-dir>: copy app.db and storage/ (new dest).
 # Every step is checked explicitly: callers use this in `if`/`||` contexts, where
 # set -e does not apply.
 copy_set() {
   local src="$1" dst="$2"
   mkdir -p "$dst/storage" || return 1
-  cp -P "$src/goweb.db" "$dst/goweb.db" || return 1
+  cp -P "$src/app.db" "$dst/app.db" || return 1
   if [ -d "$src/storage" ]; then
     cp -RP "$src/storage/." "$dst/storage/" || return 1
   fi
-  chmod 600 "$dst/goweb.db" || return 1
+  chmod 600 "$dst/app.db" || return 1
   chmod 700 "$dst" "$dst/storage" || return 1
 }
 
@@ -135,11 +135,11 @@ rollback() {
   echo "restore: restoring previous data from $PRE" >&2
   if [ "$STARTED" -eq 1 ]; then svc stop || PROBLEMS+=("could not stop $SERVICE before rollback"); fi
   local f
-  for f in goweb.db goweb.db-wal goweb.db-shm; do
+  for f in app.db app.db-wal app.db-shm; do
     rm -f -- "$DATA_DIR/db/$f" || PROBLEMS+=("could not remove db/$f")
   done
   mkdir -p "$DATA_DIR/db" || PROBLEMS+=("could not create db dir")
-  for f in goweb.db goweb.db-wal goweb.db-shm; do
+  for f in app.db app.db-wal app.db-shm; do
     if [ -e "$PRE/$f" ]; then
       cp -P "$PRE/$f" "$DATA_DIR/db/$f" || PROBLEMS+=("could not restore db/$f from $PRE")
     fi
@@ -195,11 +195,11 @@ if [ "$DRILL" -eq 1 ]; then
   CLEANUP+=("$SCRATCH")
   mkdir -p "$SCRATCH/data/db" "$SCRATCH/set" || die "could not prepare scratch dir"
   copy_set "$BACKUP" "$SCRATCH/set" || die "could not copy the backup into the scratch dir"
-  mv "$SCRATCH/set/goweb.db" "$SCRATCH/data/db/goweb.db" || die "scratch install failed"
+  mv "$SCRATCH/set/app.db" "$SCRATCH/data/db/app.db" || die "scratch install failed"
   mv "$SCRATCH/set/storage" "$SCRATCH/data/storage" || die "scratch install failed"
   # Round trip: open the restored database with the real binary, take a backup of
   # it and verify that (proves the db opens and storage matches its references).
-  RESTORED="$(APP_ENV=development DATA_DIR="$SCRATCH/data" "$GOWEB_BIN" backup --keep 1)" ||
+  RESTORED="$(APP_ENV=development DATA_DIR="$SCRATCH/data" "$APP_BIN" backup --keep 1)" ||
     die "restored copy could not be opened and backed up"
   verify "$RESTORED" || die "restored copy failed verification"
   echo "DRILL OK $BACKUP"
@@ -235,7 +235,7 @@ STOPPED=1
 svc stop || die "could not stop $SERVICE"
 
 mkdir -p "$PRE" || die "cannot create $PRE"
-for f in goweb.db goweb.db-wal goweb.db-shm; do
+for f in app.db app.db-wal app.db-shm; do
   if [ -e "$DATA_DIR/db/$f" ]; then
     cp -P "$DATA_DIR/db/$f" "$PRE/$f" || die "could not copy db/$f to $PRE"
   fi
@@ -248,10 +248,10 @@ echo "restore: current data copied to $PRE" >&2
 # Swap (renames within one filesystem). From here the live files may be changed.
 SWAP_BEGAN=1
 mkdir -p "$DATA_DIR/db" || die "cannot create $DATA_DIR/db"
-for f in goweb.db goweb.db-wal goweb.db-shm; do
+for f in app.db app.db-wal app.db-shm; do
   rm -f -- "$DATA_DIR/db/$f" || die "could not remove db/$f"
 done
-mv "$STAGE/goweb.db" "$DATA_DIR/db/goweb.db" || die "could not install the database"
+mv "$STAGE/app.db" "$DATA_DIR/db/app.db" || die "could not install the database"
 if [ -e "$DATA_DIR/storage" ]; then
   safe_rm_rf "$DATA_DIR/storage" || die "could not remove the old storage/"
 fi

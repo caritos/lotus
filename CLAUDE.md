@@ -4,7 +4,7 @@ Guidance for agents working on this template and on projects started from it.
 
 ## Purpose
 
-goweb is a starter for a small, self-hosted web product: one Go binary (SQLite, JSON API,
+app is a starter for a small, self-hosted web product: one Go binary (SQLite, JSON API,
 embedded React app and static public pages), a documented systemd-user-service deploy behind an
 NGINX reverse proxy, tested backups and restore, and an agent-friendly test setup. The example
 feature is notes with an optional photo, behind email + password sign-in.
@@ -13,7 +13,7 @@ feature is notes with an optional photo, behind email + password sign-in.
 
 ```
 web/api/            Go module (go.mod, module path = see go.mod)
-  cmd/goweb/        CLI: serve (default), user create, backup, verify-backup, schema-version
+  cmd/app/        CLI: serve (default), user create, backup, verify-backup, schema-version
   internal/
     config/ db/ uid/ version/ apigen/   leaf packages: import no feature package
     auth/ notes/ storage/ backup/ logging/ web/   features and infrastructure
@@ -50,7 +50,7 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 | `make test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
 | `make e2e-install` then `make e2e` | Playwright against the built binary (not part of the other tiers) |
 | `make api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
-| `make build` | `pnpm build` (fills the embed directory) then `go build` into `./dist/goweb` |
+| `make build` | `pnpm build` (fills the embed directory) then `go build` into `./dist/app` |
 | `make dev` | Go API on 127.0.0.1:8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
 
 If the full suite is slow, run it in the background and wait for the result.
@@ -98,7 +98,7 @@ If the full suite is slow, run it in the background and wait for the result.
   `build-id` meta tag in `web/index.html` (`__BUILD_ID__`). `smoke.sh` checks it after every deploy.
 - Every subcommand runs under umask 077 (set in `run`), so the database, WAL/SHM, logs, uploads and
   backups are owner-only whichever command creates them.
-- Backups: `goweb backup` writes daily sets `<stamp>`; `--label NAME` writes `<stamp>-NAME` sets pruned
+- Backups: `app backup` writes daily sets `<stamp>`; `--label NAME` writes `<stamp>-NAME` sets pruned
   only against the same label (deploys use `--label predeploy --keep 5`). `pre-restore-*` copies are never
   pruned automatically. `pull-backups.sh` copies daily sets only.
 - Housekeeping: `serve` purges expired sessions at start and hourly (`app.RunMaintenance`); `app.New`
@@ -116,7 +116,7 @@ If the full suite is slow, run it in the background and wait for the result.
 ## Run, verify, deploy
 
 - Run locally: `make dev`, create a user with
-  `cd web/api && printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/goweb user create you@example.com`.
+  `cd web/api && printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/app user create you@example.com`.
 - Verify: `make test-fast` while working, `make test` before merging, `make e2e` for UI changes.
 - Deploy, HTTPS and backups: [docs/deploy.md](docs/deploy.md), [docs/https.md](docs/https.md),
   [docs/backups.md](docs/backups.md). Tests: [docs/testing.md](docs/testing.md).
@@ -170,7 +170,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   `smoke.sh`, `restore.sh`, `pull-backups.sh`, `deploy.test.sh` moved from `deploy/`, which now holds only files
   installed on a server); Playwright moved from `web/e2e/` to `web/test/e2e/` (+ `web/test/README.md`);
   `scripts/layout.test.sh` guards both and is part of `make test-scripts` and the CI full job. Pure moves, no
-  behavior change; `deploy.sh` still uploads `restore.sh` to `~/goweb/restore.sh`.
+  behavior change; `deploy.sh` still uploads `restore.sh` to `~/app/restore.sh`.
 - `ios/` reserved (2026-10-27): the kit is for the author's own apps, so a native iOS app belongs in it. Only
   `ios/README.md` exists for now (git keeps no empty directories); it does not block the `new-ios-app` scaffold,
   which refuses only when `ios/Package.swift` or an Xcode project exists. `scripts/layout.test.sh` keeps `ios/` tracked.

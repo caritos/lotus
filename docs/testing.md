@@ -76,7 +76,7 @@ Write the failing test first, watch it fail for the right reason, then implement
   client address; without it the header is ignored.
 - `tests/contract_errors_test.go`: every mutating operation's cross-origin 403 and the global 413 are
   `Error` JSON, as `openapi.yaml` declares.
-- `cmd/goweb`: `user create` and `backup` create owner-only files under umask 0
+- `cmd/app`: `user create` and `backup` create owner-only files under umask 0
   (`umask_test.go`); development mode logs a warning when it listens beyond loopback (`serve_test.go`);
   `backup --label` (`backup_test.go`).
 - `internal/config`: `PUBLIC_ORIGIN` normalization and rejection rules, and the production refusal messages.

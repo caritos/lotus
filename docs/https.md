@@ -1,4 +1,4 @@
-# HTTPS for goweb
+# HTTPS for app
 
 The app speaks plain HTTP on the address in `.env` (`ADDR`). HTTPS is terminated by a
 reverse proxy in front of it. This page uses NGINX with certificates from Let's Encrypt;
@@ -8,7 +8,7 @@ Replace `app.example.com` with your name.
 ## Server block
 
 ```nginx
-upstream goweb { server 127.0.0.1:8080; keepalive 16; }
+upstream app { server 127.0.0.1:8080; keepalive 16; }
 
 server {                                   # HTTP: certificate challenges, then redirect
     listen 80;
@@ -27,7 +27,7 @@ server {
     client_max_body_size 8m;               # the app caps bodies at 8 MiB
 
     location / {
-        proxy_pass http://goweb;
+        proxy_pass http://app;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host $host;
@@ -44,7 +44,7 @@ server {
 - `Host` and `X-Forwarded-Proto` are ordinary proxy hygiene (correct upstream logs, and anything you add
   later that needs them); the app itself does not read them. It never builds origins from request
   headers: the same-origin check uses `PUBLIC_ORIGIN`.
-- HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: goweb sends no HSTS header
+- HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: app sends no HSTS header
   at all, so the proxy's value is the only one browsers see. HSTS is remembered by browsers, so roll it
   out in stages. The example ships `max-age=300` (five minutes). After you have checked that every page
   works over HTTPS, raise it (for example to `86400`, then `31536000`) and reload NGINX. If you use a
@@ -96,7 +96,7 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
 ## Hosts with a panel proxy (HTTP/1.0)
 
 Some hosting panels put their own proxy in front of the app and speak HTTP/1.0 to it. Such proxies
-corrupt chunked or streamed static files. goweb serves its static assets with a known `Content-Length`
+corrupt chunked or streamed static files. app serves its static assets with a known `Content-Length`
 (no streaming compression), which is what these proxies need. `scripts/smoke.sh` checks this: it fetches
 `/static/style.css` with `curl --http1.0 --compressed` and requires the bytes to equal the local file.
 A panel proxy that reaches the app through the host's public address needs `ADDR=0.0.0.0:<port>` (a
@@ -106,29 +106,29 @@ add a second proxy file by hand: use one or the other.
 
 ## Variant: system-wide service (hosts with root)
 
-With root you can run goweb as a system service instead of a user service, and NGINX on the same
+With root you can run app as a system service instead of a user service, and NGINX on the same
 host proxies to `127.0.0.1`:
 
 ```ini
-# /etc/systemd/system/goweb.service
+# /etc/systemd/system/app.service
 [Unit]
-Description=goweb
+Description=app
 After=network.target
 
 [Service]
-User=goweb
-Group=goweb
-ExecStart=/opt/goweb/current/goweb serve
-WorkingDirectory=/opt/goweb/data
-EnvironmentFile=/opt/goweb/.env
-Environment=DATA_DIR=/opt/goweb/data
+User=app
+Group=app
+ExecStart=/opt/app/current/app serve
+WorkingDirectory=/opt/app/data
+EnvironmentFile=/opt/app/.env
+Environment=DATA_DIR=/opt/app/data
 UMask=0077
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/opt/goweb/data
+ReadWritePaths=/opt/app/data
 PrivateTmp=yes
 
 [Install]
@@ -136,5 +136,5 @@ WantedBy=multi-user.target
 ```
 
 Use `ADDR=127.0.0.1:8080` in `.env` so only NGINX can reach the app, enable it with
-`sudo systemctl enable --now goweb`, and adapt `deploy.sh` (`REMOTE_BASE`, `SERVICE`) and the systemctl
+`sudo systemctl enable --now app`, and adapt `deploy.sh` (`REMOTE_BASE`, `SERVICE`) and the systemctl
 calls, which use `systemctl --user`, to your layout. No linger is needed for a system service.

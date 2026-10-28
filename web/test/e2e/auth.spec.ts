@@ -21,5 +21,5 @@ test("wrong password shows error", async ({ page, context }) => {
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page).toHaveURL(/\/app\/login$/);
   const cookies = await context.cookies();
-  expect(cookies.filter((c) => c.name === "goweb_session")).toEqual([]);
+  expect(cookies.filter((c) => c.name === "app_session")).toEqual([]);
 });

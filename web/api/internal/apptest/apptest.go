@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/app"
-	"goweb/internal/config"
-	"goweb/internal/logging"
+	"app/internal/app"
+	"app/internal/config"
+	"app/internal/logging"
 )
 
 // App is a running test application.

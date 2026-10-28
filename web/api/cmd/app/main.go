@@ -1,4 +1,4 @@
-// Command goweb is the single-binary web server.
+// Command app is the single-binary web server.
 package main
 
 import (
@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"goweb/internal/app"
-	"goweb/internal/config"
-	"goweb/internal/logging"
-	"goweb/internal/server"
-	"goweb/internal/version"
+	"app/internal/app"
+	"app/internal/config"
+	"app/internal/logging"
+	"app/internal/server"
+	"app/internal/version"
 )
 
 type command func(args []string, getenv func(string) string, stdout io.Writer) error
@@ -31,7 +31,7 @@ var commands = map[string]command{
 
 func main() {
 	if err := run(os.Args[1:], os.Getenv, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "goweb:", err)
+		fmt.Fprintln(os.Stderr, "app:", err)
 		os.Exit(1)
 	}
 }

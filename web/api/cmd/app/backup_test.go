@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/config"
-	"goweb/internal/db"
+	"app/internal/config"
+	"app/internal/db"
 )
 
 func seededDataDir(t *testing.T) string {

@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"goweb/internal/apigen"
+	"app/internal/apigen"
 )
 
-const cookieName = "goweb_session"
+const cookieName = "app_session"
 
 type ctxKey int
 

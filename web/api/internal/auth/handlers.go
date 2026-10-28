@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"goweb/internal/apigen"
+	"app/internal/apigen"
 )
 
 const maxBodyBytes = 1 << 14

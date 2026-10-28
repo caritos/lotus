@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/apptest"
-	"goweb/internal/backup"
-	"goweb/internal/db"
+	"app/internal/apptest"
+	"app/internal/backup"
+	"app/internal/db"
 )
 
 // restoredNote is a notes row read from the restored database.
@@ -105,14 +105,14 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("replace photo = %d %s", st, body)
 	}
 
-	// Restore into a scratch DATA_DIR the documented way: copy goweb.db and storage/.
+	// Restore into a scratch DATA_DIR the documented way: copy app.db and storage/.
 	scratch := t.TempDir()
-	cfgDB := filepath.Join(scratch, "db", "goweb.db")
+	cfgDB := filepath.Join(scratch, "db", "app.db")
 	if err := os.MkdirAll(filepath.Dir(cfgDB), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	copyTree(t, filepath.Join(res.Dir, "storage"), filepath.Join(scratch, "storage"))
-	snap, err := os.ReadFile(filepath.Join(res.Dir, "goweb.db"))
+	snap, err := os.ReadFile(filepath.Join(res.Dir, "app.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

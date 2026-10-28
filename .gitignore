@@ -8,7 +8,7 @@ web/test/e2e/test-results/
 web/test/e2e/playwright-report/
 /dist/
 /bin/
-web/api/goweb
+web/api/app
 web/api/internal/web/app/*
 !web/api/internal/web/app/.gitkeep
 

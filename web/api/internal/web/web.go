@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"goweb/internal/version"
+	"app/internal/version"
 )
 
 //go:embed pages/*.html static/* all:app

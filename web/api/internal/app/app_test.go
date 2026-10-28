@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/app"
-	"goweb/internal/config"
+	"app/internal/app"
+	"app/internal/config"
 )
 
 func TestNewBuildsHandlerAndMigrates(t *testing.T) {

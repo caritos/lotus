@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"goweb/internal/auth"
+	"app/internal/auth"
 )
 
 func TestMain(m *testing.M) {

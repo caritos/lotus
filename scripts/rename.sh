@@ -5,14 +5,14 @@
 #   <name>         lowercase letters and digits, e.g. shop: binary, cookie, unit and database names
 #
 # Rewrites tracked text files only (never .git, node_modules, docs/superpowers, pnpm-lock.yaml
-# or binary files), then renames files whose path contains "goweb" with git mv.
+# or binary files), then renames files whose path contains "app" with git mv.
 # Refuses to run outside a git work tree or with uncommitted changes unless --force.
 # --regen also runs scripts/gen-api.sh (the text replacement already keeps the generated
 # files consistent, so this is optional).
 set -euo pipefail
 
-OLD="goweb"
-OLD_UPPER="GOWEB"
+OLD="app"
+OLD_UPPER="APP"
 
 die() { echo "rename: $*" >&2; exit 1; }
 usage() { echo "usage: scripts/rename.sh [--force] [--regen] <module-path> <name>" >&2; exit 2; }
@@ -50,7 +50,7 @@ if [ "$FORCE" -ne 1 ] && [ -n "$(git status --porcelain)" ]; then
 fi
 
 NAME_UPPER="$(printf '%s' "$NAME" | tr '[:lower:]' '[:upper:]')"
-TOKEN="@@RENAME_MODULE_PATH@@"
+TOKEN="app"
 
 excluded() {
   case "$1" in
@@ -65,7 +65,7 @@ while IFS= read -r -d '' f; do
   [ -f "$f" ] && [ ! -L "$f" ] || continue
   grep -Iq . "$f" 2>/dev/null || continue            # binary or empty
   grep -q -e "$OLD" -e "$OLD_UPPER" "$f" 2>/dev/null || continue
-  # Module path first (parked behind a token so a module path that contains "goweb" survives
+  # Module path first (parked behind a token so a module path that contains "app" survives
   # the word replacement), then the word itself.
   OLD_W="$OLD" OLD_U="$OLD_UPPER" NEW_W="$NAME" NEW_U="$NAME_UPPER" TOK="$TOKEN" \
     perl -pi -e '

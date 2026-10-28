@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"goweb/internal/uid"
+	"app/internal/uid"
 )
 
 // ErrNotFound means the note does not exist, is archived, or belongs to someone else.

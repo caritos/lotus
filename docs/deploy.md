@@ -1,4 +1,4 @@
-# Deploying goweb
+# Deploying app
 
 One static Linux binary, run as a systemd **user** service by a non-root user, behind
 a reverse proxy that terminates HTTPS (see [https.md](https.md)). `scripts/deploy.sh`
@@ -7,11 +7,11 @@ the server.
 
 ## Layout on the server
 
-Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `goweb`):
+Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `app`):
 
 ```
-~/goweb/
-  releases/<version>/goweb   one directory per release
+~/app/
+  releases/<version>/app   one directory per release
   current -> releases/<version>   the active release (a symlink)
   data/                      DATA_DIR: db/, logs/, storage/, backups/
   .env                       runtime configuration (never uploaded, never printed)
@@ -28,8 +28,8 @@ must print output.
 # on the server
 loginctl enable-linger                       # user services must survive logout
 loginctl show-user "$(id -un)" --property=Linger   # must print Linger=yes
-mkdir -p ~/goweb/releases ~/goweb/data ~/.config/systemd/user
-chmod 700 ~/goweb ~/goweb/data
+mkdir -p ~/app/releases ~/app/data ~/.config/systemd/user
+chmod 700 ~/app ~/app/data
 ```
 
 Linger is required: without it the user's systemd instance stops when the last SSH
@@ -38,7 +38,7 @@ never enables linger by itself.
 
 ## 2. Configure `.env`
 
-Copy `.env.example` to `~/goweb/.env` on the server and edit it. It is the server template: it already
+Copy `.env.example` to `~/app/.env` on the server and edit it. It is the server template: it already
 says `APP_ENV=production` and leaves the two required values empty, so the app refuses to start until you
 fill them in. The common part:
 
@@ -72,7 +72,7 @@ TRUSTED_PROXY=<the proxy's address, as /32>
 ```
 
 To find the proxy's address, make a request through the public site and look at the `remote` address in
-the app log (`~/goweb/data/logs/`), or at the source of connections in `ss -tn` on the server. Leave
+the app log (`~/app/data/logs/`), or at the source of connections in `ss -tn` on the server. Leave
 `TRUSTED_PROXY` empty if you cannot tell, but then every request appears to come from the proxy, so
 per-IP limits (for example on sign-in attempts) are shared by all visitors. Restrict who can reach the port
 with the host's firewall if it offers one.
@@ -90,12 +90,12 @@ lock out every user for 15 minutes. Set `TRUSTED_PROXY` correctly; a restart cle
 
 Write values without quotes, spaces or a trailing carriage return (systemd and `deploy.sh` read the file
 line by line; `deploy.sh` refuses `APP_ENV`, `DATA_DIR` and `ADDR` lines that contain them). Keep it private:
-`chmod 600 ~/goweb/.env`. `deploy.sh` never uploads this file.
+`chmod 600 ~/app/.env`. `deploy.sh` never uploads this file.
 
 **DATA_DIR.** Leave it out of `.env`. If you set it, remember that systemd lets `EnvironmentFile=` values
 override the unit's `Environment=DATA_DIR=...`, so the `.env` value is what the service uses (a relative
-value is relative to `~/goweb/data`). `deploy.sh` resolves it the same way for the pre-deploy backup and the
-printed restore command, and refuses to continue if that directory has no `db/goweb.db`.
+value is relative to `~/app/data`). `deploy.sh` resolves it the same way for the pre-deploy backup and the
+printed restore command, and refuses to continue if that directory has no `db/app.db`.
 
 ## 3. Install the units
 
@@ -103,13 +103,13 @@ Copy from `deploy/` to `~/.config/systemd/user/` on the server (the first deploy
 not install them):
 
 ```sh
-scp deploy/goweb.service deploy/goweb-backup.service deploy/goweb-backup.timer deploy@host.example.com:.config/systemd/user/
-ssh deploy@host.example.com 'systemctl --user daemon-reload && systemctl --user enable goweb && systemctl --user enable --now goweb-backup.timer'
+scp deploy/app.service deploy/app-backup.service deploy/app-backup.timer deploy@host.example.com:.config/systemd/user/
+ssh deploy@host.example.com 'systemctl --user daemon-reload && systemctl --user enable app && systemctl --user enable --now app-backup.timer'
 ```
 
 The units assume the layout above. If your host rejects the sandboxing lines in a user
 unit (`status=226/NAMESPACE`), delete `NoNewPrivileges`, `ProtectSystem`,
-`ReadWritePaths` and `PrivateTmp` from the units, as the comment in `goweb.service` says.
+`ReadWritePaths` and `PrivateTmp` from the units, as the comment in `app.service` says.
 The service is enabled but not started yet: it starts on the first deploy.
 
 ## 4. Check, then deploy
@@ -119,7 +119,7 @@ scripts/deploy.sh deploy@host.example.com --check   # preflight only, changes no
 PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 ```
 
-`--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
+`--check` verifies the SSH login, linger, local tools, that `~/app/data`, `.env` and the
 service unit exist, that the server has `curl` or `wget` and a sha256 tool, and that the server
 `.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
@@ -138,11 +138,11 @@ What a deploy does, in order:
    commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
    uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is
    printed in the progress output and in the final "done" line.
-3. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
+3. Takes a deploy lock on the server (`~/app/.deploy.lock`, holding who and when). A second deploy
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
    over. The lock is released on exit, also after a failure or Ctrl-C.
-4. Checks that the resolved `DATA_DIR` holds `db/goweb.db` (when a release is active).
-5. If a release is active, runs `goweb backup --label predeploy --keep 5` on the server with the running
+4. Checks that the resolved `DATA_DIR` holds `db/app.db` (when a release is active).
+5. If a release is active, runs `app backup --label predeploy --keep 5` on the server with the running
    binary (the pre-deploy snapshot, `<timestamp>-predeploy`) and remembers its directory. Pre-deploy sets have
    their own retention (the 5 newest), never push the daily sets out, and stay on the server (the pull script
    ignores them); see [backups.md](backups.md).
@@ -178,21 +178,21 @@ running `smoke.sh` by hand) `/healthz`, `/` and `/app/` must all show exactly th
 If the new release is not healthy within the timeout:
 
 - **No migration in this release** (the highest migration file, as printed by
-  `goweb schema-version`, equals the previous release's): `current` is switched back,
+  `app schema-version`, equals the previous release's): `current` is switched back,
   the service restarted and health-checked, and the deploy exits non-zero saying
   "rolled back automatically".
 - **The release carries a migration**: the binary is **not** rolled back, because the
   previous binary may not work against the migrated schema. The deploy prints the exact
   commands to put the previous release back and restore the pre-deploy backup with
-  `restore.sh` (run on the server, with `GOWEB_BIN` pointing at the previous release's binary file). `restore.sh` verifies the backup, stops the
+  `restore.sh` (run on the server, with `APP_BIN` pointing at the previous release's binary file). `restore.sh` verifies the backup, stops the
   service, saves the live data as `pre-restore-*`, swaps the backup in, restarts and
   health-checks. `pre-restore-*` copies are never pruned automatically: delete them by hand after you have
   verified the restore. See [backups.md](backups.md).
 - **Previous binary without `schema-version`** (a release from before that subcommand existed): treated
   as "may have migrated", so no automatic rollback; the restore command is printed.
 - **First deploy**: there is no previous release; the deploy says so and exits non-zero.
-  Read the service log (`journalctl --user -u goweb`; check it first in every failure case, a migration may
-  still be running) and `~/goweb/data/logs/`.
+  Read the service log (`journalctl --user -u app`; check it first in every failure case, a migration may
+  still be running) and `~/app/data/logs/`.
 
 ### Release notes convention
 
@@ -204,7 +204,7 @@ migration that has been released.
 
 ## Backups
 
-The timer from step 3 runs `goweb backup --keep 14` daily at 03:15 on the server. Pre-deploy sets
+The timer from step 3 runs `app backup --keep 14` daily at 03:15 on the server. Pre-deploy sets
 (`--label predeploy`, 5 kept) are separate and never count against those 14.
 Pulling copies to another machine is covered in [backups.md](backups.md).
 
@@ -213,18 +213,18 @@ Pulling copies to another machine is covered in [backups.md](backups.md).
 Create a key used only for pulling, on the machine that will hold the copies:
 
 ```sh
-ssh-keygen -t ed25519 -f ~/.ssh/goweb-pull -N '' -C goweb-pull
+ssh-keygen -t ed25519 -f ~/.ssh/app-pull -N '' -C app-pull
 ```
 
 `pull-backups.sh` does two things over SSH: `ls -1 <dir>` to list the sets and `rsync` to copy
 one. A forced `rrsync -ro` command alone permits only the second, so use a tiny gate script
 that allows exactly the listing and hands every rsync request to `rrsync` in read-only mode.
-On the server, save this as `~/goweb/pull-gate.sh` (`chmod 700`), adjusting the home path:
+On the server, save this as `~/app/pull-gate.sh` (`chmod 700`), adjusting the home path:
 
 ```sh
 #!/bin/sh
 # Forced command for the pull key: list the backups directory, or read it with rsync. Nothing else.
-DIR=/home/deploy/goweb/data/backups
+DIR=/home/deploy/app/data/backups
 case "$SSH_ORIGINAL_COMMAND" in
   "ls -1 '/'") exec ls -1 "$DIR" ;;
   "rsync --server --sender "*) exec rrsync -ro "$DIR" ;;
@@ -235,7 +235,7 @@ esac
 Then add the public key to `~/.ssh/authorized_keys` on the server:
 
 ```
-restrict,command="/home/deploy/goweb/pull-gate.sh" ssh-ed25519 AAAA... goweb-pull
+restrict,command="/home/deploy/app/pull-gate.sh" ssh-ed25519 AAAA... app-pull
 ```
 
 `rrsync` ships with rsync (usually `/usr/bin/rrsync`; on some distributions it is under
@@ -243,10 +243,10 @@ the rsync package's documentation or scripts directory). With this key the backu
 directory is the root, so run the pull with `REMOTE_DIR=/`:
 
 ```sh
-REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/goweb-pull scripts/pull-backups.sh
+REMOTE=deploy@host.example.com REMOTE_DIR=/ SSH_KEY=~/.ssh/app-pull scripts/pull-backups.sh
 ```
 
-Verify the restriction by hand: `ssh -i ~/.ssh/goweb-pull deploy@host.example.com whoami`
+Verify the restriction by hand: `ssh -i ~/.ssh/app-pull deploy@host.example.com whoami`
 must print `denied`, and the pull command above must still pull a set.
 
 Schedule the pull from the other machine with launchd or cron, and read
@@ -258,7 +258,7 @@ Schedule the pull from the other machine with launchd or cron, and read
 - Upload temp files (`storage/.upload-*`) older than an hour, left by a crash or kill during an upload, are
   removed when the service starts.
 - The app log rotates by size (see [backups.md](backups.md)); daily and pre-deploy backup sets are pruned
-  by `goweb backup`. `pre-restore-*` copies are not: delete them once a restore is verified.
+  by `app backup`. `pre-restore-*` copies are not: delete them once a restore is verified.
 
 ## Monitoring
 

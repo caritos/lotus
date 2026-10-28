@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/apigen"
-	"goweb/internal/apptest"
+	"app/internal/apigen"
+	"app/internal/apptest"
 )
 
 const (

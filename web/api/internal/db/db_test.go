@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/db"
+	"app/internal/db"
 )
 
 func TestOpenSetsPragmas(t *testing.T) {

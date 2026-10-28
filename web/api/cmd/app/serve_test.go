@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"goweb/internal/config"
+	"app/internal/config"
 )
 
 func TestWarnDevExposure(t *testing.T) {

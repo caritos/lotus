@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"goweb/internal/app"
-	"goweb/internal/auth"
-	"goweb/internal/config"
+	"app/internal/app"
+	"app/internal/auth"
+	"app/internal/config"
 )
 
 func TestMain(m *testing.M) {

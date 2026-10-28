@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"goweb/internal/apigen"
-	"goweb/internal/apptest"
+	"app/internal/apigen"
+	"app/internal/apptest"
 )
 
 // The OpenAPI contract declares a 403 Error on every mutating operation and a

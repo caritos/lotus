@@ -23,13 +23,13 @@ func TestFastHashingLowersCost(t *testing.T) {
 }
 
 func TestUseFastHashingPanicsOutsideTests(t *testing.T) {
-	if os.Getenv("GOWEB_AUTH_PANIC_CHILD") == "1" {
+	if os.Getenv("APP_AUTH_PANIC_CHILD") == "1" {
 		inTestBinary = func() bool { return false }
 		UseFastHashingForTests()
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestUseFastHashingPanicsOutsideTests")
-	cmd.Env = append(os.Environ(), "GOWEB_AUTH_PANIC_CHILD=1")
+	cmd.Env = append(os.Environ(), "APP_AUTH_PANIC_CHILD=1")
 	if err := cmd.Run(); err == nil {
 		t.Fatal("expected the child process to panic")
 	}

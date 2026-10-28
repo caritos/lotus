@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"goweb/internal/apptest"
-	"goweb/internal/config"
+	"app/internal/apptest"
+	"app/internal/config"
 )
 
 // loginFrom signs in with an X-Forwarded-For header on a fresh client.
