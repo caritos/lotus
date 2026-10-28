@@ -110,8 +110,23 @@ rollout is the one browsers see.
 scripts/rename.sh github.com/you/myapp myapp
 ```
 
-This rewrites the Go module path, the binary, cookie, unit and database names, and renames the
-files that carry the old name. Run it on a clean git tree; `scripts/rename.test.sh` covers it.
+This rewrites the Go module path, the binary (`dist/<name>`), cookie, unit and database names, the
+server paths (`~/<name>`) and the page titles, and renames `web/api/cmd/<name>` and the unit files.
+Run it on a clean git tree; `scripts/rename.test.sh` covers it.
+
+The shipped name `app` is also an ordinary word, a Go package (`internal/app`), the embed
+directory (`internal/web/app`), the `/app/` URL mount and the `APP_` environment prefix. The script
+therefore never replaces the bare word: it reads the current module path and name from
+`web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (listed in
+the header of the script). Those other uses stay as they are, and renaming works the same from any
+later name. Prose that merely mentions the name is left alone: edit this README and the page copy
+yourself.
+
+**Pick a distinctive name for a real deployment.** The defaults are generic: the server directory
+`~/app`, the units `app.service` and `app-backup.service`, and the database `app.db`. On a shared
+server they can clash with another app that uses the same names. Run the rename script before the
+first deploy, or override `REMOTE_BASE` and `SERVICE` for `scripts/deploy.sh` (see
+[docs/deploy.md](docs/deploy.md)).
 
 ## Layout
 
@@ -122,13 +137,14 @@ files that carry the old name. Run it on a clean git tree; `scripts/rename.test.
 ├── .github/workflows/      ci.yml (fast, full, e2e)
 ├── deploy/                 files installed on a server: systemd units, nginx example
 ├── docs/                   deploy.md, https.md, backups.md, testing.md
+├── dist/                   compiled binary from make build (ignored)
 ├── ios/                    reserved for the native iOS app (README only for now)
 ├── scripts/                deploy, smoke, restore, pull-backups, gen-api, rename, build-id and their *.test.sh
 └── web/
     ├── src/                React app (pages, API client, tests)
     ├── test/               e2e/ (Playwright tests), README.md
     └── api/                Go module
-        ├── cmd/app/      command line
+        ├── cmd/app/        command line
         ├── internal/       config, db, auth, notes, storage, backup, server, app, web, ...
         ├── tests/          integration tests
         └── openapi.yaml    API contract

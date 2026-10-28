@@ -1,4 +1,4 @@
-# HTTPS for app
+# HTTPS for the app
 
 The app speaks plain HTTP on the address in `.env` (`ADDR`). HTTPS is terminated by a
 reverse proxy in front of it. This page uses NGINX with certificates from Let's Encrypt;
@@ -44,7 +44,7 @@ server {
 - `Host` and `X-Forwarded-Proto` are ordinary proxy hygiene (correct upstream logs, and anything you add
   later that needs them); the app itself does not read them. It never builds origins from request
   headers: the same-origin check uses `PUBLIC_ORIGIN`.
-- HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: app sends no HSTS header
+- HSTS (`Strict-Transport-Security`) is set by the proxy, never by the app: the app sends no HSTS header
   at all, so the proxy's value is the only one browsers see. HSTS is remembered by browsers, so roll it
   out in stages. The example ships `max-age=300` (five minutes). After you have checked that every page
   works over HTTPS, raise it (for example to `86400`, then `31536000`) and reload NGINX. If you use a
@@ -96,7 +96,7 @@ SESSION_SECRET=<generate: openssl rand -hex 32>
 ## Hosts with a panel proxy (HTTP/1.0)
 
 Some hosting panels put their own proxy in front of the app and speak HTTP/1.0 to it. Such proxies
-corrupt chunked or streamed static files. app serves its static assets with a known `Content-Length`
+corrupt chunked or streamed static files. The app serves its static assets with a known `Content-Length`
 (no streaming compression), which is what these proxies need. `scripts/smoke.sh` checks this: it fetches
 `/static/style.css` with `curl --http1.0 --compressed` and requires the bytes to equal the local file.
 A panel proxy that reaches the app through the host's public address needs `ADDR=0.0.0.0:<port>` (a
@@ -106,7 +106,7 @@ add a second proxy file by hand: use one or the other.
 
 ## Variant: system-wide service (hosts with root)
 
-With root you can run app as a system service instead of a user service, and NGINX on the same
+With root you can run the app as a system service instead of a user service, and NGINX on the same
 host proxies to `127.0.0.1`:
 
 ```ini

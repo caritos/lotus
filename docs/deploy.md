@@ -1,4 +1,4 @@
-# Deploying app
+# Deploying the app
 
 One static Linux binary, run as a systemd **user** service by a non-root user, behind
 a reverse proxy that terminates HTTPS (see [https.md](https.md)). `scripts/deploy.sh`
@@ -7,7 +7,16 @@ the server.
 
 ## Layout on the server
 
-Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `app`):
+Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `app`).
+
+**Warning: the default names are generic.** `~/app`, `app.service`, `app-backup.service`,
+`app-backup.timer` and the database `app.db` can clash with another app on a shared server (two
+apps would share one directory, one unit name and one port). For a real deployment pick a
+distinctive name: run `scripts/rename.sh <module-path> <name>` before the first deploy (it renames
+the units and every path below), or keep the code as it is and override `REMOTE_BASE` and
+`SERVICE` for `scripts/deploy.sh` and edit the unit files to match (they hard-code `%h/app` and their own names).
+
+Layout:
 
 ```
 ~/app/

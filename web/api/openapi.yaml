@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: app API
   version: 1.0.0
-  description: JSON API for the app starter. This file is the source of truth for the wire types.
+  description: JSON API for this starter. This file is the source of truth for the wire types.
 servers:
   - url: /
 security:

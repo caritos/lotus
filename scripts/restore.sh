@@ -20,7 +20,7 @@
 #   DATA_DIR        default $HOME/app/data
 #   SERVICE         systemd unit name, default app
 #   SYSTEMCTL       default "systemctl --user"
-#   APP_BIN       must be the app executable FILE. Default: $HOME/app/current/app if it
+#   APP_BIN       must be the executable FILE. Default: $HOME/app/current/app if it
 #                   exists, else `app` on PATH, else <script dir>/../dist/app
 #   PORT            default 8080 (used by the default HEALTH_URL)
 #   HEALTH_URL      default http://127.0.0.1:$PORT/healthz
@@ -49,7 +49,7 @@ elif command -v app >/dev/null 2>&1; then
 elif [ -f "$SCRIPT_DIR/../dist/app" ] && [ -x "$SCRIPT_DIR/../dist/app" ]; then
   APP_BIN="$SCRIPT_DIR/../dist/app"
 else
-  die "cannot find the app binary: set APP_BIN to the path of the app executable file (for example \$HOME/app/current/app)"
+  die "cannot find the binary: set APP_BIN to the path of the executable file (for example \$HOME/app/current/app)"
 fi
 if [ ! -f "$APP_BIN" ] || [ ! -x "$APP_BIN" ]; then
   die "APP_BIN must be an executable file, not a directory or missing path: $APP_BIN"

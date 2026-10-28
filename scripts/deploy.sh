@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build app here, upload it to the server over SSH and switch to it, with a
+# Build the binary here, upload it to the server over SSH and switch to it, with a
 # health check and an automatic rollback when that is safe.
 #
 #   deploy.sh <user@host> [--check]

@@ -1,4 +1,4 @@
-# NGINX reverse proxy for app. Replace app.example.com and the upstream port
+# NGINX reverse proxy for the app. Replace app.example.com and the upstream port
 # (the ADDR port in the app's .env). See docs/https.md for the certbot steps.
 
 upstream app {

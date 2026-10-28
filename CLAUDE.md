@@ -4,7 +4,7 @@ Guidance for agents working on this template and on projects started from it.
 
 ## Purpose
 
-app is a starter for a small, self-hosted web product: one Go binary (SQLite, JSON API,
+This starter is for a small, self-hosted web product: one Go binary (SQLite, JSON API,
 embedded React app and static public pages), a documented systemd-user-service deploy behind an
 NGINX reverse proxy, tested backups and restore, and an agent-friendly test setup. The example
 feature is notes with an optional photo, behind email + password sign-in.
@@ -120,7 +120,15 @@ If the full suite is slow, run it in the background and wait for the result.
 - Verify: `make test-fast` while working, `make test` before merging, `make e2e` for UI changes.
 - Deploy, HTTPS and backups: [docs/deploy.md](docs/deploy.md), [docs/https.md](docs/https.md),
   [docs/backups.md](docs/backups.md). Tests: [docs/testing.md](docs/testing.md).
-- Rename the starter for a real project with `scripts/rename.sh <module-path> <name>`.
+- Rename the starter for a real project with `scripts/rename.sh <module-path> <name>`. The shipped name `app`
+  is also a Go package (`internal/app`), the embed directory (`internal/web/app`), the `/app/` URL mount and
+  the `APP_` env prefix, so the script never replaces the bare word: it reads the current module path and name
+  from `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (module path,
+  `cmd/<name>`, `dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
+  and `<h1>`; the full list is in the header of the script). Prose is not rewritten; `scripts/rename.test.sh`
+  renames to another name and back and proves the generic uses are untouched.
+- The default server names (`~/app`, `app.service`, `app.db`) are generic and can clash with another app on a
+  shared server: always rename (or set `REMOTE_BASE`/`SERVICE`) for a real deployment.
 
 ## Node and pnpm
 
@@ -174,6 +182,14 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - `ios/` reserved (2026-10-27): the kit is for the author's own apps, so a native iOS app belongs in it. Only
   `ios/README.md` exists for now (git keeps no empty directories); it does not block the `new-ios-app` scaffold,
   which refuses only when `ios/Package.swift` or an Xcode project exists. `scripts/layout.test.sh` keeps `ios/` tracked.
+
+- Binary output and rename (2026-10-27): `make build` writes `dist/<name>` (ignored; the frontend still builds
+  into `web/api/internal/web/app/` because `go:embed` needs it inside the module); the project was renamed
+  from `goweb` to `app` with `scripts/rename.sh`, which was then rewritten to read the current names from the
+  repository and to replace the name only in project-name contexts (renaming away from the generic word `app`
+  must not touch `internal/app`, `internal/web/app`, `/app/` or `APP_ENV`). `smoke.sh` now requires the name as
+  a whole word in the home page's `<title>` or first `<h1>`. `docs/superpowers/` is historical and keeps the
+  old name `goweb`; the author's checkout directory `~/src/goweb` is not renamed.
 
 ### Not yet verified
 
