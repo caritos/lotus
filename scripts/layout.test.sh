@@ -114,10 +114,14 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   make_copy && mkdir -p "$WORK/c/web/node_modules" && echo x > "$WORK/c/web/node_modules/x" && git -C "$WORK/c" add -f web/node_modules/x
   inner && bad "guard did not flag a tracked node_modules file" || ok "guard flags a tracked node_modules file"
   # deploy/ must hold exactly the expected files: an extra and a missing one both fail
+  # The failure must come from the deploy/ check itself ("deploy/ is ..."), not from some other check.
+  inner_out() { (cd "$WORK/c" && LAYOUT_TEST_INNER=1 bash scripts/layout.test.sh 2>&1); }
   make_copy && echo x > "$WORK/c/deploy/extra.txt" && git -C "$WORK/c" add -A
-  inner && bad "guard did not flag an extra file in deploy/" || ok "guard flags an extra file in deploy/"
+  if out="$(inner_out)"; then bad "guard did not flag an extra file in deploy/"; elif printf '%s\n' "$out" | grep -q 'FAIL - deploy/ is'; then ok "guard flags an extra file in deploy/"; else bad "extra file in deploy/ failed for another reason"; fi
   make_copy && rm "$WORK/c/deploy/nginx.conf.example" && git -C "$WORK/c" add -A
-  inner && bad "guard did not flag a missing file in deploy/" || ok "guard flags a missing file in deploy/"
+  if out="$(inner_out)"; then bad "guard did not flag a missing file in deploy/"; elif printf '%s\n' "$out" | grep -q 'FAIL - deploy/ is'; then ok "guard flags a missing file in deploy/"; else bad "missing file in deploy/ failed for another reason"; fi
+  make_copy && rm "$WORK/c/.gitattributes" && git -C "$WORK/c" add -A
+  if out="$(inner_out)"; then bad "guard did not flag a missing .gitattributes"; elif printf '%s\n' "$out" | grep -q 'FAIL - \*.sql is not marked -text'; then ok "guard flags a missing .gitattributes"; else bad "missing .gitattributes failed for another reason"; fi
   # an old path inside a dated Done entry of CLAUDE.md is history and allowed
   make_copy && awk '{print} /^### Done/ && !d {print "- old entry mentions web/e2e/ and deploy/deploy.sh"; d=1}' CLAUDE.md > "$WORK/claude.new" && cp "$WORK/claude.new" "$WORK/c/CLAUDE.md" && git -C "$WORK/c" add -A
   inner && ok "guard allows old paths inside the Done section of CLAUDE.md" || bad "guard flags the Done section of CLAUDE.md"

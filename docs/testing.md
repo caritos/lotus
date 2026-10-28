@@ -62,6 +62,11 @@ Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/t
   directories, never real servers. `ONLY='test_deploy_*' bash scripts/deploy.test.sh` runs a subset of the
   deploy, restore, pull and smoke tests (add new test names to the list at the bottom of the file).
 
+`scripts/rename.test.sh` renames a copy of the repo, builds and tests it, and also runs the layout guard's
+self-tests in that copy, so it is slow (about a minute); run it before merging, not on every edit. The
+`deploy.test.sh` runner prints `SKIPPED: n` in its summary for tests that skipped themselves (for example the
+plist lint when `plutil` is missing); a skip is counted, never silent, and does not fail the run.
+
 Write the failing test first, watch it fail for the right reason, then implement.
 
 ## Tests that pin cross-cutting behavior
@@ -88,6 +93,22 @@ Write the failing test first, watch it fail for the right reason, then implement
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
+- `internal/db` `migrate_test.go`: a checksum is over the exact bytes; every `*.sql` must be named
+  `NNNN_description.sql` (`^[0-9]{4}_[a-z0-9_]+\.sql$`) and two files may not share a version (the error names
+  the file and nothing is applied); gaps in the numbering are fine; several goroutines upgrading a
+  database from before the checksum column all succeed and record each checksum once (run under `-race`).
+  A recorded migration whose file is gone from the binary is not verified (a rolled-back binary keeps working).
+  `.gitattributes` marks `*.sql` as `-text`, so autocrlf cannot change the bytes; `layout.test.sh` asserts it.
+- `scripts/deploy.test.sh` deploy gate: the backup timer has three outcomes (enabled; not enabled; could not
+  determine because ssh or the user bus failed, which refuses with `REQUIRE_BACKUP_TIMER=1` and otherwise
+  warns); the gate runs `go vet` and `go test -short` in `web/api` without the caller's `GOOS`/`GOARCH`; the
+  Node check compares majors for `v24`, `24`, `24.1.0` and `v24.18.0` and skips a non-numeric `.nvmrc` such as
+  `lts/*` with a message; after the restart a missing `ss` and an ssh failure are reported as such, not as a
+  closed port. The fakes record the unit name and working directory they are called with.
+- `scripts/deploy.test.sh` backup agent: reinstall waits for `bootout` to finish and retries `bootstrap` on an
+  I/O error (fake `launchctl`), `--uninstall` with nothing installed says "nothing installed", `--dry-run` changes
+  nothing; idempotence is asserted on call content, not call positions.
+
 ## Endpoint guard rails
 
 `web/api/tests/guardrails_test.go` keeps the API, its spec and its tests in step. It runs in the fast
@@ -113,7 +134,8 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   the e2e output directories are ignored at any depth, no tracked file is ignored, and no tracked file names
   an old location: the old e2e directory, a deploy script addressed through `deploy/`
   (by path, glob, `cd`, `bash`, `./` or `../`), or a bare script name on a line that mentions `deploy/` without
-  `scripts/`.
+  `scripts/`. `.gitattributes` must mark `*.sql` as `-text`. The `deploy/` self-tests (an extra and a missing
+  file) require the failure to come from the `deploy/` check itself, not from any other check.
   `docs/superpowers/` (historical specs) and the dated entries under `### Done` in `CLAUDE.md` (history,
   between the `### Done` and `### Not yet verified` headings) are exempt; the rest of `CLAUDE.md` is
   current-state text and is checked. The test also proves the guard works: it injects each stale pattern into
