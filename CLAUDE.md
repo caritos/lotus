@@ -57,8 +57,10 @@ If the full suite is slow, run it in the background and wait for the result.
   `archived_at`. One owner of the connection (`internal/db`).
 - Migrations are numbered `.sql` files embedded in the binary, applied in order inside a
   transaction. Never edit a released migration; add a new one (expand, then contract). The runner
-  enforces this: it records each file's sha256 in `schema_migrations.checksum` and refuses to run
-  (naming the file, applying nothing further) when an applied file's bytes change.
+  enforces this: it records each file's sha256 in `schema_migrations.checksum` (over the exact bytes, so
+  whitespace and line endings count; `.gitattributes` keeps `*.sql` as `-text`) and refuses to run (naming the
+  file, applying nothing further) when an applied file's bytes change. Files must be named
+  `NNNN_description.sql` (`^[0-9]{4}_[a-z0-9_]+\.sql$`) with unique `NNNN`; gaps are fine.
 - Never persist absolute file paths; store names relative to `DATA_DIR/storage`.
 - Configuration is environment variables only. `.env.example` is the server template
   (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make dev` sets its
@@ -141,6 +143,15 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Follow-ups batch (2026-10-27): `deploy.sh` separates timer enabled / not enabled / could not determine, runs
+  its test gate without the caller's `GOOS`/`GOARCH`, skips the Node check for a non-numeric `.nvmrc` and
+  compares majors only, and reports a missing `ss` or an ssh failure after the restart as such; the deploy
+  fakes now record unit names, working directories and can inject ssh failures. `install-backup-agent.sh`
+  waits for `bootout`, retries `bootstrap`, says "nothing installed" and has `--dry-run`; `deploy.test.sh`
+  prints `SKIPPED: n`. Migrations: file-name and duplicate-version validation, byte-exact checksum documented,
+  `.gitattributes` `*.sql -text`, concurrent legacy upgrade test. Panic log record pinned (stack names the
+  function, fields on the right records); `Wrap` documented. Layout guard self-tests prove the `deploy/` check
+  fired. Real launchd load is still not verified on a Mac.
 - Panic recovery and request id: `RequestID` and `Recover` middleware (order above); a panicking request
   is now a JSON 500, request-logged with its id, and the server keeps serving. `server.Wrap` exposes the chain
   so tests can put a panicking handler inside it.
