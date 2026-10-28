@@ -7,6 +7,17 @@ import { TEST_EMAIL, TEST_PASSWORD } from "./support";
 
 const webDir = path.resolve(import.meta.dirname, "..");
 const apiDir = path.join(webDir, "api");
+const repoDir = path.resolve(webDir, "..");
+
+/** The build id for the binary under test, from the same script every real build uses. */
+function buildId(): string {
+  const r = spawnSync("bash", [path.join(repoDir, "scripts", "build-id.sh")], { cwd: repoDir, encoding: "utf8" });
+  const id = r.stdout.trim();
+  if (r.status !== 0 || !/^[0-9]{8}-\S+$/.test(id)) {
+    throw new Error(`e2e: scripts/build-id.sh gave no usable id (exit ${r.status}): ${r.stdout}${r.stderr}`);
+  }
+  return id;
+}
 
 function run(cmd: string, args: string[], cwd: string, input?: string, env?: NodeJS.ProcessEnv): void {
   const r = spawnSync(cmd, args, { cwd, input, env: env ?? process.env, encoding: "utf8" });
@@ -61,9 +72,17 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     // E2E_SKIP_BUILD=1 reuses the existing frontend build; the Go binary is
     // always rebuilt (cached, fast) because it lives in the temp dir.
     if (process.env.E2E_SKIP_BUILD !== "1") run("pnpm", ["build"], webDir);
+    const id = buildId();
     run(
       "go",
-      ["build", "-ldflags", "-X goweb/internal/version.Version=e2e -X goweb/internal/version.Commit=e2e", "-o", bin, "./cmd/goweb"],
+      [
+        "build",
+        "-ldflags",
+        `-X goweb/internal/version.Version=e2e -X goweb/internal/version.Commit=e2e -X goweb/internal/version.BuildID=${id}`,
+        "-o",
+        bin,
+        "./cmd/goweb",
+      ],
       apiDir,
     );
 

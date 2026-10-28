@@ -73,6 +73,10 @@ grep -qx "module example.com/acme/shop" "$R/web/api/go.mod" && ok "go.mod module
 [ -d "$R/web/api/cmd/shop" ] && [ ! -e "$R/web/api/cmd/goweb" ] && ok "cmd/shop exists" || bad "cmd dir"
 [ -f "$R/deploy/shop.service" ] && [ -f "$R/deploy/shop-backup.service" ] && [ -f "$R/deploy/shop-backup.timer" ] && ok "unit files renamed" || bad "unit files"
 grep -q "example.com/acme/shop/internal/version" "$R/Makefile" && ok "ldflags use the module path" || bad "Makefile ldflags"
+for f in Makefile deploy/deploy.sh web/e2e/global-setup.ts; do
+  grep -q "example.com/acme/shop/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
+done
+[ -x "$R/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
 grep -q "SHOP_BIN" "$R/deploy/restore.sh" && ok "env var prefix renamed" || bad "SHOP_BIN missing"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 

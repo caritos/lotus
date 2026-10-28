@@ -1,6 +1,8 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/version.Commit=$(COMMIT)
+# BUILD_ID is YYYYMMDD-<short commit> (see scripts/build-id.sh); computed once per make run.
+BUILD_ID := $(shell bash "$(CURDIR)/scripts/build-id.sh")
+LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/version.Commit=$(COMMIT) -X goweb/internal/version.BuildID=$(BUILD_ID)
 
 .PHONY: help dev build test-fast test test-scripts test-api e2e e2e-install api
 
@@ -18,7 +20,7 @@ help:
 # It sets its own environment; .env.example is the server template and is not used here.
 dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	(cd web/api && DATA_DIR=.. ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run ./cmd/goweb serve) & \
+	(cd web/api && DATA_DIR=.. ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run -ldflags "-X goweb/internal/version.BuildID=$(BUILD_ID)" ./cmd/goweb serve) & \
 	(cd web && pnpm dev) & \
 	wait
 
