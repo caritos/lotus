@@ -18,7 +18,7 @@ test_skill_carries_the_setup_table_and_failure_signatures() {
   local c; c="$(cat "$SKILL_MD")"
   for s in scripts/scaffold.sh ssh-copy-id 'ss -tln' 'ps aux' 'Proxy Server' 'deploy-app.sh' '--check' \
            install-backup-agent.sh backup-pull.env 'Index of /' 'SFTP' 'HTTP/1.0' 'Content-Length' \
-           'Treasure Chest' '--port' '.go''web-origin' 'Retro before closing' 'rewrite' 'LOTUS_DIR' 'rename.sh --check' '.claude/skills'; do
+           'Treasure Chest' '--port' '.lo''tus-origin' 'Retro before closing' 'rewrite' 'LOTUS_DIR' 'rename.sh --check' '.claude/skills'; do
     assert_contains "$c" "$s"
   done
 }
