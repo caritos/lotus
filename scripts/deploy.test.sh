@@ -48,8 +48,11 @@ MASTER_BACKUP="$(DATA_DIR="$ROOT/master-base" "$GOWEB_BIN" backup --keep 3)" || 
 
 PASSED=0
 FAILED=0
+SKIPPED=0
 CUR_FAIL=""
 
+# skip <reason>: mark the running test as skipped (counted, printed in the summary, not a failure).
+skip() { echo "    SKIPPED: $*" >&2; : > "$T/.skipped"; }
 fail() { echo "    $*" >&2; : > "$CUR_FAIL"; }
 assert_eq() { [ "$1" = "$2" ] || fail "$3: got '$1', want '$2'"; }
 assert_true() { local m="$1"; shift; "$@" >/dev/null 2>&1 || fail "$m: command failed: $*"; }
@@ -119,6 +122,8 @@ run_test() {
   ( cd "$T" && "$name" )
   if [ -e "$CUR_FAIL" ]; then
     echo "FAIL $name"; FAILED=$((FAILED + 1))
+  elif [ -e "$T/.skipped" ]; then
+    echo "SKIP $name"; SKIPPED=$((SKIPPED + 1))
   else
     echo "PASS $name"; PASSED=$((PASSED + 1))
   fi
@@ -1844,10 +1849,23 @@ agent_env() {
   cat > "$T/launchctl" <<'EOS'
 #!/bin/sh
 echo "$*" >> "$LC_CALLS"
+# FAKE_BOOT_POLLS=N: after a bootout the job still counts as loaded for N `list` polls (bootout is
+# asynchronous on a real Mac). FAKE_BOOTSTRAP_FAILS=N: the first N bootstraps fail with an I/O error.
 case "$1" in
-  bootstrap) : > "$LC_STATE" ;;
-  bootout) [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
-  list) [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
+  bootstrap)
+    n="$(cat "$LC_STATE.bs" 2>/dev/null || echo 0)"
+    if [ "$n" -lt "${FAKE_BOOTSTRAP_FAILS:-0}" ]; then
+      echo $((n + 1)) > "$LC_STATE.bs"
+      echo "Bootstrap failed: 5: Input/output error" >&2; exit 5
+    fi
+    : > "$LC_STATE" ;;
+  bootout)
+    echo "${FAKE_BOOT_POLLS:-0}" > "$LC_STATE.polls"
+    [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
+  list)
+    p="$(cat "$LC_STATE.polls" 2>/dev/null || echo 0)"
+    if [ "$p" -gt 0 ]; then echo $((p - 1)) > "$LC_STATE.polls"; exit 0; fi
+    [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
 esac
 EOS
   chmod +x "$T/launchctl"
@@ -1882,9 +1900,36 @@ test_agent_install_is_idempotent() {
   assert_eq "$?" "0" "second run exit status"
   assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "1" "exactly one plist"
   assert_eq "$(grep -c '^bootstrap' "$LC_CALLS")" "2" "bootstrapped twice"
-  # the second bootstrap is preceded by a bootout (the first run found nothing loaded)
-  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '3p' | cut -d' ' -f1)" "bootout" "old agent booted out before the second bootstrap"
-  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '4p' | cut -d' ' -f1)" "bootstrap" "then bootstrap"
+  # Asserted on content, not on call indexes: the last bootstrap comes after the last bootout.
+  local last_out last_bs
+  last_out="$(grep -n '^bootout ' "$LC_CALLS" | tail -1 | cut -d: -f1)"
+  last_bs="$(grep -n '^bootstrap ' "$LC_CALLS" | tail -1 | cut -d: -f1)"
+  assert_true "old agent booted out" test -n "$last_out"
+  assert_true "the second bootstrap follows a bootout" test "${last_bs:-0}" -gt "${last_out:-99999}"
+  assert_contains "$(cat "$LC_CALLS")" "bootout gui/$(id -u)/com.goweb.backup-pull" "bootout names the job"
+}
+
+test_agent_reinstall_waits_for_bootout_and_retries_an_io_error() {
+  agent_env
+  agent
+  : > "$LC_CALLS"
+  FAKE_BOOT_POLLS=2 FAKE_BOOTSTRAP_FAILS=1 agent
+  assert_eq "$?" "0" "exit status: $(cat "$T/err")"
+  assert_eq "$(grep -c '^bootstrap ' "$LC_CALLS")" "2" "bootstrap retried once"
+  # two polls that still see the job, one that sees it gone, all before the first bootstrap, plus the final verify
+  local first_bs polls_before
+  first_bs="$(grep -n '^bootstrap ' "$LC_CALLS" | head -1 | cut -d: -f1)"
+  polls_before="$(head -n "$first_bs" "$LC_CALLS" | grep -c '^list ')"
+  assert_true "polled until the job was gone ($polls_before polls)" test "$polls_before" -ge 3
+  assert_true "agent is loaded at the end" test -e "$LC_STATE"
+}
+
+test_agent_install_gives_up_after_three_bootstrap_io_errors() {
+  agent_env
+  FAKE_BOOTSTRAP_FAILS=3 agent
+  assert_eq "$?" "1" "exit status"
+  assert_eq "$(grep -c '^bootstrap ' "$LC_CALLS")" "3" "three attempts"
+  assert_contains "$(cat "$T/err")" "launchctl bootstrap failed" "message"
 }
 
 test_agent_install_fails_without_REMOTE_or_REMOTE_DIR() {
@@ -1915,10 +1960,50 @@ test_agent_uninstall_removes_plist_and_boots_out() {
   agent
   agent --uninstall
   assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "removed" "says removed"
   assert_false "plist removed" test -e "$(AGENT_PLIST)"
   assert_false "agent unloaded" test -e "$LC_STATE"
   agent --uninstall
   assert_eq "$?" "0" "uninstall twice is fine"
+  assert_contains "$(cat "$T/out")" "nothing installed" "second uninstall says so"
+  assert_false "no false removed claim" grep -q "removed" "$T/out"
+}
+
+test_agent_uninstall_with_nothing_installed_says_so() {
+  agent_env
+  agent --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "nothing installed" "message"
+  assert_false "no removed claim" grep -q "removed" "$T/out"
+}
+
+test_agent_dry_run_install_changes_nothing() {
+  agent_env
+  agent --dry-run
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "would write $(AGENT_PLIST)" "names the plist"
+  assert_contains "$(cat "$T/out")" "would load" "says it would load"
+  assert_false "no plist" test -e "$(AGENT_PLIST)"
+  assert_false "no log dir" test -e "$T/home/Library/Logs"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+  printf 'REMOTE=x\n' > "$ENV_FILE"
+  agent --dry-run
+  assert_eq "$?" "2" "dry run still validates the settings"
+}
+
+test_agent_dry_run_uninstall_changes_nothing() {
+  agent_env
+  agent
+  : > "$LC_CALLS"
+  agent --dry-run --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/out")" "would unload and remove" "message"
+  assert_true "plist kept" test -f "$(AGENT_PLIST)"
+  assert_true "still loaded" test -e "$LC_STATE"
+  assert_false "no bootout" grep -q '^bootout' "$LC_CALLS"
+  agent --uninstall
+  agent --uninstall --dry-run
+  assert_contains "$(cat "$T/out")" "nothing installed" "dry run with nothing installed"
 }
 
 test_agent_passes_a_MIRROR_DIR_with_a_space_intact() {
@@ -1956,7 +2041,7 @@ test_agent_install_rejects_an_env_file_that_does_not_source_cleanly() {
 }
 
 test_agent_plist_is_valid() {
-  command -v plutil >/dev/null 2>&1 || { echo "    (plutil missing, skipped)"; return; }
+  command -v plutil >/dev/null 2>&1 || { skip "plutil is not installed"; return; }
   agent_env
   printf 'MIRROR_DIR="/tmp/a & <b> y"\n' >> "$ENV_FILE"
   agent
@@ -2073,6 +2158,11 @@ for t in \
   test_agent_install_fails_without_REMOTE_or_REMOTE_DIR \
   test_agent_install_verifies_with_launchctl_list \
   test_agent_uninstall_removes_plist_and_boots_out \
+  test_agent_reinstall_waits_for_bootout_and_retries_an_io_error \
+  test_agent_install_gives_up_after_three_bootstrap_io_errors \
+  test_agent_uninstall_with_nothing_installed_says_so \
+  test_agent_dry_run_install_changes_nothing \
+  test_agent_dry_run_uninstall_changes_nothing \
   test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
   test_agent_plist_is_valid \
   test_agent_install_rejects_an_env_file_that_does_not_source_cleanly \
@@ -2107,4 +2197,5 @@ do
 done
 
 echo "$PASSED passed, $FAILED failed"
+echo "SKIPPED: $SKIPPED"
 [ "$FAILED" -eq 0 ]
