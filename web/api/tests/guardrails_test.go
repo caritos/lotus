@@ -302,3 +302,62 @@ components:
 		t.Errorf("got %v, want only GET /a", got)
 	}
 }
+
+var apiLiteralRe = regexp.MustCompile(`"(?:[A-Z]+ )?(/api/[^"\s]*)"`)
+
+// unsafeAPIMounts returns the "/api/..." string literals in server wiring source that are neither a public
+// path nor the "/api/" catch-all nor on a line that mounts into the `private` mux. Such a literal is a route
+// registered on the top-level mux outside auth.Require, with or without a method.
+func unsafeAPIMounts(src string, publicPaths map[string]bool) []string {
+	var out []string
+	for _, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") || strings.Contains(line, "private.") {
+			continue
+		}
+		for _, m := range apiLiteralRe.FindAllStringSubmatch(line, -1) {
+			if m[1] != "/api/" && !publicPaths[m[1]] {
+				out = append(out, strings.TrimSpace(line))
+			}
+		}
+	}
+	return out
+}
+
+func publicAPIPaths() map[string]bool {
+	paths := map[string]bool{}
+	for route := range publicRoutes {
+		_, p, _ := strings.Cut(route, " ")
+		paths[p] = true
+	}
+	return paths
+}
+
+// TestServerMountsNothingPublicUnderAPI catches what TestAPIIsPrivateByDefault cannot: a method-less mount such
+// as mux.HandleFunc("/api/admin", ...) on the top-level mux in server.go is invisible to the spec-drift test
+// (no "METHOD /path" pattern) and to the probe (not in the spec). Limit: it reads the string literals of
+// internal/server/server.go only; a route mounted through a variable, or registered from another file, is not
+// seen here (the probe still catches it if it is in the spec or has a literal "METHOD /path" pattern).
+func TestServerMountsNothingPublicUnderAPI(t *testing.T) {
+	src := readFile(t, filepath.Join("..", "internal", "server", "server.go"))
+	for _, line := range unsafeAPIMounts(src, publicAPIPaths()) {
+		t.Errorf("server.go mounts an /api/ path outside the private mux and the public list: %s\n  mount it on `private` (behind auth.Require), or add it to publicRoutes with a reason", line)
+	}
+	if !strings.Contains(src, `"/api/login"`) {
+		t.Error("server.go no longer lists /api/login; the scan is looking at the wrong file or the wiring moved")
+	}
+}
+
+func TestUnsafeAPIMounts(t *testing.T) {
+	pub := map[string]bool{"/api/login": true}
+	const src = `	for _, p := range []string{"/api/login"} { mux.Handle(p, api) }
+	mux.Handle("/api/", private)
+	private.Handle("/api/notes", h)
+	// mux.Handle("/api/commented", h)
+	mux.HandleFunc("/api/admin", admin)
+	mux.HandleFunc("GET /api/export", export)
+`
+	got := unsafeAPIMounts(src, pub)
+	if len(got) != 2 || !strings.Contains(got[0], "/api/admin") || !strings.Contains(got[1], "/api/export") {
+		t.Errorf("got %q, want the /api/admin and /api/export lines", got)
+	}
+}

@@ -78,6 +78,9 @@ func TestPanicLogRecordHasStackValueAndRequestID(t *testing.T) {
 		t.Fatalf("status = %d, want 500", st)
 	}
 	id := hdr.Get("X-Request-Id")
+	if id == "" {
+		t.Fatal("the response has no X-Request-Id header; the logged ids below would be compared with an empty string")
+	}
 	var panicRec, reqRec map[string]any
 	for _, rec := range logRecords(t, logs.String()) {
 		switch rec["msg"] {

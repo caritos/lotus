@@ -134,7 +134,12 @@ and the spec in step: every public route is in the spec, carries `security: []` 
 stays secured in the spec, because it answers 401 itself), and no other operation has `security: []`. To make an
 endpoint public, add it to `publicRoutes` with a reason, register it explicitly in `server.New`, and mark it
 `security: []` in `openapi.yaml`. To check the guard, temporarily register an extra unwrapped
-`mux.HandleFunc("GET /api/x", ...)` in `server.New` and watch the test fail.
+`mux.HandleFunc("GET /api/x", ...)` in `server.New` and watch the test fail. A method-less mount such as
+`mux.HandleFunc("/api/admin", ...)` is invisible to the spec-drift test and to the probe, so
+`TestServerMountsNothingPublicUnderAPI` scans the `"/api/..."` string literals of `internal/server/server.go` and
+fails on any that is not public, the `/api/` catch-all or on the `private` mux. Remaining limit: it reads literals in
+that one file; a route mounted through a variable or from another file escapes it (the probe still catches one that is
+in the spec or has a literal `"METHOD /path"` pattern).
 
 The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
 the module has no YAML library; a differently laid-out spec makes the guard fail loudly, not pass.
