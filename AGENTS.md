@@ -18,6 +18,7 @@ binary, with backups, deploy scripts and tests.
 - `web/api/tests/` integration tests; `web/api/openapi.yaml` is the API contract
 - `web/src/` React app; `web/e2e/` Playwright tests
 - `deploy/` systemd units and deploy, restore, backup-pull and smoke scripts; `scripts/` tooling
+  (`build-id.sh` prints the build id)
 
 ## Commands
 
@@ -40,3 +41,4 @@ binary, with backups, deploy scripts and tests.
 7. Do not add dependencies without a reason; do not store absolute file paths in the database.
 8. Keep docs, the public pages and `.env.example` in step with behavior changes.
 9. The reverse proxy sets HSTS; the app never sends `Strict-Transport-Security`.
+10. Every HTML page shows a footer `Build YYYYMMDD-<short commit>` (UTC date, `-dirty` if modified): set only via `scripts/build-id.sh` and `-ldflags`, never hard-coded; a new page under `web/api/internal/web/pages/` must contain `@@BUILD_ID@@` in its footer.

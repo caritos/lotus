@@ -10,8 +10,8 @@ full tier runs before every merge; end to end is separate because it downloads a
 | Web unit | components and hooks, Vitest + Testing Library, API mocked with MSW | beside the source in `web/src/` | `pnpm test` (and `pnpm typecheck`) |
 | End to end | Playwright against the built binary with a fresh temp database: sign in, create, edit and delete a note, upload a photo, sign out, 404 page | `web/e2e/` | `make e2e` |
 
-Shell scripts (deploy, backup pull, restore, generator preflight, the Claude hook and the
-rename script) have their own tests, run by `make test-scripts`.
+Shell scripts (deploy, backup pull, restore, generator preflight, the Claude hook, the
+rename script and the build id script) have their own tests, run by `make test-scripts`.
 
 ## Commands
 
@@ -20,7 +20,7 @@ make test-fast                  # Go -short + Vitest + typecheck (seconds)
 make test                       # Go -race + vet, Vitest, typecheck, generated-code check, script tests
 make e2e-install                # once: downloads Chromium for Playwright
 make e2e                        # builds the frontend and the binary, then runs Playwright
-make test-scripts               # deploy/test.sh, gen-api preflight, hook test, rename test
+make test-scripts               # deploy/test.sh, gen-api preflight, hook test, rename test, build-id test
 ```
 
 Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `.nvmrc`).
@@ -84,6 +84,27 @@ Write the failing test first, watch it fail for the right reason, then implement
 - `deploy/test.sh`: `deploy.sh` refuses a non-production server `.env` (and `--check` reports it) unless
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
+
+## Build id
+
+- `scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
+  untracked-only files (stay clean), no git, no commits (`unknown`), `BUILD_DATE`, `SOURCE_DATE_EPOCH`
+  (UTC, BSD and GNU `date`) and the output format.
+- `internal/version`: the default id is well formed. `internal/web`: every page source under `pages/`
+  holds the `@@BUILD_ID@@` placeholder exactly once (a new page cannot forget it) and sits in a
+  `site-footer`; served pages, the 404 and the 503 pages show `Build <id>`; the app's `index.html`
+  is served with `__BUILD_ID__` replaced, a matching `Content-Length`, an ETag that follows the id,
+  other app files untouched, and the id HTML-escaped. `internal/server`: `/healthz` reports `build_id`.
+- `tests/public_test.go` `TestEveryPageFooterShowsTheHealthzBuildID`: `/`, `/faq`, `/privacy`, `/terms`,
+  `/support`, a 404 URL and (when the app is built; a failure under `CI`) `/app/` show the id that
+  `/healthz` reports.
+- `src/Footer.test.tsx`: the React footer reads the meta tag, shows `dev` for the placeholder or a
+  missing tag, and is on the sign-in, notes and not-found routes.
+- `web/e2e/buildid.spec.ts`: a real id (from `scripts/build-id.sh`) in `/healthz` and in the footer of `/`,
+  the sign-in page, the notes page and the 404 page.
+- `deploy/test.sh`: `smoke.sh` accepts a matching footer and fails on a footer id that differs from
+  `/healthz`, a missing footer, a missing or malformed `build_id` and a wrong `EXPECTED_BUILD_ID`;
+  `deploy.sh` passes the same id to its build ldflags and to the smoke run.
 
 ## Import-direction guard
 

@@ -134,8 +134,10 @@ What a deploy does, in order:
 1. Preflight (as `--check`). Every ssh and rsync call uses `BatchMode=yes`, so it fails
    instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
    from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
-2. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version and
-   commit injected.
+2. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
+   commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
+   uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is
+   printed in the progress output and in the final "done" line.
 3. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
    over. The lock is released on exit, also after a failure or Ctrl-C.
@@ -153,8 +155,23 @@ What a deploy does, in order:
 8. Keeps the active release, the previous one and up to three older ones; deletes the
    rest inside `releases/` (never the active or previous release, and never an `*.uploading` directory
    younger than 30 minutes).
-9. When `PUBLIC_URL` is set, runs `deploy/smoke.sh` against it from your machine. A failing smoke
-   check makes the deploy exit 1 but does not roll back.
+9. When `PUBLIC_URL` is set, runs `deploy/smoke.sh` against it from your machine with
+   `EXPECTED_BUILD_ID` set to the id it just built. A failing smoke check makes the deploy exit 1 but
+   does not roll back.
+
+**Which build is live?** Every page footer shows `Build <id>` and `/healthz` reports the same id as
+`build_id`:
+
+```sh
+curl -s https://app.example.com/ | grep -o 'Build [0-9a-z-]*'
+curl -s https://app.example.com/healthz
+```
+
+Compare it with `scripts/build-id.sh` on the commit you meant to deploy. The first part is the UTC build
+date, the second the short commit, and a trailing `-dirty` means the build had uncommitted changes to
+tracked files. `smoke.sh` checks the id: `/healthz` must report a well-formed `build_id`, `/` must show
+the same id in its footer, and with `EXPECTED_BUILD_ID` set (as `deploy.sh` does; set it yourself when
+running `smoke.sh` by hand) `/healthz`, `/` and `/app/` must all show exactly that id.
 
 ## Rollback and restore
 
@@ -246,7 +263,7 @@ Schedule the pull from the other machine with launchd or cron, and read
 ## Monitoring
 
 - Point an external uptime monitor at `https://app.example.com/healthz` (it returns
-  `status`, `version` and `commit`), and alert on a non-200 or on an unexpected version.
+  `status`, `version`, `commit` and `build_id`), and alert on a non-200 or on an unexpected version.
 - Alert when disk usage on the data volume passes 80 percent.
 - Check after install that the monitor is really running (look at its log), and only
   monitor URLs you have fetched with `curl` yourself.

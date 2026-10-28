@@ -23,7 +23,7 @@ web/api/            Go module (go.mod, module path = see go.mod)
   openapi.yaml      the API contract (source of truth)
 web/                Vite + React + TypeScript app (src/), Playwright (e2e/)
 deploy/             systemd units, deploy.sh, restore.sh, pull-backups.sh, smoke.sh, nginx example
-scripts/            gen-api.sh, rename.sh and their tests
+scripts/            gen-api.sh, rename.sh, build-id.sh and their tests
 docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ holds design history)
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 ```
@@ -72,6 +72,14 @@ If the full suite is slow, run it in the background and wait for the result.
   (see `docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
 - Public pages (`/`, `/faq`, `/privacy`, `/terms`, `/support`) are plain static HTML; keep them
   true to the behavior, including every third-party network call.
+- Build id: every HTML page the app serves (public pages, the 404 and "app not built" pages, the React
+  app) has a footer with `Build YYYYMMDD-<short commit>` (UTC build date; `-dirty` when tracked files are
+  modified; `unknown` as the commit outside git). `/healthz` reports it as `build_id`. The id is set only by
+  `scripts/build-id.sh` passed as `-ldflags -X <module>/internal/version.BuildID=...` (`make build`, `make dev`,
+  `deploy/deploy.sh`, `web/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
+  startup (before ETags and lengths): new HTML pages in `internal/web/pages/` must contain the literal
+  `@@BUILD_ID@@` exactly once inside a `site-footer` (a test enforces it); the React app reads it from the
+  `build-id` meta tag in `web/index.html` (`__BUILD_ID__`). `smoke.sh` checks it after every deploy.
 - Every subcommand runs under umask 077 (set in `run`), so the database, WAL/SHM, logs, uploads and
   backups are owner-only whichever command creates them.
 - Backups: `goweb backup` writes daily sets `<stamp>`; `--label NAME` writes `<stamp>-NAME` sets pruned
@@ -129,6 +137,11 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   stale upload temp files swept at start; 403/413 documented in `openapi.yaml` and 413 is JSON;
   unreadable photo files are logged 500s; middleware order and the proxy-to-throttle seam are pinned by
   tests; CI catches untracked generated files and fails (not skips) the embed check without a build.
+
+- Build id in every page footer (2026-10-27): `scripts/build-id.sh` (+ `build-id.test.sh`), `version.BuildID`
+  via `-ldflags` in the Makefile, `deploy.sh` and the e2e harness, `build_id` in `/healthz` and `openapi.yaml`,
+  footer placeholder substitution in `internal/web` (static pages, 404, 503, the app's `index.html`), React
+  `Footer`, Playwright spec, and `smoke.sh`/`deploy.sh` checks (`EXPECTED_BUILD_ID`).
 
 ### Not yet verified
 
