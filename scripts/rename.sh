@@ -8,7 +8,10 @@
 # directory under web/api/cmd/), so the script works for any starting name, including the generic
 # one the starter ships with. Because the shipped name is also an ordinary word (and a directory,
 # a package and a URL prefix), the script never replaces the bare word. It replaces the name only
-# in the contexts where it is the project name:
+# in the contexts where it is the project name. That is only safe when the name is not itself a
+# word the repository uses as a directory or a variable target (web, api, data, scripts, ...):
+# such names are rejected (see RESERVED below), for the new name and for the current one.
+# The contexts:
 #
 #   - the Go module path (module line, imports, -X ldflags), as `<module>/internal|cmd|tests`
 #   - after a path prefix: cmd/, dist/, current/, releases/<v>/, ~/, $HOME/, %h/, /opt/,
@@ -49,8 +52,18 @@ NAME="${ARGS[1]}"
 
 MODULE_RE='^[a-z0-9][a-z0-9._-]*(/[A-Za-z0-9._-]+)*$'
 NAME_RE='^[a-z][a-z0-9]*$'
+# Reserved words: names the context rules would corrupt, because the repository uses them as a
+# path component (web/api/internal/..., deploy/, scripts/, data/, logs/, releases/, current/),
+# as a target after a $VAR/ or ~/ prefix (the rules turn "$root/web" into "$root/<name>"), or as a
+# common variable or fixture word in the scripts. Derived from `git ls-files` path components and
+# the `$VAR/<word>` / prefix uses in scripts/, web/test/, deploy/ and the Makefile. rename.test.sh
+# fails when a tracked directory name is missing here; add new directories and variable targets.
+RESERVED="web api apigen apptest internal cmd tests test testing testutil data db logs log storage static pages docs deploy scripts script ios android src node bin tmp lib backup backups releases current dist config client commands hooks workflows e2e fixtures embed migrations models handlers auth notes server version uid layout logging main middleware package schema settings setup smoke restore rename home base body build calls case claude curl custom dest dirty empty err fake gen head healthz index install junk master mirror new out owner pid post pull remote renamed roundtrip rsync set site slow ssh started stderr systemctl tracked pre page marker systemd nginx x to"
+reserved_word() { case " $RESERVED " in *" $1 "*) return 0 ;; esac; return 1; }
 [[ "$MODULE" =~ $MODULE_RE ]] || die "invalid module path '$MODULE': use lowercase letters, digits, '.', '_' and '-', with '/' separated segments (for example github.com/acme/shop)"
 [[ "$NAME" =~ $NAME_RE ]] || die "invalid name '$NAME': use a lowercase letter followed by lowercase letters and digits only (for example shop)"
+
+! reserved_word "$NAME" || die "the name '$NAME' is reserved: it is a directory or variable word of this repository and renaming to it would corrupt files. Pick another name (the list is RESERVED in scripts/rename.sh)"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$here/.." && pwd)"
@@ -64,6 +77,7 @@ OLD_MODULE="$(sed -n 's/^module[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:
 cmds=(); for d in web/api/cmd/*/; do [ -d "$d" ] && cmds+=("$(basename "$d")"); done
 [ "${#cmds[@]}" -eq 1 ] || die "expected exactly one directory under web/api/cmd/, found ${#cmds[@]}"
 OLD="${cmds[0]}"
+! reserved_word "$OLD" || die "the current name '$OLD' is reserved (a directory or variable word of this repository): scripts/rename.sh cannot rename away from it safely; rename by hand or restore a non-reserved name"
 [[ "$OLD" =~ $NAME_RE ]] || die "the current command directory name '$OLD' is not a plain lowercase name"
 
 if [ "$MODULE" = "$OLD_MODULE" ] && [ "$NAME" = "$OLD" ]; then

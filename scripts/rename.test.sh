@@ -53,6 +53,26 @@ expect_fail "name starting with a digit" "name" "$NEW_MODULE" 1shop
 expect_fail "missing args" "usage" 
 expect_fail "one arg" "usage" "$NEW_MODULE"
 
+# Reserved words: names the repository uses as directories or variable targets are rejected for
+# the new name, and nothing is touched.
+RESERVED_LIST="$(sed -n 's/^RESERVED="\(.*\)"$/\1/p' "$REPO/scripts/rename.sh")"
+[ -n "$RESERVED_LIST" ] && ok "rename.sh has a RESERVED list" || bad "no RESERVED list in rename.sh"
+rw_bad=""
+for w in $RESERVED_LIST; do
+  d="$ROOT/res-$w"; cp -R "$BASE" "$d"
+  out="$(cd "$d" && bash scripts/rename.sh "example.com/acme/$w" "$w" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] || ! echo "$out" | grep -q "reserved" || ! echo "$out" | grep -qF "'$w'" || [ -n "$(cd "$d" && git status --porcelain)" ]; then rw_bad="$rw_bad $w"; fi
+  rm -rf "$d"
+done
+[ -z "$rw_bad" ] && ok "every reserved word is rejected by name with the tree untouched" || bad "reserved words not rejected cleanly:$rw_bad"
+# Every tracked directory name must be reserved (apart from the shipped name's own directories).
+missing=""
+for dn in $(cd "$REPO" && git ls-files | grep -v '^docs/superpowers/' | sed 's#/[^/]*$##' | grep -v '^[^/]*$' | tr '/' '\n' | sort -u | grep -E '^[a-z][a-z0-9]*$'); do
+  case "$dn" in app|superpowers) continue ;; esac
+  case " $RESERVED_LIST " in *" $dn "*) ;; *) missing="$missing $dn" ;; esac
+done
+[ -z "$missing" ] && ok "every tracked directory name is in the RESERVED list" || bad "directory names missing from RESERVED:$missing"
+
 # dirty tree
 D="$ROOT/dirty"; cp -R "$BASE" "$D"; echo x >> "$D/README-dirty.txt"
 out="$(cd "$D" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
@@ -119,6 +139,23 @@ rootc="$(cd "$RT" && git rev-list --max-parents=0 HEAD | head -1)"
 back="$(cd "$RT" && git diff --cached --stat "$rootc" 2>&1)"
 [ -z "$back" ] && ok "renaming $NEW back to $CUR restores the starter exactly" || bad "round trip differs: $back"
 
+# The renamed tree must pass its own suites, for names that sort before and after "nginx" (the
+# deploy/ listing) and one that contains "app". RENAME_TEST_FULL=1 also runs all of deploy.test.sh.
+for W in acme zebra application; do
+  X="$ROOT/ren-$W"; cp -R "$BASE" "$X"
+  out="$(cd "$X" && bash scripts/rename.sh "example.com/acme/$W" "$W" 2>&1)"; rc=$?
+  [ $rc -eq 0 ] && ok "rename to $W" || bad "rename to $W: $out"
+  if (cd "$X" && bash scripts/layout.test.sh) >"$ROOT/layout-$W.log" 2>&1; then ok "layout.test.sh passes after renaming to $W"; else bad "layout.test.sh after renaming to $W: $(grep FAIL "$ROOT/layout-$W.log" | head -5)"; fi
+  if [ "${RENAME_TEST_FULL:-}" = 1 ]; then only=""; else only='test_smoke_*'; fi
+  if (cd "$X" && ONLY="$only" bash scripts/deploy.test.sh) >"$ROOT/deploy-$W.log" 2>&1; then ok "deploy.test.sh ${only:-(all)} passes after renaming to $W"; else bad "deploy.test.sh after renaming to $W: $(grep FAIL "$ROOT/deploy-$W.log" | head -5)"; fi
+  if (cd "$X/web/api" && env -u CI go test -short ./... ) >"$ROOT/go-$W.log" 2>&1; then ok "go test -short passes after renaming to $W"; else bad "go test after renaming to $W: $(tail -8 "$ROOT/go-$W.log")"; fi
+  # and back, byte for byte
+  (cd "$X" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m renamed && bash scripts/rename.sh "$CUR_MODULE" "$CUR" >/dev/null 2>&1; git add -A)
+  back="$(cd "$X" && git diff --cached --stat "$(git rev-list --max-parents=0 HEAD | head -1)" 2>&1)"
+  [ -z "$back" ] && ok "$W -> $CUR round trip is exact" || bad "$W round trip differs: $back"
+  rm -rf "$X"
+done
+
 # A name that contains "app" (the README example) builds too.
 MY=myapp; [ "$CUR" = myapp ] && MY=yourapp
 M="$ROOT/$MY"; cp -R "$BASE" "$M"
@@ -139,7 +176,7 @@ if command -v pnpm >/dev/null 2>&1; then
 else skip "pnpm not on PATH: gen-api.test.sh not run in the copy"; fi
 
 if [ "${RENAME_TEST_FULL:-}" = 1 ]; then
-  if (cd "$R" && bash scripts/deploy.test.sh) >"$ROOT/deploy.log" 2>&1; then ok "scripts/deploy.test.sh passes in the copy"; else bad "scripts/deploy.test.sh in the copy: $(tail -20 "$ROOT/deploy.log")"; fi
+  if (cd "$R" && bash scripts/layout.test.sh && bash scripts/deploy.test.sh) >"$ROOT/deploy.log" 2>&1; then ok "scripts/deploy.test.sh passes in the copy"; else bad "scripts/deploy.test.sh in the copy: $(tail -20 "$ROOT/deploy.log")"; fi
 fi
 
 echo "$pass passed, $fail failed"
