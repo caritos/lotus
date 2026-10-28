@@ -1553,6 +1553,119 @@ test_deploy_missing_unit_hint_mentions_the_user_bus() {
   assert_contains "$(cat "$T/err")" "systemctl --user status" "how to check the user manager"
 }
 
+# ------------------------------------------------------------ backup agent tests
+
+# agent_env: fake launchctl (stateful: bootstrap loads, bootout unloads, list checks), a fake
+# HOME-like LAUNCHAGENTS_DIR and an env file. Never touches the real launchd.
+agent_env() {
+  mkdir -p "$T/agents" "$T/home" "$T/bin"
+  cat > "$T/launchctl" <<'EOS'
+#!/bin/sh
+echo "$*" >> "$LC_CALLS"
+case "$1" in
+  bootstrap) : > "$LC_STATE" ;;
+  bootout) [ -e "$LC_STATE" ] && { rm -f "$LC_STATE"; exit 0; }; exit 113 ;;
+  list) [ -z "${FAKE_LIST_FAIL:-}" ] && [ -e "$LC_STATE" ] ;;
+esac
+EOS
+  chmod +x "$T/launchctl"
+  export LC_CALLS="$T/lc_calls" LC_STATE="$T/lc_state"
+  : > "$LC_CALLS"
+  export LAUNCHCTL="$T/launchctl" LAUNCHAGENTS_DIR="$T/agents" HOME="$T/home"
+  export ENV_FILE="$T/backup-pull.env"
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=goweb/data/backups\n' > "$ENV_FILE"
+}
+agent() { bash "$SCRIPT_DIR/install-backup-agent.sh" "$@" >"$T/out" 2>"$T/err"; }
+AGENT_PLIST() { echo "$T/agents/com.goweb.backup-pull.plist"; }
+
+test_agent_install_writes_a_plist_that_loads_the_env_file() {
+  agent_env
+  agent
+  assert_eq "$?" "0" "exit status"
+  local p; p="$(AGENT_PLIST)"
+  assert_true "plist written" test -f "$p"
+  local c; c="$(cat "$p")"
+  assert_contains "$c" "<string>com.goweb.backup-pull</string>" "label"
+  assert_contains "$c" "$ENV_FILE" "env file path in the command"
+  assert_contains "$c" "$SCRIPT_DIR/pull-backups.sh" "pull script path"
+  assert_contains "$c" "<key>Hour</key><integer>3</integer>" "hour"
+  assert_contains "$c" "<key>Minute</key><integer>30</integer>" "minute"
+  assert_contains "$c" "$T/home/Library/Logs/goweb/backup-pull.log" "log path"
+  assert_contains "$(cat "$LC_CALLS")" "bootstrap" "bootstrapped"
+}
+
+test_agent_install_is_idempotent() {
+  agent_env
+  agent; agent
+  assert_eq "$?" "0" "second run exit status"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "1" "exactly one plist"
+  assert_eq "$(grep -c '^bootstrap' "$LC_CALLS")" "2" "bootstrapped twice"
+  # the second bootstrap is preceded by a bootout (the first run found nothing loaded)
+  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '3p' | cut -d' ' -f1)" "bootout" "old agent booted out before the second bootstrap"
+  assert_eq "$(grep -v '^list' "$LC_CALLS" | sed -n '4p' | cut -d' ' -f1)" "bootstrap" "then bootstrap"
+}
+
+test_agent_install_fails_without_REMOTE_or_REMOTE_DIR() {
+  agent_env
+  printf 'REMOTE=deploy@host.example.com\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing REMOTE_DIR"
+  printf 'REMOTE_DIR=x\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing REMOTE"
+  rm -f "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "missing env file"
+  assert_contains "$(cat "$T/err")" "backup-pull.env.example" "points at the example file"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "0" "nothing written"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+}
+
+test_agent_install_verifies_with_launchctl_list() {
+  agent_env
+  FAKE_LIST_FAIL=1 agent
+  assert_eq "$?" "1" "exit status"
+  assert_contains "$(cat "$T/err")" "$T/home/Library/Logs/goweb/backup-pull.log" "message names the log path"
+}
+
+test_agent_uninstall_removes_plist_and_boots_out() {
+  agent_env
+  agent
+  agent --uninstall
+  assert_eq "$?" "0" "exit status"
+  assert_false "plist removed" test -e "$(AGENT_PLIST)"
+  assert_false "agent unloaded" test -e "$LC_STATE"
+  agent --uninstall
+  assert_eq "$?" "0" "uninstall twice is fine"
+}
+
+test_agent_passes_a_MIRROR_DIR_with_a_space_intact() {
+  agent_env
+  printf 'MIRROR_DIR="/tmp/x y"\n' >> "$ENV_FILE"
+  cat > "$T/fake-pull.sh" <<'EOS'
+#!/bin/sh
+printf '%s' "$MIRROR_DIR" > "$PULL_RECORD"
+EOS
+  chmod +x "$T/fake-pull.sh"
+  PULL_SCRIPT="$T/fake-pull.sh" agent
+  assert_eq "$?" "0" "install exit status"
+  # rebuild the plist's command line from its <string> entries and run it
+  local args=() line
+  while IFS= read -r line; do args+=("$line"); done < <(sed -n 's|^ *<string>\(.*\)</string>$|\1|p' "$(AGENT_PLIST)" | sed -n '2,7p')
+  assert_eq "${#args[@]}" "6" "six command-line entries"
+  assert_eq "${args[0]:-}" "/bin/bash" "runs through bash"
+  PULL_RECORD="$T/recorded" "${args[@]}" >/dev/null 2>&1
+  assert_eq "$(cat "$T/recorded" 2>/dev/null)" "/tmp/x y" "MIRROR_DIR reached the pull script intact"
+}
+
+test_agent_plist_is_valid() {
+  command -v plutil >/dev/null 2>&1 || { echo "    (plutil missing, skipped)"; return; }
+  agent_env
+  printf 'MIRROR_DIR="/tmp/a & <b> y"\n' >> "$ENV_FILE"
+  agent
+  assert_true "plutil -lint" plutil -lint "$(AGENT_PLIST)"
+}
+
 for t in \
   test_restore_drill_passes_on_good_backup \
   test_restore_drill_fails_on_corrupt_db \
@@ -1657,7 +1770,14 @@ for t in \
   test_deploy_check_also_refuses_a_busy_port \
   test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_env \
   test_deploy_ignores_the_listener_checks_by_default \
-  test_listener_forms_public_vs_loopback
+  test_listener_forms_public_vs_loopback \
+  test_agent_install_writes_a_plist_that_loads_the_env_file \
+  test_agent_install_is_idempotent \
+  test_agent_install_fails_without_REMOTE_or_REMOTE_DIR \
+  test_agent_install_verifies_with_launchctl_list \
+  test_agent_uninstall_removes_plist_and_boots_out \
+  test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
+  test_agent_plist_is_valid
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
