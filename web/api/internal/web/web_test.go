@@ -239,3 +239,78 @@ func TestDefaultHandlerAndAppBuilt(t *testing.T) {
 		t.Errorf("/app/ status = %d, want %d (AppBuilt=%v)", rec.Code, want, AppBuilt())
 	}
 }
+
+func TestStaticServesNestedFiles(t *testing.T) {
+	h := newHandler(builtApp, fstest.MapFS{
+		"style.css":         {Data: []byte("body{}")},
+		"fonts/inter.woff2": {Data: []byte("woff2-bytes")},
+		"fonts/deep/y.woff": {Data: []byte("deep")},
+	})
+	for target, ctype := range map[string]string{
+		"/static/style.css":         "text/css",
+		"/static/fonts/inter.woff2": "font/woff2",
+		"/static/fonts/deep/y.woff": "font/woff",
+	} {
+		rec := get(h, http.MethodGet, target)
+		if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), ctype) {
+			t.Errorf("%s: status %d, content-type %q", target, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if cl := rec.Header().Get("Content-Length"); cl != strconv.Itoa(rec.Body.Len()) || cl == "0" {
+			t.Errorf("%s: Content-Length %q, body %d", target, cl, rec.Body.Len())
+		}
+		if rec.Header().Get("ETag") == "" {
+			t.Errorf("%s: no ETag", target)
+		}
+	}
+	// A directory, a missing file and traversal are never served as a listing or a file outside static/.
+	for _, target := range []string{"/static/fonts", "/static/fonts/", "/static/fonts/missing.woff2", "/static/", "/static/fonts/../../web.go"} {
+		if rec := get(h, http.MethodGet, target); rec.Code == 200 {
+			t.Errorf("%s: got 200, want 404 or a redirect", target)
+		}
+	}
+}
+
+func TestEtagMatchesForms(t *testing.T) {
+	const tag = `"abc123"`
+	for _, tc := range []struct {
+		header string
+		want   bool
+	}{
+		{tag, true},
+		{`W/` + tag, true},
+		{`"other", ` + tag, true},
+		{`"other" ,  ` + tag + ` , "third"`, true},
+		{"*", true},
+		{`"other"`, false},
+		{`abc123`, false}, // unquoted is not a valid entity-tag
+		{"", false},
+		{`,`, false},
+	} {
+		if got := etagMatches(tc.header, tag); got != tc.want {
+			t.Errorf("etagMatches(%q) = %v, want %v", tc.header, got, tc.want)
+		}
+	}
+}
+
+func TestHeadWithMatchingIfNoneMatchIs304WithoutBody(t *testing.T) {
+	h := NewHandler(builtApp)
+	etag := get(h, http.MethodGet, "/faq").Header().Get("ETag")
+	rec := get(h, http.MethodHead, "/faq", "If-None-Match", etag)
+	if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
+		t.Errorf("status %d, body %d", rec.Code, rec.Body.Len())
+	}
+}
+
+func TestErrorPagesHaveContentLengthAndNoETag(t *testing.T) {
+	for name, rec := range map[string]*httptest.ResponseRecorder{
+		"404":                 get(NewHandler(builtApp), http.MethodGet, "/nope"),
+		"503 (app not built)": get(NewHandler(unbuiltApp), http.MethodGet, "/app/"),
+	} {
+		if cl := rec.Header().Get("Content-Length"); cl != strconv.Itoa(rec.Body.Len()) || cl == "0" {
+			t.Errorf("%s: Content-Length %q, body %d", name, cl, rec.Body.Len())
+		}
+		if et := rec.Header().Get("ETag"); et != "" {
+			t.Errorf("%s: error page must not carry ETag %q", name, et)
+		}
+	}
+}

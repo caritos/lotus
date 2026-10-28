@@ -76,18 +76,33 @@ func appFS() fs.FS {
 // build output, i.e. containing index.html and assets/). Pages and static
 // files are always the embedded ones.
 func NewHandler(app fs.FS) http.Handler {
+	static, err := fs.Sub(content, "static")
+	if err != nil {
+		panic(err) // the embed directive guarantees static/ exists
+	}
+	return newHandler(app, static)
+}
+
+// newHandler also takes the static tree (rooted at static/, subfolders such as
+// fonts/ included) so tests can inject one.
+func newHandler(app, static fs.FS) http.Handler {
 	h := &handler{app: app, pages: map[string]asset{}, static: map[string]asset{}}
 	for route, file := range pageRoutes {
 		h.pages[route] = mustLoad(file)
 	}
-	entries, err := fs.ReadDir(content, "static")
+	err := fs.WalkDir(static, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(static, name)
+		if err != nil {
+			return err
+		}
+		h.static["/static/"+name] = newAsset(name, b)
+		return nil
+	})
 	if err != nil {
 		panic(err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			h.static["/static/"+e.Name()] = mustLoad("static/" + e.Name())
-		}
 	}
 	return h
 }
@@ -115,6 +130,10 @@ func contentType(name string) string {
 		return "text/javascript; charset=utf-8"
 	case ".svg":
 		return "image/svg+xml"
+	case ".woff2": // not in Go's built-in table; system mime files differ between machines
+		return "font/woff2"
+	case ".woff":
+		return "font/woff"
 	}
 	if t := mime.TypeByExtension(path.Ext(name)); t != "" {
 		return t

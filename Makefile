@@ -31,6 +31,7 @@ test-fast:
 	cd web && pnpm test && pnpm typecheck
 
 test:
+	@cd web/api && test -z "$$(gofmt -l .)" || { echo "gofmt needed on:"; gofmt -l .; exit 1; }
 	cd web/api && go test -race ./... && go vet ./...
 	cd web && pnpm test && pnpm typecheck
 	bash scripts/gen-api.test.sh
