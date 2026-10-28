@@ -1272,7 +1272,9 @@ test_smoke_fails_when_the_name_is_only_in_a_link() {
 }
 
 test_smoke_ignores_the_name_inside_html_comments() {
-  smoke_home '"home_head":"<title>Notes <!-- '"$SMOKE_NAME"' --></title>","home_body":"<h1>Notes<!-- '"$SMOKE_NAME"'\n--></h1>"'
+  # A commented-out title and h1 (with a ">" inside the comment) come BEFORE the real ones, which
+  # do not contain the name: without comment stripping the first <title>/<h1> would be the commented one.
+  smoke_home '"home_head":"<!-- a > <title>'"$SMOKE_NAME"'</title> --><title>Notes</title>","home_body":"<!-- b > <h1>'"$SMOKE_NAME"'</h1> --><h1>Notes</h1>"'
   assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
 }
 
