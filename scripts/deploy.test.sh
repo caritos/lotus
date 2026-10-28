@@ -1555,6 +1555,12 @@ test_smoke_ignores_the_name_inside_html_comments() {
   assert_contains "$(cat "$T/err")" "whole word" "fails for the missing name, not for another reason"
 }
 
+test_smoke_treats_empty_comments_as_comments() {
+  # <!--> and <!---> are empty comments in browsers: the title that follows is real and must be seen
+  smoke_home '"home_head":"<!--><title>'"$SMOKE_NAME"'</title>","home_body":"<!---><h1>Notes</h1>"'
+  assert_true "exit zero" test "$SMOKE_RC" -eq 0
+}
+
 test_smoke_ignores_a_comment_that_contains_double_dashes() {
   # "--" inside a comment is legal in practice; the comment must still be removed as a whole
   smoke_home '"home_head":"<!-- a -- b <title>'"$SMOKE_NAME"'</title> --><title>Notes</title>","home_body":"<h1>Notes</h1>"'
@@ -2319,6 +2325,7 @@ for t in \
   test_smoke_fails_when_the_name_is_only_in_a_link \
   test_smoke_fails_when_the_name_is_absent \
   test_smoke_accepts_a_tab_after_h1 \
+  test_smoke_treats_empty_comments_as_comments \
   test_smoke_ignores_a_comment_that_contains_double_dashes \
   test_smoke_ignores_the_name_inside_html_comments \
   test_smoke_requires_arguments \

@@ -9,7 +9,7 @@ the server.
 
 Everything is under the deploy user's home (the base directory is `REMOTE_BASE`, default `app`).
 
-**Warning: the default name is generic.** A fresh checkout is called `app`, so `~/<name>`,
+**Warning: the starter's name is generic.** A fresh checkout is called `app`, so `~/<name>`,
 `<name>.service`, `<name>-backup.service`, `<name>-backup.timer` and the database `<name>.db` can
 clash with another app on a shared server while `web/api/cmd/` still holds `app` (two
 apps would share one directory, one `.env`, and so one port). The same holds on your Mac for the

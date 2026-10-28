@@ -101,6 +101,27 @@ done
 rm -rf "$d"
 [ -z "$rf_bad" ] && ok "names that already occur in rewritten contexts are refused with the tree untouched" || bad "not refused cleanly:$rf_bad"
 
+# Name-only change (module path kept) and module-path-already-in-the-tree.
+for mode in starter renamed; do
+  X="$ROOT/res-name-$mode"; cp -R "$BASE" "$X"
+  if [ "$mode" = renamed ]; then (cd "$X" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" >/dev/null 2>&1 && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m r); curm="$NEW_MODULE"; curn="$NEW"; tgt=zebra; else curm="$CUR_MODULE"; curn="$CUR"; tgt="$NEW"; fi
+  out="$(cd "$X" && bash scripts/rename.sh --check "$curm" "$tgt" 2>&1)"; rc=$?
+  [ $rc -eq 0 ] && ok "--check accepts a name-only change on the $mode" || bad "--check name-only on the $mode (rc=$rc): $out"
+  out="$(cd "$X" && bash scripts/rename.sh "$curm" "$tgt" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] && grep -qx "module $curm" "$X/web/api/go.mod" && [ -d "$X/web/api/cmd/$tgt" ]; then ok "name-only rename on the $mode keeps the module and moves cmd/"; else bad "name-only rename on the $mode (rc=$rc): $out"; fi
+  (cd "$X" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m n && bash scripts/rename.sh "$curm" "$curn" >/dev/null 2>&1; git add -A)
+  back="$(cd "$X" && git diff --cached --stat HEAD~1 2>&1)"
+  [ -z "$back" ] && ok "name-only $mode round trip is exact" || bad "name-only $mode round trip differs: $back"
+  rm -rf "$X"
+done
+# A module path that already occurs in the tree (a dependency path, or the starter's own) is refused with a module message.
+X="$ROOT/res-mod-in-tree"; cp -R "$BASE" "$X"
+for m in golang.org/x/sys "$CUR_MODULE/internal"; do
+  out="$(cd "$X" && bash scripts/rename.sh "$m" "$CUR" 2>&1)"; rc=$?
+  if [ $rc -ne 0 ] && echo "$out" | grep -q "module path" && echo "$out" | grep -q "already occurs" && [ -z "$(cd "$X" && git status --porcelain)" ]; then ok "module path '$m' that already occurs in the tree is refused (tree untouched)"; else bad "module '$m' (rc=$rc): $out"; fi
+done
+rm -rf "$X"
+
 # --check: every validation, no modification, no clean tree needed.
 d="$ROOT/res-chk"; cp -R "$BASE" "$d"
 chk() { (cd "$d" && bash scripts/rename.sh --check "$@" 2>&1); }
@@ -187,7 +208,7 @@ grep -q 'internal/web/app' "$R/.gitignore" && ok ".gitignore embed path untouche
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 
 # The "generic name" warnings must not turn false: no line that calls things generic may name the new name.
-gen="$(cd "$R" && git grep -n -i 'generic' -- README.md CLAUDE.md docs ':!docs/superpowers' | grep -E "(^|[^A-Za-z0-9_])$NEW([^A-Za-z0-9_]|$)")"
+gen="$(cd "$R" && git grep -n -i 'generic' -- README.md CLAUDE.md docs ':!docs/superpowers' | grep -E "(^|[^A-Za-z0-9_])$NEW([^A-Za-z0-9_]|$)"; grep -n -i 'default name is generic' "$R/docs/deploy.md")"
 [ -z "$gen" ] && ok "no renamed doc still calls its own name generic" || bad "a doc calls the new name generic: $gen"
 
 # Renaming back must restore the starter byte for byte: the contexts are symmetric and nothing

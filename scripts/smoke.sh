@@ -65,8 +65,8 @@ snippet() { head -c 200 "$TMP/body" | tr '\n' ' '; }
 # a link or in body text does not count. Sets PAGE_TITLE and PAGE_H1 for the failure message.
 # (Explicit character classes: \b is not portable in grep -E.)
 # Removes every <!-- ... --> (shortest match, so "--" inside a comment is fine; an unterminated
-# comment drops the rest, as browsers do) from the one-line input.
-STRIP_COMMENTS='{ s = $0; out = ""; while ((i = index(s, "<!--")) > 0) { out = out substr(s, 1, i - 1); s = substr(s, i + 4); j = index(s, "-->"); if (j == 0) { s = ""; break } s = substr(s, j + 3) } print out s }'
+# comment drops the rest, as browsers do; <!--> and <!---> are empty comments) from the one-line input.
+STRIP_COMMENTS='{ s = $0; out = ""; while ((i = index(s, "<!--")) > 0) { out = out substr(s, 1, i - 1); s = substr(s, i + 4); if (substr(s, 1, 1) == ">") { s = substr(s, 2); continue } if (substr(s, 1, 2) == "->") { s = substr(s, 3); continue } j = index(s, "-->"); if (j == 0) { s = ""; break } s = substr(s, j + 3) } print out s }'
 # Known limits (documented, not fixed): an inline SVG <title> that comes before the page <title> is
 # taken as the title, and a name split by markup (for example app<b></b>) is not a whole word.
 heading_text() { # <html file> <tag, as a bracket-class pattern>: text of the first such tag, tags stripped

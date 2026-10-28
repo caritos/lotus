@@ -168,18 +168,33 @@ PERL
 # occur in the tree in a context the rules rewrite: the reverse rename (<name> -> anything) would
 # then rewrite that pre-existing occurrence too. So treat the NEW name as the current one and run
 # the rules over the current tree with a probe replacement; if any file would change, refuse.
-# RESERVED above is only a fast pre-filter for this. (Skipped when only the module path changes.)
-if [ "$NAME" != "$OLD" ]; then
+# RESERVED above is only a fast pre-filter for this. The module path and the name are probed separately,
+# and only the part that actually changes (an unchanged part would match the whole tree).
+# probe_pass <module-as-current> <name-as-current> <upper>: print the first tracked file the rules would
+# change when those are treated as the current names (replacement: a probe). Unchanged parts of the
+# rename are probed with sentinels that occur nowhere, so only the part that really changes is tested.
+probe_pass() {
+  local f
   while IFS= read -r -d '' f; do
     excluded "$f" && continue
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     grep -Iq . "$f" 2>/dev/null || continue
-    if ! OLD_MODULE="$MODULE" NEW_MODULE="rename-probe.invalid/probe" OLD_NAME="$NAME" NEW_NAME="zzprobe" \
-         OLD_UPPER="$NAME_UPPER" NEW_UPPER="ZZPROBE" TOK="$TOKEN" FILE="$f" \
+    if ! OLD_MODULE="$1" NEW_MODULE="rename-probe.invalid/probe" OLD_NAME="$2" NEW_NAME="zzprobe" \
+         OLD_UPPER="$3" NEW_UPPER="ZZPROBE" TOK="$TOKEN" FILE="$f" \
          perl -p -e "$RULES" "$f" | cmp -s - "$f"; then
-      die "the name '$NAME' already occurs in the repository in a context this script rewrites (first in $f), so renaming to it could not be undone exactly. Pick another name."
+      echo "$f"; return 0
     fi
   done < <(git ls-files -z)
+  return 0
+}
+SENT_MODULE="rename-probe.invalid/unchanged"; SENT_NAME="zzunchanged"
+if [ "$MODULE" != "$OLD_MODULE" ]; then
+  hit="$(probe_pass "$MODULE" "$SENT_NAME" ZZUNCHANGED)"
+  [ -z "$hit" ] || die "the module path '$MODULE' already occurs in the repository (first in $hit), so renaming to it could not be undone exactly. Pick another module path."
+fi
+if [ "$NAME" != "$OLD" ]; then
+  hit="$(probe_pass "$SENT_MODULE" "$NAME" "$NAME_UPPER")"
+  [ -z "$hit" ] || die "the name '$NAME' already occurs in the repository in a context this script rewrites (first in $hit), so renaming to it could not be undone exactly. Pick another name."
 fi
 
 if [ "$CHECK" -eq 1 ]; then
