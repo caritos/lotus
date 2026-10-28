@@ -90,6 +90,9 @@ if command -v pnpm >/dev/null 2>&1; then
   if (cd "$R" && bash scripts/gen-api.test.sh) >"$ROOT/gen.log" 2>&1; then ok "gen-api.test.sh passes in the copy (generated files consistent)"; else bad "gen-api.test.sh in the copy: $(tail -20 "$ROOT/gen.log")"; fi
 else skip "pnpm not on PATH: gen-api.test.sh not run in the copy"; fi
 
+# The layout guard must pass in a renamed app too (renaming changes the sort order of deploy/).
+if (cd "$R" && bash scripts/layout.test.sh) >"$ROOT/layout.log" 2>&1; then ok "layout.test.sh passes in the renamed copy"; else bad "layout.test.sh in the copy: $(grep FAIL "$ROOT/layout.log" | head -5)"; fi
+
 if [ "${RENAME_TEST_FULL:-}" = 1 ]; then
   if (cd "$R" && bash scripts/deploy.test.sh) >"$ROOT/deploy.log" 2>&1; then ok "scripts/deploy.test.sh passes in the copy"; else bad "scripts/deploy.test.sh in the copy: $(tail -20 "$ROOT/deploy.log")"; fi
 fi

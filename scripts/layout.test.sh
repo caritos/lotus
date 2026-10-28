@@ -17,8 +17,9 @@ sh_in_deploy="$(ls deploy/*.sh 2>/dev/null)"
 [ -z "$sh_in_deploy" ] && ok "deploy/ contains no *.sh" || bad "deploy/ still has scripts: $sh_in_deploy"
 
 # deploy/ holds exactly the files installed or copied to a server.
-want="goweb-backup.service goweb-backup.timer goweb.service nginx.conf.example"
-have="$(cd deploy 2>/dev/null && ls | tr '\n' ' ' | sed 's/ $//')"
+# Compared as sorted sets: renaming the app (goweb -> <name>) changes the `ls` order.
+want="$(printf '%s\n' goweb-backup.service goweb-backup.timer goweb.service nginx.conf.example | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+have="$(cd deploy 2>/dev/null && ls | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "deploy/ holds only server files" || bad "deploy/ is '$have', want '$want'"
 
 # The repo-level scripts live in scripts/.
@@ -108,6 +109,11 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_pass "a file named like node_modules_notes" docs/node_modules_notes.md 'x'
   make_copy && mkdir -p "$WORK/c/web/node_modules" && echo x > "$WORK/c/web/node_modules/x" && git -C "$WORK/c" add -f web/node_modules/x
   inner && bad "guard did not flag a tracked node_modules file" || ok "guard flags a tracked node_modules file"
+  # deploy/ must hold exactly the expected files: an extra and a missing one both fail
+  make_copy && echo x > "$WORK/c/deploy/extra.txt" && git -C "$WORK/c" add -A
+  inner && bad "guard did not flag an extra file in deploy/" || ok "guard flags an extra file in deploy/"
+  make_copy && rm "$WORK/c/deploy/nginx.conf.example" && git -C "$WORK/c" add -A
+  inner && bad "guard did not flag a missing file in deploy/" || ok "guard flags a missing file in deploy/"
   # an old path inside a dated Done entry of CLAUDE.md is history and allowed
   make_copy && awk '{print} /^### Done/ && !d {print "- old entry mentions web/e2e/ and deploy/deploy.sh"; d=1}' CLAUDE.md > "$WORK/claude.new" && cp "$WORK/claude.new" "$WORK/c/CLAUDE.md" && git -C "$WORK/c" add -A
   inner && ok "guard allows old paths inside the Done section of CLAUDE.md" || bad "guard flags the Done section of CLAUDE.md"
