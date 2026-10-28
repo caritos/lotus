@@ -132,7 +132,7 @@ PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 
 `--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
 service unit exist, that the server has `curl` or `wget` and a sha256 tool, that the daily backup
-timer `goweb-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`; if ssh or the user bus fails the answer is "could not determine", handled the same way, never reported as "not enabled"), and that the server
+timer `goweb-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`; "not enabled" covers a timer that is disabled, masked or never installed: `is-enabled` exits 1, or 4 on newer systemd, with a state word such as `disabled` or `not-found`. If ssh fails (exit 255), the user bus is unreachable, or the answer is empty or unrecognized, the result is "could not determine", handled the same way and never reported as "not enabled"), and that the server
 `.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,

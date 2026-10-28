@@ -194,16 +194,25 @@ preflight() {
   esac
 
   step "preflight: backup timer"
-  # Three outcomes: enabled (exit 0); not enabled (exit 1 with a normal answer such as
-  # "disabled"); could not determine (ssh exit 255, a user-bus error, any other exit).
-  local tout trc
+  # Three outcomes. Enabled: exit 0 (enabled, enabled-runtime). Not enabled: exit 1 or 4 with a
+  # recognizable systemd state word as the answer (disabled, masked, static, not-found for a unit
+  # that was never installed, ...; older systemd exits 1 for a missing unit, newer 4). Could not
+  # determine: ssh exit 255, a user-bus error, empty or unrecognized output, any other exit.
+  local tout trc tlast
   tout="$(rsh "systemctl --user is-enabled '$SERVICE-backup.timer'" 2>&1)" && trc=0 || trc=$?
-  case "$tout" in *"Failed to connect"*|*"bus"*) [ "$trc" -eq 0 ] || trc=255 ;; esac
+  tlast="$(printf '%s\n' "$tout" | sed '/^[[:space:]]*$/d' | tail -n 1 | tr -d '[:space:]')"
+  if [ "$trc" -ne 0 ]; then
+    case "$trc:$tlast" in
+      1:disabled|1:masked|1:masked-runtime|1:static|1:linked|1:linked-runtime|1:generated|1:transient|1:indirect|1:alias|1:bad|1:not-found|\
+      4:disabled|4:masked|4:masked-runtime|4:static|4:linked|4:linked-runtime|4:generated|4:transient|4:indirect|4:alias|4:bad|4:not-found) trc=1 ;;
+      *) trc=255 ;;
+    esac
+  fi
   if [ "$trc" -eq 1 ]; then
     if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
-      die "the daily backup timer '$SERVICE-backup.timer' is not enabled on the server (REQUIRE_BACKUP_TIMER=1). Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
+      die "the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server (REQUIRE_BACKUP_TIMER=1). Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
     fi
-    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled on the server, so no daily backups run. Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
+    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled (or not installed) on the server, so no daily backups run. Install the units from deploy/ if needed, then enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
   elif [ "$trc" -ne 0 ]; then
     if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
       die "could not determine whether the backup timer is enabled (ssh or user bus failed) (REQUIRE_BACKUP_TIMER=1). Check the connection and 'systemctl --user status' on the server, then deploy again. Nothing was changed."
@@ -536,7 +545,7 @@ if [ "$EXPECT_PUBLIC_LISTENER" -eq 1 ]; then
   sout="$(rsh "ss -H -ltn" 2>&1)" && src=0 || src=$?
   if [ "$src" -ne 0 ]; then
     if [ "$src" -eq 255 ]; then
-      echo "deploy: $VERSION is healthy on loopback, but could not run ss on the server to check the public listener (ssh failed, exit 255). Check the connection and run: ss -ltn | grep :$HEALTH_PORT   The release was not rolled back." >&2
+      echo "deploy: $VERSION is healthy on loopback, but could not run ss on the server to check the public listener (exit 255: the ssh connection failed, or an old ss without -H rejected the option). Check the connection and run: ss -ltn | grep :$HEALTH_PORT   The release was not rolled back." >&2
     else
       echo "deploy: $VERSION is healthy on loopback, but ss is not available on the server, so the public listener on port $HEALTH_PORT could not be checked (ss exit $src). Install ss (iproute2) or check by hand; the proxy needs a listener on 0.0.0.0:$HEALTH_PORT. The release was not rolled back." >&2
     fi

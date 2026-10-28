@@ -613,7 +613,8 @@ if [ "$2" = is-active ]; then
 fi
 if [ "$2" = is-enabled ]; then
   if [ -n "${FAKE_TIMER_BUS_ERROR:-}" ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
-  echo "${FAKE_TIMER_ENABLED:-enabled}"; [ "${FAKE_TIMER_ENABLED:-enabled}" = enabled ]; exit
+  echo "${FAKE_TIMER_ENABLED:-enabled}"
+  case "${FAKE_TIMER_ENABLED:-enabled}" in enabled) exit 0 ;; not-found) exit 4 ;; *) exit 1 ;; esac
 fi
 EOS
   cat > "$T/rbin/ss" <<'EOS'
@@ -1117,6 +1118,22 @@ test_deploy_warns_when_the_backup_timer_state_cannot_be_determined() {
   assert_eq "$(active_release)" "releases/v2" "deployed"
 }
 
+test_deploy_treats_every_normal_systemd_answer_as_not_enabled() {
+  local ans
+  for ans in "not-found" "disabled"; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$ans deploy deploy@host.example.com
+    assert_false "refused for $ans" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "is not enabled" "message for $ans"
+    assert_contains "$(cat "$T/err")" "enable --now goweb-backup.timer" "install hint for $ans"
+    assert_false "not 'could not determine' for $ans" grep -q "could not determine" "$T/err"
+    setup_deploy; make_release v1 0001_init.sql active
+    FAKE_TIMER_ENABLED=$ans deploy deploy@host.example.com
+    assert_eq "$?" "0" "warns only, for $ans"
+    assert_contains "$(cat "$T/err")" "is not enabled" "warning for $ans"
+  done
+}
+
 test_deploy_says_not_enabled_only_for_a_real_disabled_answer() {
   setup_deploy; make_release v1 0001_init.sql active
   REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com
@@ -1161,7 +1178,7 @@ test_deploy_reports_an_ssh_failure_in_the_post_start_listener_check() {
   setup_deploy; make_release v1 0001_init.sql active
   EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SSH_FAIL_END="ss -H -ltn" deploy deploy@host.example.com
   assert_false "exit status must be nonzero" test "$?" -eq 0
-  assert_contains "$(cat "$T/err")" "could not run ss on the server to check the public listener (ssh failed" "message"
+  assert_contains "$(cat "$T/err")" "could not run ss on the server to check the public listener (exit 255: the ssh connection failed" "message"
   assert_false "does not claim the port is closed" grep -q "nothing listens" "$T/err"
 }
 
@@ -2248,6 +2265,7 @@ for t in \
   test_deploy_refuses_when_the_backup_timer_state_cannot_be_determined_and_REQUIRE_BACKUP_TIMER \
   test_deploy_warns_when_the_backup_timer_state_cannot_be_determined \
   test_deploy_says_not_enabled_only_for_a_real_disabled_answer \
+  test_deploy_treats_every_normal_systemd_answer_as_not_enabled \
   test_deploy_gate_runs_in_web_api_without_the_callers_GOOS_and_GOARCH \
   test_deploy_honors_SERVICE_in_the_port_owner_check \
   test_deploy_says_ss_is_unavailable_after_start_when_ss_is_missing \
