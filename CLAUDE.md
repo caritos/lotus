@@ -25,9 +25,14 @@ web/                Vite + React + TypeScript app (src/), Playwright (test/e2e/)
 deploy/             files installed on a server only: systemd units, nginx example
 scripts/            every repo-level script and its *.test.sh: deploy, smoke, restore, pull-backups, gen-api, rename, build-id, layout
 docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ holds design history)
+dist/              compiled binary from `make build` (ignored); the frontend build is NOT here, see below
 ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 ```
+
+`dist/` holds only the compiled Go binary. Vite's output (`pnpm build`) goes to
+`web/api/internal/web/app/` (ignored) instead of the usual `dist/`, because `go:embed` can only embed
+files inside the Go module.
 
 Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 
@@ -45,7 +50,7 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 | `make test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
 | `make e2e-install` then `make e2e` | Playwright against the built binary (not part of the other tiers) |
 | `make api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
-| `make build` | `pnpm build` (fills the embed directory) then `go build` into `./goweb` |
+| `make build` | `pnpm build` (fills the embed directory) then `go build` into `./dist/goweb` |
 | `make dev` | Go API on 127.0.0.1:8080 (data under `web/`) plus Vite on :5173; open http://localhost:5173/app/ |
 
 If the full suite is slow, run it in the background and wait for the result.
