@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Rename the starter: scripts/rename.sh [--force] [--regen] <module-path> <name>
+# Rename the starter: scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>
+#
+# --check runs every validation (name pattern, reserved words, the run-time reversibility check, module
+# path) without modifying anything and without requiring a clean tree: exit 0 when the rename would be
+# accepted, else the same error and a nonzero exit. Call it before staging a rename; do not copy the lists.
 #
 #   <module-path>  Go module path, e.g. github.com/acme/shop
 #   <name>         lowercase letters and digits, e.g. shop: binary, cookie, unit and database names
@@ -35,13 +39,14 @@
 set -euo pipefail
 
 die() { echo "rename: $*" >&2; exit 1; }
-usage() { echo "usage: scripts/rename.sh [--force] [--regen] <module-path> <name>" >&2; exit 2; }
+usage() { echo "usage: scripts/rename.sh [--check] [--force] [--regen] <module-path> <name>" >&2; exit 2; }
 
-FORCE=0; REGEN=0; ARGS=()
+FORCE=0; REGEN=0; CHECK=0; ARGS=()
 for a in "$@"; do
   case "$a" in
     --force) FORCE=1 ;;
     --regen) REGEN=1 ;;
+    --check) CHECK=1 ;;
     --*) usage ;;
     *) ARGS+=("$a") ;;
   esac
@@ -88,7 +93,7 @@ if [ "$MODULE" = "$OLD_MODULE" ] && [ "$NAME" = "$OLD" ]; then
   exit 0
 fi
 
-if [ "$FORCE" -ne 1 ] && [ -n "$(git status --porcelain)" ]; then
+if [ "$FORCE" -ne 1 ] && [ "$CHECK" -ne 1 ] && [ -n "$(git status --porcelain)" ]; then
   die "uncommitted changes found: commit or stash them first (or pass --force)"
 fi
 
@@ -157,6 +162,29 @@ if ($f =~ m{\.html$} && m{<title>|<h1|class="brand"|<h2>What is }) {
 s{\Q$t\E}{$ENV{NEW_MODULE}}g;
 PERL
 
+# Run-time round-trip check. Renaming to <name> is only reversible when <name> does not already
+# occur in the tree in a context the rules rewrite: the reverse rename (<name> -> anything) would
+# then rewrite that pre-existing occurrence too. So treat the NEW name as the current one and run
+# the rules over the current tree with a probe replacement; if any file would change, refuse.
+# RESERVED above is only a fast pre-filter for this. (Skipped when only the module path changes.)
+if [ "$NAME" != "$OLD" ]; then
+  while IFS= read -r -d '' f; do
+    excluded "$f" && continue
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    grep -Iq . "$f" 2>/dev/null || continue
+    if ! OLD_MODULE="$MODULE" NEW_MODULE="rename-probe.invalid/probe" OLD_NAME="$NAME" NEW_NAME="zzprobe" \
+         OLD_UPPER="$NAME_UPPER" NEW_UPPER="ZZPROBE" TOK="$TOKEN" FILE="$f" \
+         perl -p -e "$RULES" "$f" | cmp -s - "$f"; then
+      die "the name '$NAME' already occurs in the repository in a context this script rewrites (first in $f), so renaming to it could not be undone exactly. Pick another name."
+    fi
+  done < <(git ls-files -z)
+fi
+
+if [ "$CHECK" -eq 1 ]; then
+  echo "rename: --check: module '$MODULE' and name '$NAME' would be accepted; nothing was changed."
+  exit 0
+fi
+
 CHANGED=0
 while IFS= read -r -d '' f; do
   excluded "$f" && continue
@@ -178,6 +206,7 @@ while IFS= read -r -d '' f; do
     "deploy/$OLD.service"|"deploy/$OLD-backup.service"|"deploy/$OLD-backup.timer") new="deploy/$NAME${f#deploy/$OLD}" ;;
     *) continue ;;
   esac
+  [ "$new" = "$f" ] && continue   # only the module path changed: nothing to move
   mkdir -p "$(dirname "$new")"
   git mv "$f" "$new"
   rmdir "$(dirname "$f")" 2>/dev/null || true   # drop the emptied old directory

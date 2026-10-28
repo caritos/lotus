@@ -89,6 +89,36 @@ for dn in $(cd "$REPO" && git ls-files | grep -v '^docs/superpowers/' | sed 's#/
 done
 [ -z "$missing" ] && ok "every tracked directory name is in the RESERVED list" || bad "directory names missing from RESERVED:$missing"
 
+# Names that pass the reserved-word pre-filter but already occur in the tree in a context the rules
+# rewrite ("verify-backup", "web/api/openapi.yaml", "s.db.QueryRow", ...) are refused at run time:
+# renaming to them could not be undone exactly. The tree must stay untouched.
+d="$ROOT/res-run"; cp -R "$BASE" "$d"
+rf_bad=""
+for w in verify openapi live daily homebrew wireless logger time http s a e; do
+  out="$(cd "$d" && bash scripts/rename.sh "example.com/acme/$w" "$w" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] || ! echo "$out" | grep -qF "'$w'" || ! echo "$out" | grep -q "already occurs" || [ -n "$(cd "$d" && git status --porcelain)" ]; then rf_bad="$rf_bad $w($rc)"; fi
+done
+rm -rf "$d"
+[ -z "$rf_bad" ] && ok "names that already occur in rewritten contexts are refused with the tree untouched" || bad "not refused cleanly:$rf_bad"
+
+# --check: every validation, no modification, no clean tree needed.
+d="$ROOT/res-chk"; cp -R "$BASE" "$d"
+chk() { (cd "$d" && bash scripts/rename.sh --check "$@" 2>&1); }
+out="$(chk "$NEW_MODULE" "$NEW")"; rc=$?
+[ $rc -eq 0 ] && [ -z "$(cd "$d" && git status --porcelain)" ] && ok "--check accepts a good name and changes nothing" || bad "--check good name (rc=$rc out=$out)"
+out="$(chk "example.com/acme/web" web)"; rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "reserved" && ok "--check rejects a reserved name" || bad "--check reserved (rc=$rc out=$out)"
+out="$(chk "example.com/acme/verify" verify)"; rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "already occurs" && ok "--check rejects a name that fails the run-time check" || bad "--check verify (rc=$rc out=$out)"
+out="$(chk "Bad Module" "$NEW")"; rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "module path" && ok "--check rejects a bad module path" || bad "--check bad module (rc=$rc out=$out)"
+out="$(chk "$NEW_MODULE" Shop)"; rc=$?
+[ $rc -ne 0 ] && ok "--check rejects a bad name pattern" || bad "--check bad pattern (rc=$rc)"
+echo x >> "$d/README-dirty.txt"; echo y >> "$d/README.md"; before="$(cd "$d" && git status --porcelain; cksum < README.md)"
+out="$(chk "$NEW_MODULE" "$NEW")"; rc=$?
+[ $rc -eq 0 ] && [ "$(cd "$d" && git status --porcelain; cksum < README.md)" = "$before" ] && ok "--check works on a dirty tree and leaves it as it was" || bad "--check on a dirty tree (rc=$rc out=$out)"
+rm -rf "$d"
+
 # dirty tree
 D="$ROOT/dirty"; cp -R "$BASE" "$D"; echo x >> "$D/README-dirty.txt"
 out="$(cd "$D" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
@@ -111,6 +141,15 @@ name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
   (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
 }
+
+# Module-path-only change (same name): used to die in git mv onto itself after rewriting files.
+for mode in starter renamed; do
+  X="$ROOT/res-mod-$mode"; cp -R "$BASE" "$X"
+  if [ "$mode" = renamed ]; then (cd "$X" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" >/dev/null 2>&1 && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m r); cur="$NEW"; else cur="$CUR"; fi
+  out="$(cd "$X" && bash scripts/rename.sh "github.com/other/$cur" "$cur" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] && grep -qx "module github.com/other/$cur" "$X/web/api/go.mod" && [ -d "$X/web/api/cmd/$cur" ] && (cd "$X/web/api" && go build ./... >/dev/null 2>&1); then ok "module-path-only rename on the $mode (name $cur) works and builds"; else bad "module-path-only rename on the $mode (rc=$rc): $out"; fi
+  rm -rf "$X"
+done
 
 # The real rename. The shipped name "app" is also a package, a directory, a URL prefix and an
 # environment variable prefix, so only the project-name contexts may change.

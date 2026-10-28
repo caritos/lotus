@@ -107,7 +107,7 @@ rollout is the one browsers see.
 ## Rename it
 
 ```sh
-scripts/rename.sh github.com/you/myapp myapp
+scripts/rename.sh github.com/you/<name> <name>
 ```
 
 This rewrites the Go module path, the binary (`dist/<name>`), cookie, unit and database names, the
