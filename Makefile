@@ -11,7 +11,7 @@ help:
 	@echo "make build        build the frontend, then the single binary ./goweb"
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
-	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id"
+	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id, layout"
 	@echo "make e2e-install  download Chromium for Playwright (once)"
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"

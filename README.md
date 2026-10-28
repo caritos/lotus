@@ -15,7 +15,7 @@ feature is notes with an optional photo, behind email + password sign-in.
 - Daily SQLite-aware backups, off-site pull script, restore script with a drill mode
 - A build id (`YYYYMMDD-<short commit>`, UTC date) in the footer of every page and in `/healthz`,
   made by `scripts/build-id.sh`; it tells you which build is live (`-dirty` marks a modified tree)
-- `deploy/`: hardened systemd user units, `deploy.sh`, `smoke.sh`, NGINX example
+- `deploy/`: hardened systemd user units and the NGINX example; `scripts/deploy.sh` and `scripts/smoke.sh` deploy and check them
 - Tests: Go unit and integration, Vitest, Playwright, shell tests, an import-direction guard, CI
 - `CLAUDE.md`, `AGENTS.md` and `.claude/` for AI assistants
 
