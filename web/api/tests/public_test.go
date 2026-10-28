@@ -12,6 +12,7 @@ import (
 	"goweb/internal/apptest"
 )
 
+// covers: getHealth
 func TestHealthzReportsVersion(t *testing.T) {
 	integration(t)
 	a := apptest.NewServer(t)

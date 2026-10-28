@@ -7,6 +7,7 @@ import (
 	"goweb/internal/apptest"
 )
 
+// covers: login, logout, getMe
 func TestAuthFlow(t *testing.T) {
 	integration(t)
 	a := apptest.NewServer(t)

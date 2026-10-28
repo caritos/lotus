@@ -70,6 +70,9 @@ If the full suite is slow, run it in the background and wait for the result.
   runtime, and have tests use the embedded `fs.FS`. Never embed anything written at runtime (the database,
   logs and uploads live under `DATA_DIR`), secrets or large media. Every 200 from `internal/web` carries an
   `ETag` and a matching `If-None-Match` is a bodiless 304, because embedded files have no mod time.
+- A new endpoint needs three things, enforced by `web/api/tests/guardrails_test.go` (details in
+  `docs/testing.md`): a literal `"METHOD /path"` route pattern, an `operationId` in `openapi.yaml`, and an
+  integration test marked `// covers: <operationId>` (copy `notes_flow_test.go`).
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
   run `make api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
@@ -141,6 +144,10 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   cases, HEAD with `If-None-Match`, and Content-Length without ETag on 404 and 503; `make test` fails on
   files that are not gofmt-clean; the embed rule above. The same rule and fixes went into the
   `new-backend-server` and `new-web-app` skills.
+- Endpoint guard rails (2026-10-27): the spec and the registered routes must match, and every
+  `operationId` must be claimed by a `// covers:` comment on an integration test. Adding them found two
+  untested operations (`getNote` and `updateNote` had no successful-path integration test); added
+  `TestNoteGetAndUpdate`.
 
 ### Not yet verified
 
