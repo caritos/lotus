@@ -70,6 +70,9 @@ Write the failing test first, watch it fail for the right reason, then implement
   refused with 403 and still carries the security headers and is request-logged with the forwarded
   client IP; an oversized body gets a JSON 413 with the headers; `X-Forwarded-For` counts only from the
   trusted peer. `TestAppNeverSendsHSTS`: the proxy owns HSTS.
+- `internal/server` `TestWrapPanicOrder`, `TestRecover`, `TestRequestID` and `tests/recover_test.go`: a handler
+  panic is a JSON 500 with `X-Request-Id`, security headers and a request log line (status 500, `request_id`);
+  the order is TrustedProxy, RequestID, RequestLog, Recover, SecurityHeaders, SameOrigin, BodyLimit.
 - `tests/proxy_throttle_test.go`: with `TRUSTED_PROXY` set, sign-in failures are throttled per forwarded
   client address; without it the header is ignored.
 - `tests/contract_errors_test.go`: every mutating operation's cross-origin 403 and the global 413 are

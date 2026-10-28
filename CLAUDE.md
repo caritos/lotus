@@ -83,6 +83,12 @@ If the full suite is slow, run it in the background and wait for the result.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
   `go vet` clean, API responses are typed structs with explicit `json` tags.
 - Web: TypeScript `strict`, no `any`, pnpm only (never npm, yarn, Jest or Bun).
+- Middleware chain in `server.New` (outermost first): TrustedProxy, RequestID, RequestLog, Recover,
+  SecurityHeaders, SameOrigin, BodyLimit. Every response carries `X-Request-Id` (an inbound one matching
+  `^[A-Za-z0-9._-]{1,64}$` is reused, else 16 hex characters); the request log line and the panic log have
+  `request_id`. A handler panic is a 500 `{"error":"internal error"}` (no panic value to the client; value and
+  stack logged at Error), only logged when the response had already started, and `http.ErrAbortHandler` is
+  re-panicked. Tests pin the order (`TestNewAppliesChain`, `TestWrapPanicOrder`).
 - HTTPS and HSTS belong to the reverse proxy: the app never sends `Strict-Transport-Security`
   (see `docs/https.md` for the staged max-age rollout). Do not add it back in the middleware.
 - Public pages (`/`, `/faq`, `/privacy`, `/terms`, `/support`) are plain static HTML; keep them
@@ -131,6 +137,9 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Panic recovery and request id: `RequestID` and `Recover` middleware (order above); a panicking request
+  is now a JSON 500, request-logged with its id, and the server keeps serving. `server.Wrap` exposes the chain
+  so tests can put a panicking handler inside it.
 - Migration checksums: `schema_migrations.checksum` (sha256 of the file); an edited applied migration stops
   `Migrate` with "add a new migration instead". Databases from before this change get the column added and
   backfilled from the files embedded in the binary at first run, so their earlier history cannot be verified.
@@ -204,7 +213,6 @@ iOS (`ios/` is only a placeholder)
 Server and HTTP
 - Login decoder accepts unknown fields and trailing data; require `Content-Type: application/json`.
 - Zoned IPv6 and ported entries in `X-Forwarded-For` are not stripped; short mapped trusted-proxy prefixes widen to everything.
-- Panicked requests are not request-logged.
 - `server.New` silently trusts no proxy on a bad config; its parameters for deps are partly unused.
 - `app.New` migrates under `context.Background()` instead of the signal context.
 - "listening" is logged before the bind is confirmed; log files created earlier keep their old modes.

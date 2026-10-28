@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -293,7 +294,7 @@ func TestRequestLogPreservesFlusher(t *testing.T) {
 }
 
 // TestNewAppliesChain pins the composition order in New (outermost first):
-// TrustedProxy, RequestLog, SecurityHeaders, SameOrigin, BodyLimit.
+// TrustedProxy, RequestID, RequestLog, Recover, SecurityHeaders, SameOrigin, BodyLimit.
 func TestNewAppliesChain(t *testing.T) {
 	var buf bytes.Buffer
 	cfg := config.Config{PublicOrigin: "https://app.example", TrustedProxy: "127.0.0.1/32"}
@@ -371,5 +372,156 @@ func TestNewAppliesChain(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), r)
 	if !strings.Contains(buf.String(), `"ip":"198.51.100.1"`) {
 		t.Errorf("untrusted peer: want the peer address logged: %s", buf.String())
+	}
+}
+
+var requestIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+func TestRequestID(t *testing.T) {
+	var seen string
+	h := RequestID()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = RequestIDFromContext(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	tests := []struct {
+		name    string
+		inbound string
+		reused  bool
+	}{
+		{"valid is reused", "abc.DEF_123-x", true},
+		{"max length is reused", strings.Repeat("a", 64), true},
+		{"too long is replaced", strings.Repeat("a", 65), false},
+		{"bad characters are replaced", "evil id\"<script>", false},
+		{"newline is replaced", "a\nb", false},
+		{"empty is replaced", "", false},
+		{"absent is generated", "-", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hdr := map[string]string{"X-Request-Id": tc.inbound}
+			if tc.inbound == "-" {
+				hdr = nil
+			}
+			rec := do(h, "GET", "/", hdr)
+			got := rec.Header().Get("X-Request-Id")
+			if tc.reused {
+				if got != tc.inbound {
+					t.Errorf("response id = %q, want %q", got, tc.inbound)
+				}
+			} else if !requestIDPattern.MatchString(got) {
+				t.Errorf("response id = %q, want 16 hex characters", got)
+			}
+			if seen != got {
+				t.Errorf("context id = %q, response id = %q", seen, got)
+			}
+		})
+	}
+	a := do(h, "GET", "/", nil).Header().Get("X-Request-Id")
+	b := do(h, "GET", "/", nil).Header().Get("X-Request-Id")
+	if a == b {
+		t.Errorf("two requests share id %q", a)
+	}
+}
+
+func TestRequestLogIncludesRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	h := RequestID()(RequestLog(slog.New(slog.NewJSONHandler(&buf, nil)))(ok))
+	do(h, "GET", "/", map[string]string{"X-Request-Id": "trace-1"})
+	if !strings.Contains(buf.String(), `"request_id":"trace-1"`) {
+		t.Errorf("log lacks request_id: %s", buf.String())
+	}
+}
+
+func TestRecover(t *testing.T) {
+	const secret = "SECRETPANICVALUE"
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	chain := func(next http.HandlerFunc) http.Handler {
+		return RequestID()(RequestLog(logger)(Recover(logger)(next)))
+	}
+
+	t.Run("panic becomes a JSON 500 and is logged", func(t *testing.T) {
+		buf.Reset()
+		rec := do(chain(func(http.ResponseWriter, *http.Request) { panic(secret) }), "GET", "/boom", map[string]string{"X-Request-Id": "rid-9"})
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("Content-Type = %q", ct)
+		}
+		if got := strings.TrimSpace(rec.Body.String()); got != `{"error":"internal error"}` {
+			t.Errorf("body = %q", got)
+		}
+		if rec.Header().Get("X-Request-Id") != "rid-9" {
+			t.Errorf("X-Request-Id = %q", rec.Header().Get("X-Request-Id"))
+		}
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Errorf("panic value leaked to client: %s", rec.Body.String())
+		}
+		out := buf.String()
+		for _, want := range []string{`"msg":"request"`, `"status":500`, `"path":"/boom"`, `"msg":"panic"`, `"level":"ERROR"`, secret, `"stack"`} {
+			if !strings.Contains(out, want) {
+				t.Errorf("log lacks %s: %s", want, out)
+			}
+		}
+		if strings.Count(out, `"request_id":"rid-9"`) != 2 {
+			t.Errorf("want request_id on both the panic and the request line: %s", out)
+		}
+	})
+
+	t.Run("no second WriteHeader after a partial response", func(t *testing.T) {
+		buf.Reset()
+		rec := do(chain(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, "partial")
+			panic(secret)
+		}), "GET", "/", nil)
+		if rec.Code != http.StatusAccepted || rec.Body.String() != "partial" {
+			t.Errorf("response changed after headers were written: %d %q", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(buf.String(), `"msg":"panic"`) || !strings.Contains(buf.String(), `"status":202`) {
+			t.Errorf("want the panic logged and the request logged with 202: %s", buf.String())
+		}
+	})
+
+	t.Run("ErrAbortHandler is re-panicked", func(t *testing.T) {
+		buf.Reset()
+		defer func() {
+			if v := recover(); v != http.ErrAbortHandler {
+				t.Errorf("recovered %v, want http.ErrAbortHandler", v)
+			}
+			if strings.Contains(buf.String(), `"msg":"panic"`) {
+				t.Errorf("abort logged as a panic: %s", buf.String())
+			}
+		}()
+		do(Recover(logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })), "GET", "/", nil)
+	})
+}
+
+// TestWrapPanicOrder pins where RequestID and Recover sit: a panicking handler
+// still gets the security headers, the request id, and a request log line with
+// status 500, the id and the forwarded client IP.
+func TestWrapPanicOrder(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := config.Config{PublicOrigin: "https://app.example", TrustedProxy: "127.0.0.1/32"}
+	h := Wrap(cfg, slog.New(slog.NewJSONHandler(&buf, nil)), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	}))
+	r := httptest.NewRequest("GET", "/boom", nil)
+	r.RemoteAddr = "127.0.0.1:40000"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusInternalServerError || rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("status = %d, headers = %v", rec.Code, rec.Header())
+	}
+	id := rec.Header().Get("X-Request-Id")
+	if !requestIDPattern.MatchString(id) {
+		t.Fatalf("X-Request-Id = %q", id)
+	}
+	for _, want := range []string{`"msg":"request"`, `"status":500`, `"ip":"203.0.113.9"`, `"request_id":"` + id + `"`, `"msg":"panic"`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log lacks %s: %s", want, buf.String())
+		}
 	}
 }

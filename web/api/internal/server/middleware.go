@@ -1,12 +1,17 @@
 package server
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -164,7 +169,68 @@ func RequestLog(logger *slog.Logger) Middleware {
 				"bytes", rw.bytes,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"ip", auth.ClientIPFromContext(r.Context()),
+				"request_id", RequestIDFromContext(r.Context()),
 			)
+		})
+	}
+}
+
+type requestIDKey struct{}
+
+var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// RequestIDFromContext returns the id RequestID stored, or "" outside it.
+func RequestIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
+}
+
+// RequestID gives every request an id: the inbound X-Request-Id when it matches
+// ^[A-Za-z0-9._-]{1,64}$, otherwise 16 random hex characters. The id is set on
+// the response, stored in the context and logged by RequestLog and Recover.
+func RequestID() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := r.Header.Get("X-Request-Id")
+			if !validRequestID.MatchString(id) {
+				var b [8]byte
+				_, _ = rand.Read(b[:]) // crypto/rand.Read never fails on supported platforms
+				id = hex.EncodeToString(b[:])
+			}
+			w.Header().Set("X-Request-Id", id)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id)))
+		})
+	}
+}
+
+// Recover turns a handler panic into a 500 JSON Error ("internal error", never
+// the panic value) and logs the value and stack at Error. When the handler had
+// already started the response only the log happens. http.ErrAbortHandler is
+// net/http's way to abort a response, so it is re-panicked untouched.
+func Recover(logger *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+			defer func() {
+				v := recover()
+				if v == nil {
+					return
+				}
+				if v == http.ErrAbortHandler {
+					panic(v)
+				}
+				logger.Error("panic",
+					"panic", v,
+					"stack", string(debug.Stack()),
+					"method", r.Method,
+					"path", r.URL.Path,
+					"request_id", RequestIDFromContext(r.Context()),
+				)
+				if !sw.wroteHeader {
+					writeError(sw, http.StatusInternalServerError, "internal error")
+				}
+			}()
+			next.ServeHTTP(sw, r)
 		})
 	}
 }
