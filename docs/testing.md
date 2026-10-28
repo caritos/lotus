@@ -42,6 +42,8 @@ when it is already built) and the Go binary into a temp directory, creates a use
 waits for `/healthz`. Everything is removed afterwards. No test touches your real data.
 The frontend build writes into `web/api/internal/web/app` (the embed directory), which is
 shared with `make build`; the prebuild step clears it first, and it stays out of git.
+This is not Vite's usual `dist/`: `go:embed` can only embed files inside the Go module. The repo-root
+`dist/` holds only the binary from `make build`; e2e builds its own binary in a temp directory.
 
 Failure artifacts (traces, screenshots, the HTML report) land in `web/test/e2e/test-results` and
 `web/test/e2e/playwright-report`; both are gitignored.

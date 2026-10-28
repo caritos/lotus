@@ -8,7 +8,7 @@ LDFLAGS := -X goweb/internal/version.Version=$(VERSION) -X goweb/internal/versio
 
 help:
 	@echo "make dev          Go API on 127.0.0.1:8080 plus the Vite dev server on :5173"
-	@echo "make build        build the frontend, then the single binary ./goweb"
+	@echo "make build        build the frontend, then the single binary dist/goweb"
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
 	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id, layout"
@@ -26,7 +26,8 @@ dev:
 
 build:
 	cd web && pnpm install --frozen-lockfile && pnpm build
-	cd web/api && go build -ldflags "$(LDFLAGS)" -o ../../goweb ./cmd/goweb
+	mkdir -p dist
+	cd web/api && go build -ldflags "$(LDFLAGS)" -o ../../dist/goweb ./cmd/goweb
 
 test-fast:
 	cd web/api && go test -short ./...
