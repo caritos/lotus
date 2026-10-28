@@ -294,7 +294,7 @@ func TestMigrateConcurrentUpgradeOfPreChecksumDatabase(t *testing.T) {
 }
 
 func TestMigrateRejectsBadFileNames(t *testing.T) {
-	for _, name := range []string{"init.sql", "1_init.sql", "0001-init.sql", "0001_Init.sql", "0001_.sql", "00001_a.sql", "0001_a b.sql", "0001_a.SQL.sql"} {
+	for _, name := range []string{"init.sql", "1_init.sql", "0001-init.sql", "0001_Init.sql", "0001_.sql", "00001_a.sql", "0001_a b.sql", "0001_a.SQL.sql", "0002_x.SQL", "0003_Y.Sql"} {
 		d := openMem(t)
 		fsys := fstest.MapFS{name: {Data: []byte("CREATE TABLE a (id TEXT);")}}
 		err := db.MigrateFS(context.Background(), d, fsys)
@@ -303,6 +303,9 @@ func TestMigrateRejectsBadFileNames(t *testing.T) {
 		}
 		if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='a'"); n != 0 {
 			t.Errorf("%q: a migration ran despite the bad name", name)
+		}
+		if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='schema_migrations'"); n != 0 {
+			t.Errorf("%q: schema_migrations was created before the names were validated", name)
 		}
 	}
 }
@@ -335,5 +338,19 @@ func TestMigrateAcceptsAValidSetWithAGapInNumbering(t *testing.T) {
 	}
 	if n := scanInt(t, d, "SELECT count(*) FROM schema_migrations"); n != 2 {
 		t.Fatalf("rows = %d, want 2", n)
+	}
+}
+
+func TestMigrateDuplicateVersionLeavesTheDatabaseUntouched(t *testing.T) {
+	d := openMem(t)
+	fsys := fstest.MapFS{
+		"0002_b.sql": {Data: []byte("CREATE TABLE b (id TEXT);")},
+		"0002_c.sql": {Data: []byte("CREATE TABLE c (id TEXT);")},
+	}
+	if err := db.MigrateFS(context.Background(), d, fsys); err == nil {
+		t.Fatal("want an error")
+	}
+	if n := scanInt(t, d, "SELECT count(*) FROM sqlite_master WHERE name='schema_migrations'"); n != 0 {
+		t.Fatal("schema_migrations was created before the versions were validated")
 	}
 }

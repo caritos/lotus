@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"goweb/internal/db/migrations"
@@ -46,15 +47,24 @@ func Migrate(ctx context.Context, d *sql.DB) error {
 // a rolled-back binary, which embeds fewer files than the database has recorded, working.
 //
 // Every *.sql file must be named NNNN_description.sql (^[0-9]{4}_[a-z0-9_]+\.sql$) and no two
-// files may share the NNNN version; either problem is an error naming the file, and nothing is
-// applied. Gaps in the numbering are allowed.
+// files may share the NNNN version; either problem is an error naming the file, found before any database access, so nothing
+// (not even schema_migrations) is created or changed. A name that ends in .sql in any case but does
+// not match (0002_x.SQL) is rejected, not skipped. Gaps in the numbering are allowed.
 func MigrateFS(ctx context.Context, d *sql.DB, fsys fs.FS) error {
-	if err := ensureTable(ctx, d); err != nil {
-		return err
-	}
-	names, err := fs.Glob(fsys, "*.sql")
+	// Validate the whole set before touching the database at all, so a bad file name or a duplicate
+	// version changes nothing (not even schema_migrations).
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return fmt.Errorf("db: list migrations: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		// Anything that ends in .sql in any case is meant as a migration: a name like 0002_x.SQL
+		// must be rejected, not silently skipped.
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".sql") {
+			continue
+		}
+		names = append(names, e.Name())
 	}
 	sort.Strings(names)
 	byVersion := map[string]string{}
@@ -66,6 +76,9 @@ func MigrateFS(ctx context.Context, d *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("db: migration files %q and %q have the same version %s", other, name, name[:4])
 		}
 		byVersion[name[:4]] = name
+	}
+	if err := ensureTable(ctx, d); err != nil {
+		return err
 	}
 	for _, name := range names {
 		body, err := fs.ReadFile(fsys, name)
