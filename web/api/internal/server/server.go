@@ -31,7 +31,11 @@ type Deps struct {
 const maxBodyBytes = 8 << 20
 
 // New returns the application handler wrapped in the middleware chain
-// (outermost first): TrustedProxy, RequestLog, SecurityHeaders, SameOrigin, BodyLimit.
+// (outermost first): TrustedProxy, RequestID, RequestLog, Recover, SecurityHeaders,
+// SameOrigin, BodyLimit. RequestID is outside RequestLog so the log line has the
+// id; Recover is just inside RequestLog so the 500 it writes is logged and a
+// panic never escapes the logger; TrustedProxy stays outermost so everything
+// sees the resolved client IP.
 // cfg must come from config.Load, which validates TRUSTED_PROXY.
 func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
@@ -50,7 +54,12 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())
 
-	logger := deps.Logger
+	return Wrap(cfg, deps.Logger, mux)
+}
+
+// Wrap puts the middleware chain documented on New around h. New uses it for the
+// application mux; tests use it to put a handler that panics inside the real chain.
+func Wrap(cfg config.Config, logger *slog.Logger, mux http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -64,7 +73,9 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	h = BodyLimit(maxBodyBytes)(h)
 	h = SameOrigin(cfg.PublicOrigin)(h)
 	h = SecurityHeaders()(h)
+	h = Recover(logger)(h)
 	h = RequestLog(logger)(h)
+	h = RequestID()(h)
 	return proxy(h)
 }
 

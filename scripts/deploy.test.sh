@@ -609,6 +609,7 @@ EOS
 echo "systemctl $*" >> "$DCALLS"
 if [ -n "${FAKE_NO_UNIT:-}" ] && [ "$2" = cat ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
 if [ "$2" = is-active ]; then echo "${FAKE_SERVICE_ACTIVE:-active}"; [ "${FAKE_SERVICE_ACTIVE:-active}" = active ]; exit; fi
+if [ "$2" = is-enabled ]; then echo "${FAKE_TIMER_ENABLED:-enabled}"; [ "${FAKE_TIMER_ENABLED:-enabled}" = enabled ]; exit; fi
 EOS
   cat > "$T/rbin/ss" <<'EOS'
 #!/bin/sh
@@ -644,6 +645,7 @@ EOS
   cat > "$T/lbin/go" <<'EOS'
 #!/bin/bash
 echo "go GOOS=${GOOS:-} GOARCH=${GOARCH:-} CGO_ENABLED=${CGO_ENABLED:-} $*" >> "$DCALLS"
+case "$1" in vet|test) [ "${FAKE_GO_FAIL:-}" = "$1" ] && { echo "fake go $1: injected failure" >&2; exit 1; }; exit 0 ;; esac
 out=""; ver=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -656,14 +658,25 @@ done
 sed -e "s|@VERSION@|$ver|g" -e "s|@SCHEMA@|${FAKE_NEW_SCHEMA:-0001_init.sql}|g" "$FAKEBIN_TMPL" > "$out"
 chmod +x "$out"
 EOS
-  chmod +x "$T/ssh" "$T/rsync" "$T/rbin/"* "$T/lbin/go"
+  cat > "$T/lbin/pnpm" <<'EOS'
+#!/bin/bash
+# fake pnpm: records its arguments and directory; FAKE_PNPM_FAIL=<subcommand> fails that one.
+echo "pnpm ARGS=$* PWD=$PWD" >> "$DCALLS"
+[ "${FAKE_PNPM_FAIL:-}" = "$1" ] && { echo "fake pnpm $1: injected failure" >&2; exit 1; }
+exit 0
+EOS
+  cat > "$T/lbin/node" <<'EOS'
+#!/bin/sh
+echo "v${FAKE_NODE_MAJOR:-24}.1.0"
+EOS
+  chmod +x "$T/ssh" "$T/rsync" "$T/rbin/"* "$T/lbin/go" "$T/lbin/pnpm" "$T/lbin/node"
   export FAKE_RBIN="$T/rbin" FAKEBIN_TMPL="$T/fakebin.tmpl"
   export SSH="$T/ssh" RSYNC="$T/rsync"
-  export SKIP_WEB_BUILD=1 HEALTH_TIMEOUT=2 HEALTH_RECHECK_DELAY=0
+  export SKIP_WEB_BUILD=1 SKIP_TESTS=1 HEALTH_TIMEOUT=2 HEALTH_RECHECK_DELAY=0
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER
 }
 
 # make_release <name> <schema> [active]
@@ -834,6 +847,139 @@ test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_en
   assert_contains "$(cat "$T/err")" "ADDR=0.0.0.0:8080" "names the fix"
   assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
   assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+# ---- test gate and backup-timer preflight
+
+# gate_deploy: a deploy with the test gate switched on (SKIP_TESTS=0) and a built web app.
+test_deploy_runs_the_test_gate_before_anything_changes() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "go vet ran" grep -q "^go .* vet ./\.\.\.$" "$DCALLS"
+  assert_true "go test -short ran" grep -q "^go .* test -short ./\.\.\.$" "$DCALLS"
+  assert_true "pnpm test ran in web/" grep -q "^pnpm ARGS=test PWD=.*/web$" "$DCALLS"
+  assert_true "pnpm typecheck ran" grep -q "^pnpm ARGS=typecheck PWD=.*/web$" "$DCALLS"
+  local gate_line lock_line
+  gate_line="$(grep -n '^pnpm ARGS=typecheck' "$DCALLS" | head -1 | cut -d: -f1)"
+  lock_line="$(grep -n 'deploy.lock' "$DCALLS" | head -1 | cut -d: -f1)"
+  assert_true "gate runs before the lock" test "$gate_line" -lt "$lock_line"
+}
+
+test_deploy_skips_the_test_gate_with_SKIP_TESTS() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_false "no go vet" grep -q "^go .* vet" "$DCALLS"
+  assert_false "no go test" grep -q "^go .* test" "$DCALLS"
+  assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
+}
+
+test_deploy_check_does_not_run_the_test_gate() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 deploy deploy@host.example.com --check
+  assert_eq "$?" "0" "exit status"
+  assert_false "no go vet" grep -q "^go .* vet" "$DCALLS"
+  assert_false "no pnpm" grep -q "^pnpm" "$DCALLS"
+}
+
+# A failing gate changes nothing on the server.
+gate_fails_and_changes_nothing() {
+  assert_false "exit status must be nonzero" test "$1" -eq 0
+  assert_contains "$(cat "$T/err")" "$2" "names the failing step"
+  assert_contains "$(cat "$T/err")" "SKIP_TESTS=1" "names the override"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+  assert_false "service not touched" grep -q "^systemctl --user restart" "$DCALLS"
+  assert_false "no lock taken" grep -q "deploy.lock" "$DCALLS"
+}
+
+test_deploy_stops_when_go_vet_fails() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 FAKE_GO_FAIL=vet deploy deploy@host.example.com
+  gate_fails_and_changes_nothing "$?" "go vet"
+}
+
+test_deploy_stops_when_go_tests_fail() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 FAKE_GO_FAIL=test deploy deploy@host.example.com
+  gate_fails_and_changes_nothing "$?" "go test"
+}
+
+test_deploy_stops_when_pnpm_tests_fail() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 FAKE_PNPM_FAIL=test deploy deploy@host.example.com
+  gate_fails_and_changes_nothing "$?" "pnpm test"
+}
+
+test_deploy_stops_when_pnpm_typecheck_fails() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 FAKE_PNPM_FAIL=typecheck deploy deploy@host.example.com
+  gate_fails_and_changes_nothing "$?" "pnpm typecheck"
+}
+
+test_deploy_fails_early_when_node_major_differs_from_nvmrc() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=20 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "Node 24" "names the wanted major"
+  assert_contains "$(cat "$T/err")" "v20" "names the running version"
+  assert_false "no pnpm build" grep -q "^pnpm" "$DCALLS"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
+}
+
+test_deploy_accepts_a_matching_node_major() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_WEB_BUILD=0 FAKE_NODE_MAJOR=24 deploy deploy@host.example.com
+  assert_false "no node complaint" grep -q "Node" "$T/err"
+}
+
+test_deploy_skips_the_node_check_when_the_web_build_is_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_NODE_MAJOR=20 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+}
+
+test_deploy_warns_but_continues_when_the_backup_timer_is_not_enabled() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_contains "$(cat "$T/err")" "app-backup.timer" "names the unit"
+  assert_contains "$(cat "$T/err")" "docs/deploy.md" "points at the install steps"
+  assert_eq "$(active_release)" "releases/v2" "deployed"
+}
+
+test_deploy_is_quiet_when_the_backup_timer_is_enabled() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "asked about the timer" grep -q "^systemctl --user is-enabled app-backup.timer" "$DCALLS"
+  assert_false "no warning" grep -q "backup.timer" "$T/err"
+}
+
+test_deploy_refuses_without_the_backup_timer_when_REQUIRE_BACKUP_TIMER() {
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "app-backup.timer" "names the unit"
+  assert_contains "$(cat "$T/err")" "enable --now app-backup.timer" "names the fix"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+test_deploy_check_covers_the_backup_timer() {
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com --check
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "app-backup.timer" "names the unit"
+}
+
+test_deploy_uses_SERVICE_for_the_timer_name() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SERVICE=other REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=disabled deploy deploy@host.example.com --check
+  assert_contains "$(cat "$T/err")" "other-backup.timer" "names the unit"
 }
 
 test_deploy_ignores_the_listener_checks_by_default() {
@@ -1868,7 +2014,22 @@ for t in \
   test_agent_uninstall_removes_plist_and_boots_out \
   test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
   test_agent_plist_is_valid \
-  test_agent_install_rejects_an_env_file_that_does_not_source_cleanly
+  test_agent_install_rejects_an_env_file_that_does_not_source_cleanly \
+  test_deploy_runs_the_test_gate_before_anything_changes \
+  test_deploy_skips_the_test_gate_with_SKIP_TESTS \
+  test_deploy_check_does_not_run_the_test_gate \
+  test_deploy_stops_when_go_vet_fails \
+  test_deploy_stops_when_go_tests_fail \
+  test_deploy_stops_when_pnpm_tests_fail \
+  test_deploy_stops_when_pnpm_typecheck_fails \
+  test_deploy_fails_early_when_node_major_differs_from_nvmrc \
+  test_deploy_accepts_a_matching_node_major \
+  test_deploy_skips_the_node_check_when_the_web_build_is_skipped \
+  test_deploy_warns_but_continues_when_the_backup_timer_is_not_enabled \
+  test_deploy_is_quiet_when_the_backup_timer_is_enabled \
+  test_deploy_refuses_without_the_backup_timer_when_REQUIRE_BACKUP_TIMER \
+  test_deploy_check_covers_the_backup_timer \
+  test_deploy_uses_SERVICE_for_the_timer_name
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
