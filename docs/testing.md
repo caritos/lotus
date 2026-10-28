@@ -85,6 +85,23 @@ Write the failing test first, watch it fail for the right reason, then implement
   `ALLOW_DEV_DEPLOY=1`, uses a `predeploy` labeled backup, and explains a missing user unit; `restore.sh`
   accepts a labeled set; `pull-backups.sh` ignores labeled sets for copying, `KEEP` and staleness.
 
+## Endpoint guard rails
+
+`web/api/tests/guardrails_test.go` keeps the API, its spec and its tests in step. It runs in the fast
+tier too (a file scan, no server). Adding an endpoint means doing all three, or `make test-fast` says
+which one is missing:
+
+1. Register the route with a literal `"METHOD /path"` pattern (`mux.HandleFunc("GET /api/things/{id}", ...)`).
+   A route in code but not in `web/api/openapi.yaml`, or the reverse, fails
+   `TestSpecAndRegisteredRoutesMatch`.
+2. Declare it in `openapi.yaml` with an `operationId`, then run `make api`.
+3. Write the integration test that exercises it and mark it with `// covers: <operationId>` (several ids
+   may share a comment). An operation no test claims fails `TestEveryOperationHasAnIntegrationTest`,
+   as does a `covers:` naming an operationId that no longer exists. Copy `notes_flow_test.go`.
+
+The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
+the module has no YAML library; a differently laid-out spec makes the guard fail loudly, not pass.
+
 ## Build id
 
 - `scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
