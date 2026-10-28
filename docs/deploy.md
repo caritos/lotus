@@ -132,14 +132,14 @@ PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 
 `--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
 service unit exist, that the server has `curl` or `wget` and a sha256 tool, that the daily backup
-timer `goweb-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`), and that the server
+timer `goweb-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`; if ssh or the user bus fails the answer is "could not determine", handled the same way, never reported as "not enabled"), and that the server
 `.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,
 default 8080), `HEALTH_TIMEOUT` (default 20 s), `VERSION` (default
 `git describe --tags --always --dirty`; a dirty tree is allowed and shows in the version),
 `SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`, `ALLOW_DEV_DEPLOY=1`, `SKIP_TESTS=1` (skip the
-test gate below), `REQUIRE_BACKUP_TIMER=1` (refuse to deploy when `${SERVICE}-backup.timer` is not enabled
+test gate below; the Node check still runs), `REQUIRE_BACKUP_TIMER=1` (refuse to deploy when `${SERVICE}-backup.timer` is not enabled
 on the server; otherwise that only warns). When `HEALTH_PORT` is not set the port is read
 from `ADDR` in the server's `.env` (default 8080).
 
@@ -148,10 +148,13 @@ What a deploy does, in order:
 1. Preflight (as `--check`). Every ssh and rsync call uses `BatchMode=yes`, so it fails
    instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
    from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
-2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips it):
-   `go vet ./...` and `go test -short ./...` in `web/api`, then `pnpm test` and `pnpm typecheck` in `web/`.
+2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips the tests only, not the Node check):
+   `go vet ./...` and `go test -short ./...` in `web/api` (run without the caller's `GOOS`/`GOARCH`, so test
+   binaries run on this machine; the release build below keeps its own target), then `pnpm test` and `pnpm typecheck` in `web/`.
    The first failure stops the deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
-   major version in `.nvmrc` (`web/.nvmrc` if present) differs from `node -v`.
+   major version in `.nvmrc` (`web/.nvmrc` if present) differs from the major of `node -v`. `v24`, `24`, `24.1.0` and
+   `v24.18.0` all mean 24. A value that is not a number (for example `lts/*`) prints "cannot compare .nvmrc value ..."
+   and skips the check instead of failing.
 3. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
    commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
    uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is
