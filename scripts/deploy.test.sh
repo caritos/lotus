@@ -618,6 +618,7 @@ if [ "$2" = is-enabled ]; then
   if [ -n "${FAKE_TIMER_EMPTY:-}" ]; then exit 0; fi
   if [ -n "${FAKE_TIMER_OLD_MISSING:-}" ]; then echo "Failed to get unit file state for $3: No such file or directory" >&2; exit 1; fi
   echo "${FAKE_TIMER_ENABLED:-enabled}"
+  if [ -n "${FAKE_TIMER_RC:-}" ]; then exit "$FAKE_TIMER_RC"; fi
   case "${FAKE_TIMER_ENABLED:-enabled}" in enabled|enabled-runtime|static|indirect|generated) exit 0 ;; not-found) exit 4 ;; *) exit 1 ;; esac
 fi
 EOS
@@ -687,7 +688,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_RC FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
 }
 
 # make_release <name> <schema> [active]
@@ -1167,6 +1168,17 @@ test_deploy_only_enabled_states_on_exit_0_count_as_enabled() {
   assert_false "empty output on exit 0 refuses" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "could not determine" "empty output is undetermined"
   assert_false "not called 'not enabled'" grep -q "is not enabled" "$T/err"
+}
+
+test_deploy_an_unrecognized_state_word_is_could_not_determine() {
+  local rc
+  for rc in 0 1 4; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=foo FAKE_TIMER_RC=$rc deploy deploy@host.example.com
+    assert_false "exit $rc with an unknown word refuses" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "could not determine" "unknown word on exit $rc"
+    assert_false "not called 'not enabled' (exit $rc)" grep -q "is not enabled" "$T/err"
+  done
 }
 
 test_deploy_older_systemd_missing_unit_wording_is_not_enabled() {
@@ -2313,6 +2325,7 @@ for t in \
   test_deploy_warns_and_continues_when_ssh_fails_on_the_timer_check \
   test_deploy_only_enabled_states_on_exit_0_count_as_enabled \
   test_deploy_older_systemd_missing_unit_wording_is_not_enabled \
+  test_deploy_an_unrecognized_state_word_is_could_not_determine \
   test_deploy_gate_runs_in_web_api_without_the_callers_GOOS_and_GOARCH \
   test_deploy_honors_SERVICE_in_the_port_owner_check \
   test_deploy_says_ss_is_unavailable_after_start_when_ss_is_missing \

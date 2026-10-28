@@ -200,16 +200,19 @@ preflight() {
   # unit), or exit 0 with a state word that is not enabled (static, indirect, generated: nothing starts
   # the timer). Could not determine: ssh exit 255, a user-bus error or any other "Failed to ...", empty or
   # unrecognized output, any other exit.
-  local tout trc tlast tstate=""
+  local tout trc tlast known tstate=""
   tout="$(rsh "systemctl --user is-enabled '$SERVICE-backup.timer'" 2>&1)" && trc=0 || trc=$?
   tlast="$(printf '%s\n' "$tout" | sed '/^[[:space:]]*$/d' | tail -n 1 | tr -d '[:space:]')"
+  # Explicit word list (no character ranges: they behave differently across locales and bash 3.2).
+  case "$tlast" in
+    enabled|enabled-runtime|static|indirect|generated|disabled|masked|masked-runtime|linked|linked-runtime|alias|transient|bad|not-found) known=1 ;;
+    *) known=0 ;;
+  esac
   case "$trc:$tlast" in
     0:enabled|0:enabled-runtime) trc=0 ;;
-    0:|0:*[!a-z-]*) trc=255 ;;
-    0:*) tstate="$tlast"; trc=1 ;;
+    0:*) if [ "$known" -eq 1 ]; then tstate="$tlast"; trc=1; else trc=255; fi ;;
     1:Failedtogetunitfilestate*Nosuchfileordirectory) tstate="not-found"; trc=1 ;;
-    1:disabled|1:masked|1:masked-runtime|1:static|1:linked|1:linked-runtime|1:generated|1:transient|1:indirect|1:alias|1:bad|1:not-found|\
-    4:disabled|4:masked|4:masked-runtime|4:static|4:linked|4:linked-runtime|4:generated|4:transient|4:indirect|4:alias|4:bad|4:not-found) tstate="$tlast"; trc=1 ;;
+    1:*|4:*) if [ "$known" -eq 1 ] && [ "$tlast" != enabled ] && [ "$tlast" != enabled-runtime ]; then tstate="$tlast"; trc=1; else trc=255; fi ;;
     *) trc=255 ;;
   esac
   [ -z "$tstate" ] || tstate=" (state: $tstate)"
