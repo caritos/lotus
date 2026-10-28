@@ -41,15 +41,26 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 	if deps.Auth != nil {
+		// Public routes, registered explicitly. /api/me answers 401 itself when signed out. The paths
+		// are method-less on purpose so a wrong method keeps getting the handler's own 405.
+		// The list must match publicRoutes in tests/guardrails_test.go.
 		api := auth.Middleware(deps.Auth)(auth.Handlers(deps.Auth))
 		for _, p := range []string{"/api/login", "/api/logout", "/api/me"} {
 			mux.Handle(p, api)
 		}
-	}
-	if deps.Auth != nil && deps.DB != nil && deps.Storage != nil {
-		h := auth.Middleware(deps.Auth)(auth.Require(notes.Handlers(notes.NewStore(deps.DB), deps.Storage)))
-		mux.Handle("/api/notes", h)
-		mux.Handle("/api/notes/", h)
+		// Default-deny: every other /api/ path, existing or not, is behind auth.Require. A new API
+		// route is mounted inside `private` and is therefore private; signed out it is a 401 before
+		// any 404, signed in an unknown path is a 404.
+		private := http.NewServeMux()
+		private.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		})
+		if deps.DB != nil && deps.Storage != nil {
+			h := notes.Handlers(notes.NewStore(deps.DB), deps.Storage)
+			private.Handle("/api/notes", h)
+			private.Handle("/api/notes/", h)
+		}
+		mux.Handle("/api/", auth.Middleware(deps.Auth)(auth.Require(private)))
 	}
 	// Everything the API does not claim: public pages, /static/*, /app/*, 404.
 	mux.Handle("/", web.Handler())

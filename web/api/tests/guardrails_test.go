@@ -3,11 +3,15 @@ package tests
 import (
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"goweb/internal/apptest"
 )
 
 // Guard rails for agent-written features. They are cheap file scans, so unlike the integration tests they
@@ -177,4 +181,124 @@ func goRoutes(t *testing.T) map[string]string {
 		}
 	}
 	return routes
+}
+
+// publicRoutes is THE allowlist of API routes reachable without signing in, in one place. A new endpoint
+// is private by default: the server mounts everything under /api/ behind auth.Require, so a route that is
+// not listed here must answer 401 when signed out (TestAPIIsPrivateByDefault). To make an endpoint public
+// you must add it here WITH a reason and give it `security: []` in openapi.yaml (specNone), or the tests fail.
+var publicRoutes = map[string]struct {
+	specNone bool   // the spec marks the operation `security: []`
+	reason   string // why this route may be reached signed out
+}{
+	"POST /api/login":  {true, "signing in needs no session"},
+	"POST /api/logout": {true, "idempotent: clears the cookie whether or not there is a session"},
+	"GET /api/me":      {false, "registered explicitly; answers 401 itself when signed out, so the spec keeps it secured"},
+	"GET /healthz":     {true, "liveness probe for the proxy and the deploy script; not under /api/"},
+}
+
+const fixedUUID = "00000000-0000-4000-8000-000000000000"
+
+var pathParamRe = regexp.MustCompile(`\{[^}]+\}`)
+
+// TestAPIIsPrivateByDefault: every route under /api/ that is not on the allowlist, taken from the spec AND
+// from the routes registered in Go (so a route that someone forgot to document is probed too), answers 401 to a
+// signed-out request; an unknown /api/ path answers 401 signed out and 404 signed in. This fails when a new
+// API route is mounted outside auth.Require.
+func TestAPIIsPrivateByDefault(t *testing.T) {
+	integration(t)
+	ops, err := parseSpecOperations(readFile(t, filepath.Join("..", "openapi.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := map[string]bool{}
+	for route := range ops {
+		candidates[route] = true
+	}
+	for route := range goRoutes(t) {
+		candidates[route] = true
+	}
+	a := apptest.NewServer(t)
+	probed := 0
+	for route := range candidates {
+		method, path, _ := strings.Cut(route, " ")
+		if !strings.HasPrefix(path, "/api/") {
+			continue
+		}
+		if _, public := publicRoutes[route]; public {
+			continue
+		}
+		probed++
+		url := a.URL + pathParamRe.ReplaceAllString(path, fixedUUID)
+		if st, _, body := req(t, a.Client, method, url, nil, nil); st != http.StatusUnauthorized {
+			t.Errorf("%s answered %d signed out (body %q), want 401: mount it behind auth.Require, or add it to publicRoutes with a reason and `security: []` in openapi.yaml", route, st, body)
+		}
+	}
+	if probed < 8 {
+		t.Errorf("only %d private routes were probed; the route scan or the spec parse found too little", probed)
+	}
+
+	// An unregistered /api/ path is denied before it is 404, for every method.
+	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+		if st, _, _ := req(t, a.Client, m, a.URL+"/api/zzz-not-a-route", nil, nil); st != http.StatusUnauthorized {
+			t.Errorf("%s /api/zzz-not-a-route signed out = %d, want 401", m, st)
+		}
+	}
+	a.CreateUser(testEmail, testPassword)
+	c := a.NewClient()
+	mustLogin(t, a, c, testEmail, testPassword)
+	if st, _, _ := req(t, c, http.MethodGet, a.URL+"/api/zzz-not-a-route", nil, nil); st != http.StatusNotFound {
+		t.Errorf("GET /api/zzz-not-a-route signed in = %d, want 404", st)
+	}
+}
+
+// The allowlist and the spec agree: every allowlisted route exists in the spec, those marked public carry
+// `security: []`, and no other operation does.
+func TestPublicAllowlistMatchesTheSpec(t *testing.T) {
+	spec := readFile(t, filepath.Join("..", "openapi.yaml"))
+	ops, err := parseSpecOperations(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := parseSpecSecurityNone(spec)
+	for route, p := range publicRoutes {
+		if p.reason == "" {
+			t.Errorf("%s is on the public allowlist without a reason", route)
+		}
+		if _, ok := ops[route]; !ok {
+			t.Errorf("%s is on the public allowlist but not in openapi.yaml (stale entry?)", route)
+		}
+		if none[route] != p.specNone {
+			t.Errorf("%s: allowlist says spec security: [] = %v, openapi.yaml says %v", route, p.specNone, none[route])
+		}
+	}
+	for route := range none {
+		if _, ok := publicRoutes[route]; !ok {
+			t.Errorf("openapi.yaml marks %s `security: []` but it is not on the public allowlist in guardrails_test.go", route)
+		}
+	}
+}
+
+func TestParseSpecSecurityNone(t *testing.T) {
+	const spec = `paths:
+  /a:
+    get:
+      operationId: a
+      security: []
+    post:
+      operationId: b
+  /b:
+    get:
+      operationId: c
+      security:
+        - cookie: []
+components:
+  x:
+    get:
+      security: []
+`
+	got := parseSpecSecurityNone(spec)
+	if len(got) != 1 || !got["GET /a"] {
+		t.Errorf("got %v, want only GET /a", got)
+	}
 }

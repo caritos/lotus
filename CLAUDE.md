@@ -84,6 +84,13 @@ If the full suite is slow, run it in the background and wait for the result.
 - A new endpoint needs three things, enforced by `web/api/tests/guardrails_test.go` (details in
   `docs/testing.md`): a literal `"METHOD /path"` route pattern, an `operationId` in `openapi.yaml`, and an
   integration test marked `// covers: <operationId>` (copy `notes_flow_test.go`).
+- A new endpoint is private by default: `server.New` mounts everything under `/api/` behind `auth.Middleware` +
+  `auth.Require`, so mount new routes inside that private mux (not directly on the top-level mux) and a signed-out
+  request gets 401 (an unknown `/api/` path is 401 signed out, 404 signed in). A public endpoint must be added to
+  the one allowlist, `publicRoutes` in `web/api/tests/guardrails_test.go`, WITH a reason, registered explicitly in
+  `server.New`, and marked `security: []` in `openapi.yaml`; `TestAPIIsPrivateByDefault` and
+  `TestPublicAllowlistMatchesTheSpec` fail otherwise.
+- Money is stored as integer cents (no floats); the example schema has no money column.
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
   run `make api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and

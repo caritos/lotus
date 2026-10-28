@@ -99,3 +99,34 @@ func parseCovers(src string) []string {
 	}
 	return out
 }
+
+var specSecurityNoneRe = regexp.MustCompile(`^      security:\s*\[\]\s*$`)
+
+// parseSpecSecurityNone returns the "METHOD /path" operations that declare `security: []` (public),
+// read by the same indentation rules as parseSpecOperations.
+func parseSpecSecurityNone(spec string) map[string]bool {
+	out := map[string]bool{}
+	inPaths := false
+	var path, route string
+	for _, line := range strings.Split(spec, "\n") {
+		if line == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") {
+			inPaths = strings.TrimSpace(line) == "paths:"
+			path, route = "", ""
+			continue
+		}
+		if !inPaths {
+			continue
+		}
+		if m := specPathRe.FindStringSubmatch(line); m != nil {
+			path, route = m[1], ""
+		} else if m := specMethodRe.FindStringSubmatch(line); m != nil && path != "" {
+			route = strings.ToUpper(m[1]) + " " + path
+		} else if specSecurityNoneRe.MatchString(line) && route != "" {
+			out[route] = true
+		}
+	}
+	return out
+}

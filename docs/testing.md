@@ -123,6 +123,17 @@ which one is missing:
    may share a comment). An operation no test claims fails `TestEveryOperationHasAnIntegrationTest`,
    as does a `covers:` naming an operationId that no longer exists. Copy `notes_flow_test.go`.
 
+**Private by default.** `server.New` mounts every `/api/` path that is not explicitly public behind
+`auth.Require`, so a new route cannot be public by accident. `TestAPIIsPrivateByDefault` (integration tier) sends
+a signed-out request to every `/api/` route found in the spec AND registered in Go that is not in the one allowlist,
+`publicRoutes` in `guardrails_test.go` (login, logout, getMe and healthz today), and expects 401; an unknown
+`/api/zzz-not-a-route` is 401 signed out and 404 signed in. `TestPublicAllowlistMatchesTheSpec` keeps the allowlist
+and the spec in step: every public route is in the spec, carries `security: []` (getMe is the one listed route that
+stays secured in the spec, because it answers 401 itself), and no other operation has `security: []`. To make an
+endpoint public, add it to `publicRoutes` with a reason, register it explicitly in `server.New`, and mark it
+`security: []` in `openapi.yaml`. To check the guard, temporarily register an extra unwrapped
+`mux.HandleFunc("GET /api/x", ...)` in `server.New` and watch the test fail.
+
 The spec is read by its indentation (paths at two spaces, methods at four, `operationId` at six) because
 the module has no YAML library; a differently laid-out spec makes the guard fail loudly, not pass.
 
