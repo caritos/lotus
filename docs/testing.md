@@ -92,7 +92,8 @@ Write the failing test first, watch it fail for the right reason, then implement
   (UTC, BSD and GNU `date`) and the output format.
 - `internal/version`: the default id is well formed. `internal/web`: every page source under `pages/`
   holds the `@@BUILD_ID@@` placeholder exactly once (a new page cannot forget it) and sits in a
-  `site-footer`; served pages, the 404 and the 503 pages show `Build <id>`; the app's `index.html`
+  `site-footer`; served pages, the 404 and the 503 pages show `Build <id>` (the 404 and 503 keep a
+  `Content-Length` and no ETag); `/static/` files, nested ones included, are served unmodified; the app's `index.html`
   is served with `__BUILD_ID__` replaced, a matching `Content-Length`, an ETag that follows the id,
   other app files untouched, and the id HTML-escaped. `internal/server`: `/healthz` reports `build_id`.
 - `tests/public_test.go` `TestEveryPageFooterShowsTheHealthzBuildID`: `/`, `/faq`, `/privacy`, `/terms`,

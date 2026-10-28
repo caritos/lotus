@@ -110,38 +110,63 @@ func NewHandler(app fs.FS) http.Handler { return NewHandlerWithBuildID(app, vers
 // NewHandlerWithBuildID is NewHandler with an explicit build id, which is substituted once
 // (before ETags and lengths are computed) into the page footers and the app's index.html.
 func NewHandlerWithBuildID(app fs.FS, buildID string) http.Handler {
+	static, err := fs.Sub(content, "static")
+	if err != nil {
+		panic(err) // the embed directive guarantees static/ exists
+	}
+	return newHandlerWithBuildID(app, static, buildID)
+}
+
+// newHandler also takes the static tree (rooted at static/, subfolders such as
+// fonts/ included) so tests can inject one.
+func newHandler(app, static fs.FS) http.Handler {
+	return newHandlerWithBuildID(app, static, version.BuildID)
+}
+
+// newHandlerWithBuildID is the constructor behind all of the above. Static files are served
+// byte for byte; only the pages, the generated 404 and 503 pages and the app's index.html
+// get the build id.
+func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
 	h := &handler{app: app, pages: map[string]asset{}, static: map[string]asset{}}
 	for route, file := range pageRoutes {
 		h.pages[route] = mustLoad(file, buildID)
 	}
-	h.notFound = newAsset("404.html", injectBuildID([]byte(notFoundHTML), pagePlaceholder, buildID))
-	h.notBuilt = newAsset("503.html", injectBuildID([]byte(notBuiltHTML), pagePlaceholder, buildID))
+	h.notFound = errorPage(injectBuildID([]byte(notFoundHTML), pagePlaceholder, buildID))
+	h.notBuilt = errorPage(injectBuildID([]byte(notBuiltHTML), pagePlaceholder, buildID))
 	if b, err := fs.ReadFile(app, "index.html"); err == nil {
 		a := newAsset("index.html", injectBuildID(b, appPlaceholder, buildID))
 		h.index = &a
 	}
-	entries, err := fs.ReadDir(content, "static")
+	err := fs.WalkDir(static, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(static, name)
+		if err != nil {
+			return err
+		}
+		h.static["/static/"+name] = newAsset(name, b)
+		return nil
+	})
 	if err != nil {
 		panic(err)
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			h.static["/static/"+e.Name()] = mustLoad("static/"+e.Name(), "")
-		}
 	}
 	return h
 }
 
-// mustLoad reads an embedded file; for the HTML pages (buildID non-empty) it fills in the footer.
+// mustLoad reads an embedded page from pages/ and fills in the footer build id.
 func mustLoad(name, buildID string) asset {
 	b, err := content.ReadFile(name)
 	if err != nil {
 		panic(err)
 	}
-	if strings.HasPrefix(name, "pages/") {
-		b = injectBuildID(b, pagePlaceholder, buildID)
-	}
-	return newAsset(name, b)
+	return newAsset(name, injectBuildID(b, pagePlaceholder, buildID))
+}
+
+// errorPage is a generated 404 or 503 page: it has a Content-Length (set by serve) but no
+// ETag, so an error is never answered with a 304 and never cached as a validator.
+func errorPage(b []byte) asset {
+	return asset{body: b, ctype: contentType("x.html")}
 }
 
 func newAsset(name string, b []byte) asset {
@@ -159,6 +184,10 @@ func contentType(name string) string {
 		return "text/javascript; charset=utf-8"
 	case ".svg":
 		return "image/svg+xml"
+	case ".woff2": // not in Go's built-in table; system mime files differ between machines
+		return "font/woff2"
+	case ".woff":
+		return "font/woff"
 	}
 	if t := mime.TypeByExtension(path.Ext(name)); t != "" {
 		return t

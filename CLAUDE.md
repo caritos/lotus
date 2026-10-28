@@ -63,6 +63,13 @@ If the full suite is slow, run it in the background and wait for the result.
   `PUBLIC_ORIGIN` is validated and normalized; development mode warns when it listens beyond loopback;
   `deploy.sh` refuses a server `.env` that is not `APP_ENV=production` (override: `ALLOW_DEV_DEPLOY=1`).
   Secrets never go in the repo.
+- Embed everything static with `go:embed` so a release is one binary plus the server `.env`: migrations,
+  the React build, public pages, CSS, fonts (subfolders of `static/` are served at `/static/<path>`), icons,
+  seed data, default config and email or text templates. Put seed data and templates in a `data/` or
+  `templates/` folder inside the package that uses them (`//go:embed data/*`), never read them from disk at
+  runtime, and have tests use the embedded `fs.FS`. Never embed anything written at runtime (the database,
+  logs and uploads live under `DATA_DIR`), secrets or large media. Every 200 from `internal/web` carries an
+  `ETag` and a matching `If-None-Match` is a bodiless 304, because embedded files have no mod time.
 - Generated code (`*.gen.go`, `schema.d.ts`) is never edited by hand; change `openapi.yaml` and
   run `make api`. API types in the frontend come only from the generated client.
 - Go: standard library first, errors wrapped with `%w`, `context.Context` first, `gofmt` and
@@ -137,7 +144,11 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   stale upload temp files swept at start; 403/413 documented in `openapi.yaml` and 413 is JSON;
   unreadable photo files are logged 500s; middleware order and the proxy-to-throttle seam are pinned by
   tests; CI catches untracked generated files and fails (not skips) the embed check without a build.
-
+- Retro from the skills audit (2026-10-27): `/static/` now serves nested files (fonts) from the embedded
+  tree with explicit `font/woff2` and `font/woff` types; added the deferred `etagMatches` list, weak and `*`
+  cases, HEAD with `If-None-Match`, and Content-Length without ETag on 404 and 503; `make test` fails on
+  files that are not gofmt-clean; the embed rule above. The same rule and fixes went into the
+  `new-backend-server` and `new-web-app` skills.
 - Build id in every page footer (2026-10-27): `scripts/build-id.sh` (+ `build-id.test.sh`), `version.BuildID`
   via `-ldflags` in the Makefile, `deploy.sh` and the e2e harness, `build_id` in `/healthz` and `openapi.yaml`,
   footer placeholder substitution in `internal/web` (static pages, 404, 503, the app's `index.html`), React
@@ -190,7 +201,7 @@ Backups, restore and deploy
 
 Tests
 - Several assertions are weak or probabilistic: the migration concurrency test, transaction-after-expiry, the traversal test, spec path substring check, the unmounted-routes check, and some e2e heading and URL checks.
-- Missing cases: `etagMatches` list/weak/`*` forms, HEAD with `If-None-Match`, Content-Length on 404/503, a positive control for the cross-origin and cookie tests, PUT photo cross-user, oversize upload in e2e, file bytes in the upload unit test.
+- Missing cases: a positive control for the cross-origin and cookie tests, PUT photo cross-user, oversize upload in e2e, file bytes in the upload unit test.
 - The boundary guard uses a denylist, exact-match imports and scans `internal/` only; its own unit test is thin.
 - e2e: the port is chosen at config load (small race), a signal-killed server is noticed only after the 20 s timeout, `E2E_SKIP_BUILD=1` without a prior build fails confusingly, missing `pnpm` or `go` errors are unfriendly.
 - `TestRunDefaultsToServe` mutates the package-level `commands`; a few test names and variables are misleading.
