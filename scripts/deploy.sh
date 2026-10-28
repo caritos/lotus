@@ -247,16 +247,21 @@ listener_is_public() {
   case "$1" in 0.0.0.0:*|\*:*|\[::\]:*) return 0 ;; *) return 1 ;; esac
 }
 
-# check_port_owner: refuse when something is already listening on the app port and it is
-# not our own (active) unit. A listener while our unit is active is the previous release.
+# check_port_owner: refuse when something is already listening on the app port unless it
+# is our own service: the unit must be active AND `ss -p` must show a process for that
+# listener (ss -p lists only the caller's own processes, so a stranger's listener has no
+# users:(...) field). Remaining limit: another process of the same user on that port, or a
+# stranger's listener while our unit runs on a different port, cannot be told apart from
+# a stale view of ours; the hint in the message says how to look.
 check_port_owner() {
-  local out
-  out="$(rsh "ss -H -ltn" 2>/dev/null)" || { echo "deploy: warning: ss is not available on the server, so the port $HEALTH_PORT owner check was skipped" >&2; return 0; }
-  if printf '%s\n' "$out" | awk '{print $4}' | grep -q ":$HEALTH_PORT\$"; then
-    if [ "$(rsh "systemctl --user is-active '$SERVICE'" 2>/dev/null || true)" != active ]; then
-      die "port $HEALTH_PORT is already in use on the server and $SERVICE is not the active service listening on it. Pick a free port (ADDR in ~/$B/.env, or HEALTH_PORT) or stop the other listener. Nothing was changed."
-    fi
+  local out lines
+  out="$(rsh "ss -H -ltnp" 2>/dev/null)" || { echo "deploy: warning: ss is not available on the server, so the port $HEALTH_PORT owner check was skipped" >&2; return 0; }
+  lines="$(printf '%s\n' "$out" | awk -v p=":$HEALTH_PORT" 'substr($4, length($4)-length(p)+1) == p')"
+  [ -n "$lines" ] || return 0
+  if [ "$(rsh "systemctl --user is-active '$SERVICE'" 2>/dev/null || true)" = active ] && printf '%s\n' "$lines" | grep -q 'users:'; then
+    return 0
   fi
+  die "port $HEALTH_PORT is already in use on the server and $SERVICE is not the active service listening on it. Find the owner with: ss -ltnp | grep :$HEALTH_PORT, or ps aux (on a shared host the owner may be another user, whose process ss -p does not show). Then pick a free port (ADDR in ~/$B/.env, or HEALTH_PORT) or stop the other listener. Nothing was changed."
 }
 check_port_owner
 

@@ -606,7 +606,12 @@ EOS
 # fake ss -H -ltn: one LISTEN line per local address in FAKE_SS_LISTEN (newline separated)
 echo "ss $*" >> "$DCALLS"
 printf '%s\n' "${FAKE_SS_LISTEN:-}" | while IFS= read -r a; do
-  [ -n "$a" ] && echo "LISTEN 0      4096   $a   0.0.0.0:*"
+  [ -n "$a" ] || continue
+  case " $* " in
+    *" -H -ltnp "*) [ -n "${FAKE_SS_OWNED:-}" ] && u=' users:(("goweb",pid=1,fd=3))' || u="" ;;
+    *) u="" ;;
+  esac
+  echo "LISTEN 0      4096   $a   0.0.0.0:*$u"
 done
 exit 0
 EOS
@@ -649,7 +654,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN EXPECT_PUBLIC_LISTENER
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER
 }
 
 # make_release <name> <schema> [active]
@@ -776,6 +781,7 @@ test_deploy_refuses_a_port_already_in_use_by_another_service() {
   FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=inactive deploy deploy@host.example.com
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "8080" "names the port"
+  assert_contains "$(cat "$T/err")" "ss -ltnp | grep :8080" "says how to find the owner"
   assert_eq "$(active_release)" "releases/v1" "current unchanged"
   assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
   assert_false "no rsync" grep -q "^rsync" "$DCALLS"
@@ -783,9 +789,25 @@ test_deploy_refuses_a_port_already_in_use_by_another_service() {
 
 test_deploy_allows_the_port_when_our_own_service_is_active() {
   setup_deploy; make_release v1 0001_init.sql active
-  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=active deploy deploy@host.example.com
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 FAKE_SERVICE_ACTIVE=active deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
   assert_eq "$(active_release)" "releases/v2" "switched"
+}
+
+test_deploy_refuses_an_active_unit_when_the_listener_has_no_process_info() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SERVICE_ACTIVE=active deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "8080" "names the port"
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
+  assert_false "no rsync" grep -q "^rsync" "$DCALLS"
+}
+
+test_deploy_refuses_an_inactive_unit_even_when_the_listener_has_process_info() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SS_LISTEN="0.0.0.0:8080" FAKE_SS_OWNED=1 FAKE_SERVICE_ACTIVE=inactive deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_eq "$(active_release)" "releases/v1" "current unchanged"
 }
 
 test_deploy_check_also_refuses_a_busy_port() {
@@ -808,7 +830,7 @@ test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_en
 test_deploy_ignores_the_listener_checks_by_default() {
   setup_deploy; make_release v1 0001_init.sql active
   printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/goweb/.env"
-  FAKE_SS_LISTEN="127.0.0.1:8080" deploy deploy@host.example.com
+  FAKE_SS_LISTEN="127.0.0.1:8080" FAKE_SS_OWNED=1 deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
 }
 
@@ -816,12 +838,12 @@ test_listener_forms_public_vs_loopback() {
   local form
   for form in "0.0.0.0:8080" "*:8080" "[::]:8080"; do
     setup_deploy; make_release v1 0001_init.sql active
-    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
+    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
     assert_eq "$?" "0" "public form $form passes"
   done
   for form in "127.0.0.1:8080" "[::1]:8080"; do
     setup_deploy; make_release v1 0001_init.sql active
-    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
+    EXPECT_PUBLIC_LISTENER=1 FAKE_SS_OWNED=1 FAKE_SS_LISTEN="$form" deploy deploy@host.example.com
     assert_false "loopback form $form fails" test "$?" -eq 0
     assert_contains "$(cat "$T/err")" "ADDR=0.0.0.0:" "names the fix for $form"
   done
@@ -1630,6 +1652,8 @@ for t in \
   test_deploy_smoke_fails_when_the_site_serves_another_build_id \
   test_deploy_refuses_a_port_already_in_use_by_another_service \
   test_deploy_allows_the_port_when_our_own_service_is_active \
+  test_deploy_refuses_an_active_unit_when_the_listener_has_no_process_info \
+  test_deploy_refuses_an_inactive_unit_even_when_the_listener_has_process_info \
   test_deploy_check_also_refuses_a_busy_port \
   test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_env \
   test_deploy_ignores_the_listener_checks_by_default \
