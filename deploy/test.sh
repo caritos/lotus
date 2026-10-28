@@ -839,6 +839,10 @@ SMOKE_PID=""
 cat > "$SMOKE_SERVER_PY" <<'EOS'
 import http.server, json, sys
 cfg = json.load(open(sys.argv[1]))
+def footer():
+    if cfg.get("no_footer"):
+        return ""
+    return '<footer class="site-footer"><span class="build-id">Build ' + cfg.get("footer_id", cfg.get("build_id", "20261027-abc1234")) + '</span></footer>'
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def reply(self, code, ctype, body):
@@ -857,13 +861,16 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         if p == "/healthz":
-            self.reply(200, "application/json", json.dumps({"status": "ok", "version": cfg["version"], "commit": "abc"}))
+            h = {"status": "ok", "version": cfg["version"], "commit": "abc"}
+            if not cfg.get("no_build_id"):
+                h["build_id"] = cfg.get("build_id", "20261027-abc1234")
+            self.reply(200, "application/json", json.dumps(h))
         elif p == "/":
-            self.reply(200, "text/html", "<html><body><h1>goweb</h1></body></html>")
+            self.reply(200, "text/html", "<html><body><h1>goweb</h1>" + footer() + "</body></html>")
         elif p == "/privacy":
             self.reply(200, "text/html", "<html><body><h1>Privacy</h1><p>" + "We keep your data private. " * 5 + "</p></body></html>")
         elif p == "/app/":
-            self.reply(200, "text/html", "<html><div id=root></div></html>")
+            self.reply(200, "text/html", "<html><div id=root></div>" + ("" if cfg.get("no_app_footer") else "<noscript>" + footer() + "</noscript>") + "</html>")
         elif p == "/static/style.css":
             self.reply(200, "text/css", cfg["css"])
         elif p == "/api/notes":
@@ -977,6 +984,132 @@ EOS
 test_smoke_requires_arguments() {
   smoke
   assert_false "exit nonzero" test "$?" -eq 0
+}
+
+# ---------------------------------------------------------------- build id tests
+
+test_smoke_reports_the_build_id_when_footer_and_healthz_agree() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"20261027-abc1234"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$T/out")" "build id 20261027-abc1234" "stdout names the id"
+}
+
+test_smoke_fails_when_footer_id_differs_from_healthz() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"20261027-abc1234","footer_id":"20261026-def5678"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "20261026-def5678" "shows the footer id"
+  assert_contains "$(cat "$T/err")" "20261027-abc1234" "shows the healthz id"
+}
+
+test_smoke_fails_when_the_footer_is_missing() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","no_footer":true}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "footer" "names the check"
+}
+
+test_smoke_fails_when_healthz_has_no_build_id() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","no_build_id":true}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "build_id" "names the field"
+}
+
+test_smoke_fails_on_a_malformed_build_id() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"nonsense"}' || { stop_smoke_server; return; }
+  smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "nonsense" "shows the value"
+}
+
+test_smoke_passes_with_a_matching_EXPECTED_BUILD_ID() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"20261027-abc1234-dirty"}' || { stop_smoke_server; return; }
+  EXPECTED_BUILD_ID=20261027-abc1234-dirty smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(cat "$T/out")" "/app/ footer shows Build 20261027-abc1234-dirty" "checks /app/"
+}
+
+test_smoke_fails_when_EXPECTED_BUILD_ID_mismatches() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"20261027-abc1234"}' || { stop_smoke_server; return; }
+  EXPECTED_BUILD_ID=20261027-fffffff smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "20261027-fffffff" "shows the expected id"
+  assert_contains "$(cat "$T/err")" "20261027-abc1234" "shows the observed id"
+}
+
+test_smoke_fails_when_EXPECTED_BUILD_ID_is_not_in_the_app_html() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","no_app_footer":true}' || { stop_smoke_server; return; }
+  EXPECTED_BUILD_ID=20261027-abc1234 smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "exit nonzero" test "$rc" -eq 0
+  assert_contains "$(cat "$T/err")" "/app/" "names the page"
+}
+
+test_smoke_compares_EXPECTED_BUILD_ID_literally() {
+  smoke_css
+  start_site '{"version":"v9","css":"body{color:#123}\n","build_id":"20261027-abc1234"}' || { stop_smoke_server; return; }
+  EXPECTED_BUILD_ID='20261027-abc.234' smoke "$SITE_URL" v9
+  local rc=$?
+  stop_smoke_server
+  assert_false "a regex-looking id must not match" test "$rc" -eq 0
+}
+
+# deploy_site <build-id-the-site-reports>: starts the fake site for a v2 deploy against it.
+deploy_site() {
+  smoke_css
+  start_site '{"version":"v2","css":"body{color:#123}\n","build_id":"'"$1"'"}' || return 1
+  export PUBLIC_URL="$SITE_URL"
+}
+
+test_deploy_passes_the_build_id_to_the_build_and_to_smoke() {
+  setup_deploy; make_release v1 0001_init.sql active
+  local id; id="$(bash "$REPO_ROOT/scripts/build-id.sh")"
+  deploy_site "$id" || { stop_smoke_server; return; }
+  deploy deploy@host.example.com
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "0" "exit status ($(cat "$T/err"))"
+  assert_contains "$(grep '^go ' "$DCALLS")" "-X goweb/internal/version.BuildID=$id" "go build ldflags carry the id"
+  assert_contains "$(cat "$T/out")" "build id $id" "progress output names the id"
+  assert_contains "$(cat "$T/out")" "done: v2 ($id) is live" "success line names the id"
+  assert_contains "$(cat "$T/out")" "smoke OK" "smoke ran"
+  assert_contains "$(cat "$T/out")" "build id $id" "smoke checked the deployed id"
+}
+
+test_deploy_smoke_fails_when_the_site_serves_another_build_id() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy_site "19990101-0000000" || { stop_smoke_server; return; }
+  deploy deploy@host.example.com
+  local rc=$?
+  stop_smoke_server
+  assert_eq "$rc" "1" "exit status"
+  assert_contains "$(cat "$T/err")" "19990101-0000000" "shows the observed id"
+  assert_contains "$(cat "$T/err")" "smoke check FAILED" "says smoke failed"
 }
 
 # ---------------------------------------------------------------- review round 1 tests
@@ -1417,7 +1550,18 @@ for t in \
   test_deploy_takes_a_labeled_predeploy_backup_with_its_own_retention \
   test_restore_accepts_a_labeled_set \
   test_pull_ignores_labeled_sets_for_copy_keep_and_staleness \
-  test_deploy_missing_unit_hint_mentions_the_user_bus
+  test_deploy_missing_unit_hint_mentions_the_user_bus \
+  test_smoke_reports_the_build_id_when_footer_and_healthz_agree \
+  test_smoke_fails_when_footer_id_differs_from_healthz \
+  test_smoke_fails_when_the_footer_is_missing \
+  test_smoke_fails_when_healthz_has_no_build_id \
+  test_smoke_fails_on_a_malformed_build_id \
+  test_smoke_passes_with_a_matching_EXPECTED_BUILD_ID \
+  test_smoke_fails_when_EXPECTED_BUILD_ID_mismatches \
+  test_smoke_fails_when_EXPECTED_BUILD_ID_is_not_in_the_app_html \
+  test_smoke_compares_EXPECTED_BUILD_ID_literally \
+  test_deploy_passes_the_build_id_to_the_build_and_to_smoke \
+  test_deploy_smoke_fails_when_the_site_serves_another_build_id
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash deploy/test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac

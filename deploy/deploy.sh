@@ -23,7 +23,8 @@
 # releases/<version>.uploading, verify the sha256 on the server, rename into
 # place; atomically repoint `current`; restart the unit; poll /healthz on the
 # server's loopback until it reports the new version; prune old releases; run
-# smoke.sh against PUBLIC_URL when it is set.
+# smoke.sh against PUBLIC_URL when it is set (with EXPECTED_BUILD_ID, so the page footers and
+# /healthz must show the id this deploy built; see scripts/build-id.sh).
 #
 # If the new release is not healthy: when it carries no migration (the highest
 # migration file is the same as in the previous release) `current` is switched
@@ -173,6 +174,10 @@ preflight() {
 VERSION="${VERSION:-$(cd "$REPO_ROOT" && git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 case "$VERSION" in ""|.|..|-*|.*|*..*|*[!A-Za-z0-9._-]*) die "invalid VERSION '$VERSION' (letters, digits, . _ - only; no '..', not starting with '.' or '-')" ;; esac
 COMMIT="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# YYYYMMDD-<short commit> (UTC date; "-dirty" for uncommitted changes), computed once: it goes
+# into the binary's ldflags and is what smoke.sh must then find on the public site.
+BUILD_ID="$(bash "$REPO_ROOT/scripts/build-id.sh" 2>/dev/null)" || BUILD_ID=""
+case "$BUILD_ID" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-?*) ;; *) die "scripts/build-id.sh did not print a build id (got '$BUILD_ID')" ;; esac
 
 preflight
 
@@ -245,9 +250,9 @@ if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
 fi
 [ -f "$EMBED_INDEX" ] || die "the web app is not built ($EMBED_INDEX is missing); run pnpm build in web/"
 
-step "building goweb $VERSION ($COMMIT) for ${GOOS:-linux}/${GOARCH:-amd64}"
+step "building goweb $VERSION ($COMMIT), build id $BUILD_ID, for ${GOOS:-linux}/${GOARCH:-amd64}"
 (cd "$REPO_ROOT/web/api" && GOOS="${GOOS:-linux}" GOARCH="${GOARCH:-amd64}" CGO_ENABLED=0 go build \
-  -ldflags "-s -w -X goweb/internal/version.Version=$VERSION -X goweb/internal/version.Commit=$COMMIT" \
+  -ldflags "-s -w -X goweb/internal/version.Version=$VERSION -X goweb/internal/version.Commit=$COMMIT -X goweb/internal/version.BuildID=$BUILD_ID" \
   -o "$TMP/goweb" ./cmd/goweb) >&2 || die "go build failed"
 LOCAL_SUM="$(sha_local "$TMP/goweb")"
 
@@ -426,11 +431,11 @@ done" || echo "deploy: warning: pruning failed (the deploy itself succeeded)" >&
 # ---------------------------------------------------------------- smoke
 if [ -n "$PUBLIC_URL" ]; then
   step "smoke check against $PUBLIC_URL"
-  if ! bash "$SCRIPT_DIR/smoke.sh" "$PUBLIC_URL" "$VERSION"; then
+  if ! EXPECTED_BUILD_ID="$BUILD_ID" bash "$SCRIPT_DIR/smoke.sh" "$PUBLIC_URL" "$VERSION"; then
     echo "deploy: the public smoke check FAILED. The release is live and was not rolled back; check the proxy, TLS and PUBLIC_ORIGIN settings." >&2
     exit 1
   fi
 else
   step "note: PUBLIC_URL is not set, so the public smoke check was skipped"
 fi
-step "done: $VERSION is live"
+step "done: $VERSION ($BUILD_ID) is live"

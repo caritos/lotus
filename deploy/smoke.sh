@@ -4,11 +4,15 @@
 #
 #   smoke.sh <url> <expected-version>
 #
-# Checks: /healthz is JSON with status ok and the expected version; / is 200 HTML
-# containing the app name; /privacy is 200 with real body text; /app/ is 200;
+# Checks: /healthz is JSON with status ok, the expected version and a well-formed build_id
+# (YYYYMMDD-<short commit>); / is 200 HTML containing the app name and a "Build <id>"
+# footer whose id equals the /healthz build_id; /privacy is 200 with real body text; /app/ is 200;
 # /nope is 404; /static/style.css fetched over HTTP/1.0 with compression is
 # byte-identical to the local file; unauthenticated GET /api/notes is 401.
 # Redirects are NOT followed: a 301 to another host fails the check that sees it.
+# When EXPECTED_BUILD_ID is set, the /healthz build_id must equal it and the text
+# "Build <id>" must appear in the / and /app/ HTML (curl shows it; the React footer is
+# rendered from it).
 # Exit status: 0 all checks passed, 1 a check failed, 2 bad usage.
 #
 # Environment:
@@ -16,6 +20,7 @@
 #   CSS_FILE   local stylesheet to compare, default <repo>/web/api/internal/web/static/style.css
 #              (the check is skipped with a note when the file is absent)
 #   CURL       curl binary, default curl
+#   EXPECTED_BUILD_ID   the build id that was just deployed (deploy.sh sets it)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +41,9 @@ case "$BASE" in http://*|https://*) ;; *) echo "smoke: url must start with http:
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 FAILURES=0
+EXPECTED_BUILD_ID="${EXPECTED_BUILD_ID:-}"
+HEALTH_BUILD_ID=""
+BUILD_ID_RE='^[0-9]{8}-[0-9a-z]+(-dirty)?$'
 
 fail() { FAILURES=$((FAILURES + 1)); echo "smoke FAIL: $*" >&2; }
 pass() { echo "smoke ok: $*"; }
@@ -65,6 +73,17 @@ else
     else
       pass "/healthz reports version $EXPECTED"
     fi
+    HEALTH_BUILD_ID="$(printf '%s' "$body" | sed -n 's/.*"build_id" *: *"\([^"]*\)".*/\1/p')"
+    if [ -z "$HEALTH_BUILD_ID" ]; then
+      fail "/healthz: no build_id field: $(snippet)"
+    elif ! printf '%s\n' "$HEALTH_BUILD_ID" | grep -Eq "$BUILD_ID_RE"; then
+      fail "/healthz: build_id '$HEALTH_BUILD_ID' is not YYYYMMDD-<short commit>"
+      HEALTH_BUILD_ID=""
+    elif [ -n "$EXPECTED_BUILD_ID" ] && [ "$HEALTH_BUILD_ID" != "$EXPECTED_BUILD_ID" ]; then
+      fail "/healthz: build_id is '$HEALTH_BUILD_ID', want '$EXPECTED_BUILD_ID'"
+    else
+      pass "/healthz reports build id $HEALTH_BUILD_ID"
+    fi
   fi
 fi
 
@@ -78,6 +97,22 @@ elif ! grep -qiF -- "$APP_NAME" "$TMP/body"; then
   fail "/: home page does not contain '$APP_NAME'"
 else
   pass "/ is HTML and contains '$APP_NAME'"
+fi
+
+# The footer of / shows "Build <id>"; it must be the id /healthz reports (and the deployed one).
+if [ "$STATUS" = "200" ]; then
+  footer_id="$(grep -o 'Build [0-9][0-9a-z-]*' "$TMP/body" | head -n 1 | sed 's/^Build //')"
+  if [ -z "$footer_id" ]; then
+    fail "/: no 'Build <id>' footer in the page: $(snippet)"
+  elif ! printf '%s\n' "$footer_id" | grep -Eq "$BUILD_ID_RE"; then
+    fail "/: footer build id '$footer_id' is not YYYYMMDD-<short commit>"
+  elif [ -n "$HEALTH_BUILD_ID" ] && [ "$footer_id" != "$HEALTH_BUILD_ID" ]; then
+    fail "/: footer shows build id '$footer_id' but /healthz reports '$HEALTH_BUILD_ID'"
+  elif [ -n "$EXPECTED_BUILD_ID" ] && [ "$footer_id" != "$EXPECTED_BUILD_ID" ]; then
+    fail "/: footer shows build id '$footer_id', want '$EXPECTED_BUILD_ID'"
+  else
+    pass "/ footer shows Build $footer_id"
+  fi
 fi
 
 # /privacy: real text, not just markup
@@ -95,7 +130,18 @@ fi
 
 # /app/
 fetch /app/
-if [ "$STATUS" != "200" ]; then fail "/app/: status $STATUS, want 200"; else pass "/app/ is 200"; fi
+if [ "$STATUS" != "200" ]; then
+  fail "/app/: status $STATUS, want 200"
+else
+  pass "/app/ is 200"
+  if [ -n "$EXPECTED_BUILD_ID" ]; then
+    if grep -qF -- "Build $EXPECTED_BUILD_ID" "$TMP/body"; then
+      pass "/app/ footer shows Build $EXPECTED_BUILD_ID"
+    else
+      fail "/app/: 'Build $EXPECTED_BUILD_ID' not found in the page: $(snippet)"
+    fi
+  fi
+fi
 
 # /nope
 fetch /nope
