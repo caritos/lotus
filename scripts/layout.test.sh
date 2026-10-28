@@ -11,8 +11,13 @@ cd "$REPO" || exit 2
 # Host mode: .goweb-origin at the root (written by the wrapper that turns goweb into an app) means the app
 # was created inside a host repo that has its own ios/ and root CLAUDE.md. The starter-only checks (the
 # ios/ placeholder, goweb's own root CLAUDE.md headings) are skipped then; every structural check stays on.
+# The marker name and the starter's README title are built from two pieces on purpose: scripts/rename.sh
+# rewrites every "goweb" in the tree, and these two strings must keep meaning what the wrapper writes
+# (.goweb-origin) and what the unrenamed starter says ("# goweb") in a renamed app too.
+MARKER=".go""web-origin"
+STARTER_TITLE="# go""web"
 HOST=0
-[ -e .goweb-origin ] && HOST=1
+[ -e "$MARKER" ] && HOST=1
 
 pass=0; fail=0
 ok() { pass=$((pass+1)); echo "ok   - $1"; }
@@ -20,8 +25,8 @@ bad() { fail=$((fail+1)); echo "FAIL - $1"; }
 
 # The marker is for apps created from the starter. If the root README still starts with "# goweb" this is
 # the starter itself (or an unrenamed copy), and the marker must not switch its starter-only checks off.
-if [ "$HOST" -eq 1 ] && [ "$(head -n 1 README.md 2>/dev/null)" = "# goweb" ]; then
-  bad ".goweb-origin present in the starter itself; host mode is only for apps created from it"
+if [ "$HOST" -eq 1 ] && [ "$(head -n 1 README.md 2>/dev/null)" = "$STARTER_TITLE" ]; then
+  bad "$MARKER present in the starter itself; host mode is only for apps created from it"
   HOST=0
 fi
 
@@ -181,7 +186,7 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     if [ "${2:-}" = host-log ]; then
       printf '\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' >> "$WORK/c/CLAUDE.md"
     fi
-    if [ "${1:-}" = with-origin ]; then echo 0123456789abcdef > "$WORK/c/.goweb-origin"; fi
+    if [ "${1:-}" = with-origin ]; then echo 0123456789abcdef > "$WORK/c/$MARKER"; fi
     git -C "$WORK/c" add -A
   }
   add_to_done() { # <file in the copy>: put an old path inside that file's first Done section
@@ -195,8 +200,8 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   make_host with-origin host-log && printf '%s\n' 'web/e2e/ holds Playwright' >> "$WORK/c/web/CLAUDE.md" && git -C "$WORK/c" add -A
   if out="$(inner_out)"; then bad "two-log host mode missed a stale path outside the Done sections"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "two-log host mode still flags a stale path outside the Done sections"; else bad "two-log stale path failed for another reason"; fi
   # The marker must not turn goweb itself into a host.
-  make_copy && echo 0123456789abcdef > "$WORK/c/.goweb-origin"
-  if out="$(inner_out)"; then bad "guard accepted .goweb-origin in the starter itself"; elif printf '%s\n' "$out" | grep -q 'FAIL - .goweb-origin present in the starter itself; host mode is only for apps created from it'; then ok "guard fails loudly on .goweb-origin in the starter itself"; else bad "marker in the starter failed for another reason"; fi
+  make_copy && printf '%s\n' "$STARTER_TITLE" > "$WORK/c/README.md" && echo 0123456789abcdef > "$WORK/c/$MARKER"
+  if out="$(inner_out)"; then bad "guard accepted the marker in the starter itself"; elif printf '%s\n' "$out" | grep -qF "FAIL - $MARKER present in the starter itself; host mode is only for apps created from it"; then ok "guard fails loudly on .goweb-origin in the starter itself"; else bad "marker in the starter failed for another reason"; fi
   make_host with-origin
   if out="$(inner_out)"; then ok "host layout with .goweb-origin passes (no ios README, host CLAUDE.md, goweb's at web/CLAUDE.md)"; else bad "host layout with .goweb-origin fails: $(printf '%s\n' "$out" | grep FAIL)"; fi
   make_host
