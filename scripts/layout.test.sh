@@ -186,6 +186,8 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     if [ "${2:-}" = host-log ]; then
       printf '\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' >> "$WORK/c/CLAUDE.md"
     fi
+    # In a wrapper-created app the marker is tracked and so already in the copy: drop it unless asked for.
+    rm -f "$WORK/c/$MARKER"
     if [ "${1:-}" = with-origin ]; then echo 0123456789abcdef > "$WORK/c/$MARKER"; fi
     git -C "$WORK/c" add -A
   }
