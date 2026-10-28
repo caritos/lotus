@@ -57,9 +57,11 @@ func New(cfg config.Config, deps Deps) http.Handler {
 	return Wrap(cfg, deps.Logger, mux)
 }
 
-// Wrap puts the middleware chain documented on New around h. New uses it for the
-// application mux; tests use it to put a handler that panics inside the real chain.
-func Wrap(cfg config.Config, logger *slog.Logger, mux http.Handler) http.Handler {
+// Wrap puts the middleware chain documented on New around h. It is exported only because
+// the integration tests live in a separate package (web/api/tests): it exists for New and
+// for those tests, which put a handler that panics inside the real chain. Production code
+// goes through New.
+func Wrap(cfg config.Config, logger *slog.Logger, h http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -69,7 +71,6 @@ func Wrap(cfg config.Config, logger *slog.Logger, mux http.Handler) http.Handler
 	if err != nil {
 		proxy, _ = TrustedProxy("")
 	}
-	var h http.Handler = mux
 	h = BodyLimit(maxBodyBytes)(h)
 	h = SameOrigin(cfg.PublicOrigin)(h)
 	h = SecurityHeaders()(h)
