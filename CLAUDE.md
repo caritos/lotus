@@ -67,6 +67,9 @@ If the full suite is slow, run it in the background and wait for the result.
   `deploy.sh` refuses a server `.env` that is not `APP_ENV=production` (override: `ALLOW_DEV_DEPLOY=1`).
   `deploy.sh` also refuses a port already held by another service, and with `EXPECT_PUBLIC_LISTENER=1`
   a loopback `ADDR` or a missing public listener (`ss`); see `docs/deploy.md`.
+  `deploy.sh` runs a test gate (`go vet`, `go test -short`, `pnpm test`, `pnpm typecheck`) and a Node-major
+  check against `.nvmrc` before anything changes (`SKIP_TESTS=1` skips it), and warns when
+  `${SERVICE}-backup.timer` is not enabled on the server (`REQUIRE_BACKUP_TIMER=1` refuses).
   Secrets never go in the repo.
 - Embed everything static with `go:embed` so a release is one binary plus the server `.env`: migrations,
   the React build, public pages, CSS, fonts (subfolders of `static/` are served at `/static/<path>`), icons,
@@ -145,6 +148,10 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   backfilled from the files embedded in the binary at first run, so their earlier history cannot be verified.
 - `deploy.sh`: port-owner check (always) and optional `EXPECT_PUBLIC_LISTENER=1` public-listener checks,
   with shell tests using a fake `ss`.
+- `deploy.sh`: test gate before the lock, build and upload (`go vet`, `go test -short` in `web/api`, `pnpm test`,
+  `pnpm typecheck` in `web/`; `SKIP_TESTS=1` skips it; not run by `--check`), Node major checked against `.nvmrc`
+  unless `SKIP_WEB_BUILD=1`, and a preflight on `${SERVICE}-backup.timer` (warning, or refusal with
+  `REQUIRE_BACKUP_TIMER=1`; also in `--check`). Shell tests use fake `go`, `pnpm`, `node` and `systemctl`.
 - `scripts/install-backup-agent.sh`: launchd agent for the Mac backup pull (daily 03:30, settings in
   `~/.config/goweb/backup-pull.env` from `scripts/backup-pull.env.example`, `--uninstall`); shell tests use a fake
   `launchctl`. Real launchd load: not yet verified on a Mac.

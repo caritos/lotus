@@ -47,7 +47,17 @@
 # relative to the unit's WorkingDirectory (REMOTE_BASE/data), otherwise REMOTE_BASE/data.
 #   VERSION           release name, default `git describe --tags --always --dirty`
 #   GOOS, GOARCH      default linux and amd64
-#   SKIP_WEB_BUILD=1  do not run `pnpm build` (the embedded app must already exist)
+#   SKIP_WEB_BUILD=1  do not run `pnpm build` (the embedded app must already exist); also
+#                     skips the Node version check
+#   SKIP_TESTS=1      skip the test gate. Otherwise, after the preflight and before anything
+#                     changes on the server (not in --check), deploy runs `go vet ./...` and
+#                     `go test -short ./...` in web/api and `pnpm test` and `pnpm typecheck`
+#                     in web/, and stops on the first failure
+#   Node check        unless SKIP_WEB_BUILD=1, the major version in web/.nvmrc (else .nvmrc)
+#                     must equal `node -v`, or the deploy stops early
+#   REQUIRE_BACKUP_TIMER=1  refuse to deploy (nothing changed) when `${SERVICE}-backup.timer`
+#                     is not enabled on the server; without it that only prints a warning.
+#                     The preflight, and so --check, checks the timer either way
 #   EMBED_INDEX       the built app's index.html, default web/api/internal/web/app/index.html
 #   KEEP_OLD          releases kept besides the active and previous one, default 3
 #   PUBLIC_URL        e.g. https://app.example.com; when set, smoke.sh runs at the end
@@ -174,6 +184,14 @@ preflight() {
     15) die "no sha256sum or shasum on the server" ;;
     *) die "server layout check failed (exit $rc)" ;;
   esac
+
+  step "preflight: backup timer"
+  if ! rsh "systemctl --user is-enabled '$SERVICE-backup.timer'" >/dev/null 2>&1; then
+    if [ "${REQUIRE_BACKUP_TIMER:-0}" = 1 ]; then
+      die "the daily backup timer '$SERVICE-backup.timer' is not enabled on the server (REQUIRE_BACKUP_TIMER=1). Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (install steps: docs/deploy.md, section 3). Nothing was changed."
+    fi
+    echo "deploy: WARNING: the daily backup timer '$SERVICE-backup.timer' is not enabled on the server, so no daily backups run. Enable it with: systemctl --user enable --now $SERVICE-backup.timer   (see docs/deploy.md, section 3). Set REQUIRE_BACKUP_TIMER=1 to refuse such a deploy." >&2
+  fi
 }
 
 VERSION="${VERSION:-$(cd "$REPO_ROOT" && git describe --tags --always --dirty 2>/dev/null || echo dev)}"
@@ -277,6 +295,31 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
   fi
   echo "deploy: preflight OK (nothing was changed)"
   exit 0
+fi
+
+# ---------------------------------------------------------------- test gate
+# Nothing has changed on the server yet; refuse to ship code that does not pass its tests.
+if [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
+  NVMRC=""
+  for f in "$REPO_ROOT/web/.nvmrc" "$REPO_ROOT/.nvmrc"; do
+    if [ -f "$f" ]; then NVMRC="$f"; break; fi
+  done
+  if [ -n "$NVMRC" ]; then
+    want="$(tr -d 'v \r\n' < "$NVMRC")"; want="${want%%.*}"
+    have="$(node -v 2>/dev/null || true)"
+    got="${have#v}"; got="${got%%.*}"
+    [ -n "$got" ] || die "node is required to build the web app but 'node -v' printed nothing"
+    [ "$got" = "$want" ] || die "Node $want is required (${NVMRC#"$REPO_ROOT"/}) but node -v says ${have:-nothing}. Switch with: nvm use. Nothing was changed."
+  fi
+fi
+
+if [ "${SKIP_TESTS:-0}" != 1 ]; then
+  command -v pnpm >/dev/null 2>&1 || die "pnpm is required to run the web tests (or set SKIP_TESTS=1)"
+  step "test gate: go vet, go test -short, pnpm test, pnpm typecheck (SKIP_TESTS=1 skips)"
+  (cd "$REPO_ROOT/web/api" && go vet ./...) >&2 || die "go vet failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
+  (cd "$REPO_ROOT/web/api" && go test -short ./...) >&2 || die "go test failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
+  (cd "$REPO_ROOT/web" && pnpm test) >&2 || die "pnpm test failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
+  (cd "$REPO_ROOT/web" && pnpm typecheck) >&2 || die "pnpm typecheck failed; nothing was changed (SKIP_TESTS=1 skips the test gate)"
 fi
 
 # ---------------------------------------------------------------- build

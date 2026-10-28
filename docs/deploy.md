@@ -131,13 +131,16 @@ PUBLIC_URL=https://app.example.com scripts/deploy.sh deploy@host.example.com
 ```
 
 `--check` verifies the SSH login, linger, local tools, that `~/goweb/data`, `.env` and the
-service unit exist, that the server has `curl` or `wget` and a sha256 tool, and that the server
+service unit exist, that the server has `curl` or `wget` and a sha256 tool, that the daily backup
+timer `goweb-backup.timer` is enabled (section 3; a warning, or a refusal with `REQUIRE_BACKUP_TIMER=1`), and that the server
 `.env` says `APP_ENV=production` and has readable `DATA_DIR` and `ADDR` lines.
 
 Environment knobs: `SSH_KEY`, `REMOTE_BASE`, `SERVICE`, `HEALTH_PORT` (the app port,
 default 8080), `HEALTH_TIMEOUT` (default 20 s), `VERSION` (default
 `git describe --tags --always --dirty`; a dirty tree is allowed and shows in the version),
-`SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`, `ALLOW_DEV_DEPLOY=1`. When `HEALTH_PORT` is not set the port is read
+`SKIP_WEB_BUILD=1`, `KEEP_OLD`, `HEALTH_RECHECK_DELAY`, `ALLOW_DEV_DEPLOY=1`, `SKIP_TESTS=1` (skip the
+test gate below), `REQUIRE_BACKUP_TIMER=1` (refuse to deploy when `${SERVICE}-backup.timer` is not enabled
+on the server; otherwise that only warns). When `HEALTH_PORT` is not set the port is read
 from `ADDR` in the server's `.env` (default 8080).
 
 What a deploy does, in order:
@@ -145,28 +148,32 @@ What a deploy does, in order:
 1. Preflight (as `--check`). Every ssh and rsync call uses `BatchMode=yes`, so it fails
    instead of prompting for a password. This includes resolving `APP_ENV`, `DATA_DIR` and the app port
    from the server's `.env` as described above, and refusing a non-production `APP_ENV`.
-2. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
+2. The test gate, before anything changes on the server (not part of `--check`; `SKIP_TESTS=1` skips it):
+   `go vet ./...` and `go test -short ./...` in `web/api`, then `pnpm test` and `pnpm typecheck` in `web/`.
+   The first failure stops the deploy. Unless `SKIP_WEB_BUILD=1`, the deploy also stops early when the
+   major version in `.nvmrc` (`web/.nvmrc` if present) differs from `node -v`.
+3. `pnpm build`, then a static `GOOS=linux GOARCH=amd64 CGO_ENABLED=0` build with the version,
    commit and build id injected. The build id (`YYYYMMDD-<short commit>`, UTC date, `-dirty` for
    uncommitted changes to tracked files) comes from `scripts/build-id.sh`, is computed once, and is
    printed in the progress output and in the final "done" line.
-3. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
+4. Takes a deploy lock on the server (`~/goweb/.deploy.lock`, holding who and when). A second deploy
    fails at once with exit 1 and changes nothing; a lock older than 30 minutes is reported and taken
    over. The lock is released on exit, also after a failure or Ctrl-C.
-4. Checks that the resolved `DATA_DIR` holds `db/goweb.db` (when a release is active).
-5. If a release is active, runs `goweb backup --label predeploy --keep 5` on the server with the running
+5. Checks that the resolved `DATA_DIR` holds `db/goweb.db` (when a release is active).
+6. If a release is active, runs `goweb backup --label predeploy --keep 5` on the server with the running
    binary (the pre-deploy snapshot, `<timestamp>-predeploy`) and remembers its directory. Pre-deploy sets have
    their own retention (the 5 newest), never push the daily sets out, and stay on the server (the pull script
    ignores them); see [backups.md](backups.md).
-6. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the
+7. Uploads to `releases/<version>.uploading`, compares the sha256 on the server with the
    local one (a mismatch aborts with nothing changed), then renames into place.
-7. Repoints `current` (an atomic rename when the server's `mv` supports `-T`, else
+8. Repoints `current` (an atomic rename when the server's `mv` supports `-T`, else
    `ln -sfn`, and it says so), restarts the unit and polls `/healthz` on the server's
    loopback until it reports exactly the new version (up to `HEALTH_TIMEOUT` seconds on the clock),
    then probes once more after 3 seconds: a service that comes up and falls over again counts as failed.
-8. Keeps the active release, the previous one and up to three older ones; deletes the
+9. Keeps the active release, the previous one and up to three older ones; deletes the
    rest inside `releases/` (never the active or previous release, and never an `*.uploading` directory
    younger than 30 minutes).
-9. When `PUBLIC_URL` is set, runs `scripts/smoke.sh` against it from your machine with
+10. When `PUBLIC_URL` is set, runs `scripts/smoke.sh` against it from your machine with
    `EXPECTED_BUILD_ID` set to the id it just built. A failing smoke check makes the deploy exit 1 but
    does not roll back.
 
