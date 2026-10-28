@@ -18,6 +18,13 @@ pass=0; fail=0
 ok() { pass=$((pass+1)); echo "ok   - $1"; }
 bad() { fail=$((fail+1)); echo "FAIL - $1"; }
 
+# The marker is for apps created from the starter. If the root README still starts with "# goweb" this is
+# the starter itself (or an unrenamed copy), and the marker must not switch its starter-only checks off.
+if [ "$HOST" -eq 1 ] && [ "$(head -n 1 README.md 2>/dev/null)" = "# goweb" ]; then
+  bad ".goweb-origin present in the starter itself; host mode is only for apps created from it"
+  HOST=0
+fi
+
 # deploy/ holds no shell scripts.
 sh_in_deploy="$(ls deploy/*.sh 2>/dev/null)"
 [ -z "$sh_in_deploy" ] && ok "deploy/ contains no *.sh" || bad "deploy/ still has scripts: $sh_in_deploy"
@@ -77,7 +84,7 @@ grep -E '^[[:space:]]*cd web/api && go build' Makefile | grep -q 'dist/' && ok "
 # Stale references to the old locations, outside docs/superpowers (historical specs) and this
 # file. The dated entries under "### Done" in goweb's log are history and exempt; everything else,
 # including the rest of that file, is current-state text and covered. The log is in CLAUDE.md, or in
-# web/CLAUDE.md when the app lives in a host repo (host mode only).
+# web/CLAUDE.md when the app lives in a host repo (host mode only; both files are exempt for their own Done section).
 SCRIPT_RE='(deploy|smoke|restore|pull-backups)\.sh'
 stale_report() {
   {
@@ -86,18 +93,34 @@ stale_report() {
     # bare script name on a line that also names deploy/ (unless it is clearly about scripts/)
     git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . ':!docs/superpowers' ':!scripts/layout.test.sh' |
       grep -E "$SCRIPT_RE" | grep -v 'scripts/'
-  } 2>/dev/null | sort -u | awk -F: -v s="$done_start" -v e="$done_end" -v f="$LOG_FILE" '!($1==f && $2>s && $2<e)'
+  } 2>/dev/null | sort -u | awk -F: -v ranges="$DONE_RANGES" 'BEGIN { n = split(ranges, r, " ") }
+      { for (i = 1; i <= n; i++) { split(r[i], x, ","); if ($1 == x[1] && $2 > x[2] && $2 < x[3]) next } print }'
 }
-LOG_FILE=CLAUDE.md
-if [ "$HOST" -eq 1 ] && ! grep -q '^### Done' CLAUDE.md 2>/dev/null && grep -q '^### Done' web/CLAUDE.md 2>/dev/null; then LOG_FILE=web/CLAUDE.md; fi
-done_start="$(grep -n '^### Done' "$LOG_FILE" 2>/dev/null | head -1 | cut -d: -f1)"
-done_end="$(grep -n '^### Not yet verified' "$LOG_FILE" 2>/dev/null | head -1 | cut -d: -f1)"
-if [ -n "$done_start" ] && [ -n "$done_end" ]; then
-  ok "$LOG_FILE has the Done section markers"
-elif [ "$HOST" -eq 1 ]; then
-  ok "host mode: no goweb log with a Done section found; nothing exempt"; done_start=0; done_end=0
+# DONE_RANGES: "file,first,last" triples, one per goweb log: the lines strictly between its "### Done"
+# heading and the next "### " heading (or the end of the file). In host mode both the host's root CLAUDE.md
+# and goweb's moved web/CLAUDE.md may have a log; each file's own Done section is exempt, the rest of both
+# stays checked.
+DONE_RANGES=""
+done_range() { # <file>: print "file,start,end" when the file has a Done section
+  local f="$1" st en total
+  st="$(grep -n '^### Done' "$f" 2>/dev/null | head -1 | cut -d: -f1)"
+  [ -n "$st" ] || return 1
+  total="$(wc -l < "$f" | tr -d ' ')"
+  en="$(awk -v s="$st" 'NR>s && /^### / {print NR; exit}' "$f")"
+  printf '%s,%s,%s' "$f" "$st" "${en:-$((total + 2))}"
+}
+if r="$(done_range CLAUDE.md)"; then DONE_RANGES="$r"; fi
+if [ "$HOST" -eq 1 ] && r="$(done_range web/CLAUDE.md)"; then DONE_RANGES="$DONE_RANGES $r"; fi
+if [ "$HOST" -eq 0 ]; then
+  if grep -q '^### Done' CLAUDE.md 2>/dev/null && grep -q '^### Not yet verified' CLAUDE.md 2>/dev/null; then
+    ok "CLAUDE.md has the Done section markers"
+  else
+    bad "CLAUDE.md lost its '### Done' / '### Not yet verified' headings"
+  fi
+elif [ -n "$DONE_RANGES" ]; then
+  ok "host mode: Done sections exempt in:$(for x in $DONE_RANGES; do printf ' %s' "${x%%,*}"; done)"
 else
-  bad "CLAUDE.md lost its '### Done' / '### Not yet verified' headings"; done_start=0; done_end=0
+  ok "host mode: no goweb log with a Done section found; nothing exempt"
 fi
 stale="$(stale_report)"
 [ -z "$stale" ] && ok "no stale references to the old paths" || bad "stale references:"$'\n'"$stale"
@@ -150,13 +173,30 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   # Host mode: the app lives inside a host repo (the wrapper writes .goweb-origin, and moves goweb's
   # CLAUDE.md to web/CLAUDE.md when the host already has a root one). Starter-only checks are skipped,
   # goweb itself (no .goweb-origin) stays fully guarded.
-  make_host() { # [with-origin]
+  make_host() { # [with-origin] [host-log]: host-log gives the host's root CLAUDE.md its own Done log
     make_copy || return 1
     ( cd "$WORK/c" && git rm -qf ios/README.md && mkdir -p ios && echo "// host app" > ios/App.swift \
-      && git mv CLAUDE.md web/CLAUDE.md && printf '# Host repo\n\nNo goweb headings here.\n' > CLAUDE.md ) || return 1
+      && git mv CLAUDE.md web/CLAUDE.md && printf '# Host repo\n\nNo goweb headings here.\n' > CLAUDE.md \
+      && sed -i.bak '1s/.*/# Host app/' README.md && rm -f README.md.bak ) || return 1
+    if [ "${2:-}" = host-log ]; then
+      printf '\n### Done\n\n- host work\n\n### Not yet verified on device\n\n- host thing\n' >> "$WORK/c/CLAUDE.md"
+    fi
     if [ "${1:-}" = with-origin ]; then echo 0123456789abcdef > "$WORK/c/.goweb-origin"; fi
     git -C "$WORK/c" add -A
   }
+  add_to_done() { # <file in the copy>: put an old path inside that file's first Done section
+    awk '{print} /^### Done/ && !d {print "- old entry mentions web/e2e/ and deploy/deploy.sh"; d=1}' "$WORK/c/$1" > "$WORK/claude.new" && cp "$WORK/claude.new" "$WORK/c/$1" && git -C "$WORK/c" add -A
+  }
+  # Both logs: the host's own root log AND goweb's moved log at web/CLAUDE.md.
+  make_host with-origin host-log
+  if out="$(inner_out)"; then ok "host layout with its own Done log in CLAUDE.md and goweb's in web/CLAUDE.md passes"; else bad "host with two logs fails: $(printf '%s\n' "$out" | grep -A3 FAIL)"; fi
+  make_host with-origin host-log && add_to_done CLAUDE.md && add_to_done web/CLAUDE.md
+  if out="$(inner_out)"; then ok "host mode exempts the Done section of EACH log"; else bad "host mode flags a Done section: $(printf '%s\n' "$out" | grep -A3 FAIL)"; fi
+  make_host with-origin host-log && printf '%s\n' 'web/e2e/ holds Playwright' >> "$WORK/c/web/CLAUDE.md" && git -C "$WORK/c" add -A
+  if out="$(inner_out)"; then bad "two-log host mode missed a stale path outside the Done sections"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "two-log host mode still flags a stale path outside the Done sections"; else bad "two-log stale path failed for another reason"; fi
+  # The marker must not turn goweb itself into a host.
+  make_copy && echo 0123456789abcdef > "$WORK/c/.goweb-origin"
+  if out="$(inner_out)"; then bad "guard accepted .goweb-origin in the starter itself"; elif printf '%s\n' "$out" | grep -q 'FAIL - .goweb-origin present in the starter itself; host mode is only for apps created from it'; then ok "guard fails loudly on .goweb-origin in the starter itself"; else bad "marker in the starter failed for another reason"; fi
   make_host with-origin
   if out="$(inner_out)"; then ok "host layout with .goweb-origin passes (no ios README, host CLAUDE.md, goweb's at web/CLAUDE.md)"; else bad "host layout with .goweb-origin fails: $(printf '%s\n' "$out" | grep FAIL)"; fi
   make_host

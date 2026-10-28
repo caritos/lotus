@@ -151,9 +151,12 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   file) require the failure to come from the `deploy/` check itself, not from any other check.
   **Host mode:** when `.goweb-origin` exists at the root (the `new-web-app` wrapper writes it when it turns goweb
   into an app) the app may live inside a host repo with its own `ios/` and root `CLAUDE.md`. The guard then
-  skips only the starter-only checks (the `ios/` placeholder and goweb's own root `CLAUDE.md` headings), finds
-  goweb's log in whichever of `CLAUDE.md` or `web/CLAUDE.md` holds `### Done` (the wrapper moves it to
-  `web/CLAUDE.md` when the host already has a root one) and applies the Done-section exemption to that file.
+  skips only the starter-only checks (the `ios/` placeholder and goweb's own root `CLAUDE.md` headings) and exempts the
+  `### Done` section of EACH of root `CLAUDE.md` and `web/CLAUDE.md` that has one (the host's own log and goweb's
+  moved log, which the wrapper puts at `web/CLAUDE.md` when the host already has a root one; a section runs to the
+  next `### ` heading or the end of the file). The rest of both files is current-state text and stays checked.
+  If `.goweb-origin` exists but `README.md` still starts with `# goweb`, the guard fails loudly: the marker is for
+  apps created from the starter, not for the starter itself.
   Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
   stays on. Without `.goweb-origin` goweb itself is fully guarded. The self-tests build a host layout in a
   throwaway copy: it passes with `.goweb-origin`, still fails without it (naming the `ios/` and `CLAUDE.md`
