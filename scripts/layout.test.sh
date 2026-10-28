@@ -8,6 +8,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 cd "$REPO" || exit 2
 
+# Host mode: .goweb-origin at the root (written by the wrapper that turns goweb into an app) means the app
+# was created inside a host repo that has its own ios/ and root CLAUDE.md. The starter-only checks (the
+# ios/ placeholder, goweb's own root CLAUDE.md headings) are skipped then; every structural check stays on.
+HOST=0
+[ -e .goweb-origin ] && HOST=1
+
 pass=0; fail=0
 ok() { pass=$((pass+1)); echo "ok   - $1"; }
 bad() { fail=$((fail+1)); echo "FAIL - $1"; }
@@ -39,8 +45,13 @@ badnames="$(ls scripts/ | grep -i 'test' | grep -v '\.test\.sh$')"
 [ -f web/test/README.md ] && ok "web/test/README.md exists" || bad "web/test/README.md missing"
 
 # ios/ is reserved at the repo root for the native app and stays tracked (git keeps no empty directories).
-[ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
-[ -f ios/README.md ] || [ -f ios/Package.swift ] && ok "ios/ has a README (placeholder) or a scaffolded Package.swift" || bad "ios/ has neither README.md nor Package.swift"
+# Starter only: a host repo owns its own ios/.
+if [ "$HOST" -eq 1 ]; then
+  ok "host mode (.goweb-origin): ios/ placeholder checks skipped"
+else
+  [ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
+  if [ -f ios/README.md ] || [ -f ios/Package.swift ]; then ok "ios/ has a README (placeholder) or a scaffolded Package.swift"; else bad "ios/ has neither README.md nor Package.swift"; fi
+fi
 
 # Migrations are checksummed over their exact bytes, so git must never rewrite their line endings.
 attr="$(git check-attr text -- web/api/internal/db/migrations/0001_init.sql)"
@@ -59,8 +70,9 @@ tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
 # Stale references to the old locations, outside docs/superpowers (historical specs) and this
-# file. The dated entries under "### Done" in CLAUDE.md are history and exempt; everything else,
-# including the rest of CLAUDE.md, is current-state text and covered.
+# file. The dated entries under "### Done" in goweb's log are history and exempt; everything else,
+# including the rest of that file, is current-state text and covered. The log is in CLAUDE.md, or in
+# web/CLAUDE.md when the app lives in a host repo (host mode only).
 SCRIPT_RE='(deploy|smoke|restore|pull-backups)\.sh'
 stale_report() {
   {
@@ -69,11 +81,19 @@ stale_report() {
     # bare script name on a line that also names deploy/ (unless it is clearly about scripts/)
     git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . ':!docs/superpowers' ':!scripts/layout.test.sh' |
       grep -E "$SCRIPT_RE" | grep -v 'scripts/'
-  } 2>/dev/null | sort -u | awk -F: -v s="$done_start" -v e="$done_end" '!($1=="CLAUDE.md" && $2>s && $2<e)'
+  } 2>/dev/null | sort -u | awk -F: -v s="$done_start" -v e="$done_end" -v f="$LOG_FILE" '!($1==f && $2>s && $2<e)'
 }
-done_start="$(grep -n '^### Done' CLAUDE.md | head -1 | cut -d: -f1)"
-done_end="$(grep -n '^### Not yet verified' CLAUDE.md | head -1 | cut -d: -f1)"
-[ -n "$done_start" ] && [ -n "$done_end" ] && ok "CLAUDE.md has the Done section markers" || { bad "CLAUDE.md lost its '### Done' / '### Not yet verified' headings"; done_start=0; done_end=0; }
+LOG_FILE=CLAUDE.md
+if [ "$HOST" -eq 1 ] && ! grep -q '^### Done' CLAUDE.md 2>/dev/null && grep -q '^### Done' web/CLAUDE.md 2>/dev/null; then LOG_FILE=web/CLAUDE.md; fi
+done_start="$(grep -n '^### Done' "$LOG_FILE" 2>/dev/null | head -1 | cut -d: -f1)"
+done_end="$(grep -n '^### Not yet verified' "$LOG_FILE" 2>/dev/null | head -1 | cut -d: -f1)"
+if [ -n "$done_start" ] && [ -n "$done_end" ]; then
+  ok "$LOG_FILE has the Done section markers"
+elif [ "$HOST" -eq 1 ]; then
+  ok "host mode: no goweb log with a Done section found; nothing exempt"; done_start=0; done_end=0
+else
+  bad "CLAUDE.md lost its '### Done' / '### Not yet verified' headings"; done_start=0; done_end=0
+fi
 stale="$(stale_report)"
 [ -z "$stale" ] && ok "no stale references to the old paths" || bad "stale references:"$'\n'"$stale"
 
@@ -122,6 +142,27 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   if out="$(inner_out)"; then bad "guard did not flag a missing file in deploy/"; elif printf '%s\n' "$out" | grep -q 'FAIL - deploy/ is'; then ok "guard flags a missing file in deploy/"; else bad "missing file in deploy/ failed for another reason"; fi
   make_copy && rm "$WORK/c/.gitattributes" && git -C "$WORK/c" add -A
   if out="$(inner_out)"; then bad "guard did not flag a missing .gitattributes"; elif printf '%s\n' "$out" | grep -q 'FAIL - \*.sql is not marked -text'; then ok "guard flags a missing .gitattributes"; else bad "missing .gitattributes failed for another reason"; fi
+  # Host mode: the app lives inside a host repo (the wrapper writes .goweb-origin, and moves goweb's
+  # CLAUDE.md to web/CLAUDE.md when the host already has a root one). Starter-only checks are skipped,
+  # goweb itself (no .goweb-origin) stays fully guarded.
+  make_host() { # [with-origin]
+    make_copy || return 1
+    ( cd "$WORK/c" && git rm -qf ios/README.md && mkdir -p ios && echo "// host app" > ios/App.swift \
+      && git mv CLAUDE.md web/CLAUDE.md && printf '# Host repo\n\nNo goweb headings here.\n' > CLAUDE.md ) || return 1
+    if [ "${1:-}" = with-origin ]; then echo 0123456789abcdef > "$WORK/c/.goweb-origin"; fi
+    git -C "$WORK/c" add -A
+  }
+  make_host with-origin
+  if out="$(inner_out)"; then ok "host layout with .goweb-origin passes (no ios README, host CLAUDE.md, goweb's at web/CLAUDE.md)"; else bad "host layout with .goweb-origin fails: $(printf '%s\n' "$out" | grep FAIL)"; fi
+  make_host
+  if out="$(inner_out)"; then bad "host layout WITHOUT .goweb-origin passed (goweb itself must stay guarded)"
+  elif printf '%s\n' "$out" | grep -q 'FAIL - ios/ has neither' && printf '%s\n' "$out" | grep -q "FAIL - CLAUDE.md lost its"; then ok "host layout without .goweb-origin fails on the ios/ and CLAUDE.md checks"
+  else bad "host layout without .goweb-origin failed for the wrong reasons: $(printf '%s\n' "$out" | grep FAIL)"; fi
+  make_host with-origin && printf '%s\n' 'web/e2e/ holds Playwright' >> "$WORK/c/web/CLAUDE.md" && git -C "$WORK/c" add -A
+  if out="$(inner_out)"; then bad "host mode missed a stale path in web/CLAUDE.md"; elif printf '%s\n' "$out" | grep -q 'FAIL - stale references'; then ok "host mode flags a stale path in web/CLAUDE.md outside the Done section"; else bad "stale path in web/CLAUDE.md failed for another reason"; fi
+  make_host with-origin
+  awk '{print} /^### Done/ && !d {print "- old entry mentions web/e2e/ and deploy/deploy.sh"; d=1}' "$WORK/c/web/CLAUDE.md" > "$WORK/claude.new" && cp "$WORK/claude.new" "$WORK/c/web/CLAUDE.md" && git -C "$WORK/c" add -A
+  inner && ok "host mode allows old paths inside the Done section of web/CLAUDE.md" || bad "host mode flags the Done section of web/CLAUDE.md"
   # an old path inside a dated Done entry of CLAUDE.md is history and allowed
   make_copy && awk '{print} /^### Done/ && !d {print "- old entry mentions web/e2e/ and deploy/deploy.sh"; d=1}' CLAUDE.md > "$WORK/claude.new" && cp "$WORK/claude.new" "$WORK/c/CLAUDE.md" && git -C "$WORK/c" add -A
   inner && ok "guard allows old paths inside the Done section of CLAUDE.md" || bad "guard flags the Done section of CLAUDE.md"

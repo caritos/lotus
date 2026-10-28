@@ -136,6 +136,15 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
   (by path, glob, `cd`, `bash`, `./` or `../`), or a bare script name on a line that mentions `deploy/` without
   `scripts/`. `.gitattributes` must mark `*.sql` as `-text`. The `deploy/` self-tests (an extra and a missing
   file) require the failure to come from the `deploy/` check itself, not from any other check.
+  **Host mode:** when `.goweb-origin` exists at the root (the `new-web-app` wrapper writes it when it turns goweb
+  into an app) the app may live inside a host repo with its own `ios/` and root `CLAUDE.md`. The guard then
+  skips only the starter-only checks (the `ios/` placeholder and goweb's own root `CLAUDE.md` headings), finds
+  goweb's log in whichever of `CLAUDE.md` or `web/CLAUDE.md` holds `### Done` (the wrapper moves it to
+  `web/CLAUDE.md` when the host already has a root one) and applies the Done-section exemption to that file.
+  Every structural check (`scripts/`, `deploy/`, Playwright location, ignores, `.gitattributes`, stale paths)
+  stays on. Without `.goweb-origin` goweb itself is fully guarded. The self-tests build a host layout in a
+  throwaway copy: it passes with `.goweb-origin`, still fails without it (naming the `ios/` and `CLAUDE.md`
+  problems), and a stale path in `web/CLAUDE.md` outside the Done section still fails.
   `docs/superpowers/` (historical specs) and the dated entries under `### Done` in `CLAUDE.md` (history,
   between the `### Done` and `### Not yet verified` headings) are exempt; the rest of `CLAUDE.md` is
   current-state text and is checked. The test also proves the guard works: it injects each stale pattern into
