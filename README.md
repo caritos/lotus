@@ -45,9 +45,9 @@ Development data lives under `web/` (`db/`, `logs/`, `storage/`, all gitignored)
 ## Build and run
 
 ```sh
-make build                        # pnpm build, then go build -> ./goweb
+make build                        # pnpm build, then go build -> ./dist/goweb
 # try the binary locally (development mode, loopback only, data under ./data):
-ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://127.0.0.1:8080 DATA_DIR=./data ./goweb serve
+ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://127.0.0.1:8080 DATA_DIR=./data ./dist/goweb serve
 ```
 
 Configuration is environment variables only. `.env.example` is the template for the **server's**

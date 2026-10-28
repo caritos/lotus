@@ -69,6 +69,11 @@ nm="$(git ls-files | grep -E '(^|/)node_modules(/|$)')"
 tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
+# The compiled binary goes to dist/ (ignored); nothing named like the binary is tracked at the root.
+git check-ignore -q dist/goweb && ok ".gitignore ignores dist/goweb" || bad ".gitignore does not ignore dist/goweb"
+[ -z "$(git ls-files goweb)" ] && ok "no tracked root file named goweb" || bad "a root file named goweb is tracked"
+grep -E '^[[:space:]]*cd web/api && go build' Makefile | grep -q 'dist/' && ok "Makefile build target writes under dist/" || bad "Makefile build target does not mention dist/"
+
 # Stale references to the old locations, outside docs/superpowers (historical specs) and this
 # file. The dated entries under "### Done" in goweb's log are history and exempt; everything else,
 # including the rest of that file, is current-state text and covered. The log is in CLAUDE.md, or in

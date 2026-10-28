@@ -77,6 +77,8 @@ for f in Makefile scripts/deploy.sh web/test/e2e/global-setup.ts; do
   grep -q "example.com/acme/shop/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
 done
 [ -x "$R/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
+grep -q "dist/shop" "$R/Makefile" && grep -q "dist/shop" "$R/README.md" && ok "binary path dist/shop in Makefile and README" || bad "dist/shop missing"
+[ -z "$(cd "$R" && git grep -n "dist/goweb")" ] && ok "old binary path dist/goweb gone" || bad "dist/goweb remains"
 grep -q "SHOP_BIN" "$R/scripts/restore.sh" && ok "env var prefix renamed" || bad "SHOP_BIN missing"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 

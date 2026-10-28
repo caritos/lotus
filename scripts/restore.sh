@@ -21,7 +21,7 @@
 #   SERVICE         systemd unit name, default goweb
 #   SYSTEMCTL       default "systemctl --user"
 #   GOWEB_BIN       must be the goweb executable FILE. Default: $HOME/goweb/current/goweb if it
-#                   exists, else `goweb` on PATH, else <script dir>/../goweb
+#                   exists, else `goweb` on PATH, else <script dir>/../dist/goweb
 #   PORT            default 8080 (used by the default HEALTH_URL)
 #   HEALTH_URL      default http://127.0.0.1:$PORT/healthz
 #   HEALTH_CMD      shell command that exits 0 when healthy (default: curl HEALTH_URL)
@@ -46,8 +46,8 @@ elif [ -f "$HOME/goweb/current/goweb" ] && [ -x "$HOME/goweb/current/goweb" ]; t
   GOWEB_BIN="$HOME/goweb/current/goweb"
 elif command -v goweb >/dev/null 2>&1; then
   GOWEB_BIN="$(command -v goweb)"
-elif [ -f "$SCRIPT_DIR/../goweb" ] && [ -x "$SCRIPT_DIR/../goweb" ]; then
-  GOWEB_BIN="$SCRIPT_DIR/../goweb"
+elif [ -f "$SCRIPT_DIR/../dist/goweb" ] && [ -x "$SCRIPT_DIR/../dist/goweb" ]; then
+  GOWEB_BIN="$SCRIPT_DIR/../dist/goweb"
 else
   die "cannot find the goweb binary: set GOWEB_BIN to the path of the goweb executable file (for example \$HOME/goweb/current/goweb)"
 fi
