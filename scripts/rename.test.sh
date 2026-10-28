@@ -22,6 +22,15 @@ make_copy() {
   (cd "$dest" && git init -q && git add -A && git -c gc.auto=0 -c maintenance.auto=false -c user.email=t@example.com -c user.name=t commit -q -m base) || return 1
 }
 
+# The names this checkout ships with, read the way rename.sh reads them. NEW is the name the tests
+# rename to; it must differ from the current one.
+CUR_MODULE="$(sed -n 's/^module[[:space:]]*//p' "$REPO/web/api/go.mod" | head -1)"
+CUR="$(ls "$REPO/web/api/cmd" | head -1)"
+CUR_UP="$(printf '%s' "$CUR" | tr '[:lower:]' '[:upper:]')"
+NEW=shop; [ "$CUR" = shop ] && NEW=store
+NEW_UP="$(printf '%s' "$NEW" | tr '[:lower:]' '[:upper:]')"
+NEW_MODULE="example.com/acme/$NEW"
+
 BASE="$ROOT/base"
 make_copy "$BASE" || { echo "rename.test.sh: cannot copy the repo" >&2; exit 2; }
 
@@ -36,51 +45,87 @@ expect_fail() {
   if [ -n "$(cd "$d" && git status --porcelain)" ]; then bad "$label left changes behind"; fi
 }
 
-expect_fail "bad module path (uppercase)" "module path" Example.com/x shop
-expect_fail "bad module path (space)" "module path" "ex ample" shop
-expect_fail "uppercase name" "name" example.com/acme/shop Shop
-expect_fail "name with a hyphen" "name" example.com/acme/shop my-shop
-expect_fail "name starting with a digit" "name" example.com/acme/shop 1shop
+expect_fail "bad module path (uppercase)" "module path" Example.com/x "$NEW"
+expect_fail "bad module path (space)" "module path" "ex ample" "$NEW"
+expect_fail "uppercase name" "name" "$NEW_MODULE" Shop
+expect_fail "name with a hyphen" "name" "$NEW_MODULE" my-shop
+expect_fail "name starting with a digit" "name" "$NEW_MODULE" 1shop
 expect_fail "missing args" "usage" 
-expect_fail "one arg" "usage" example.com/acme/shop
+expect_fail "one arg" "usage" "$NEW_MODULE"
 
 # dirty tree
 D="$ROOT/dirty"; cp -R "$BASE" "$D"; echo x >> "$D/README-dirty.txt"
-out="$(cd "$D" && bash scripts/rename.sh example.com/acme/shop shop 2>&1)"; rc=$?
+out="$(cd "$D" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
 if [ $rc -ne 0 ] && echo "$out" | grep -q "uncommitted"; then ok "dirty tree refused without --force"; else bad "dirty tree (rc=$rc out=$out)"; fi
-if grep -q "module app" "$D/web/api/go.mod"; then ok "dirty tree refusal changed nothing"; else bad "dirty tree refusal modified go.mod"; fi
+if grep -qx "module $CUR_MODULE" "$D/web/api/go.mod"; then ok "dirty tree refusal changed nothing"; else bad "dirty tree refusal modified go.mod"; fi
 
 # outside a git work tree
 N="$ROOT/nogit"; mkdir -p "$N/scripts"; cp "$REPO/scripts/rename.sh" "$N/scripts/" 2>/dev/null
-out="$(cd "$N" && bash scripts/rename.sh example.com/acme/shop shop 2>&1)"; rc=$?
+out="$(cd "$N" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
 if [ $rc -ne 0 ] && echo "$out" | grep -q "git work tree"; then ok "refuses outside a git work tree"; else bad "no git (rc=$rc out=$out)"; fi
 
-# no-op
+# no-op: the current module path and name
 D="$ROOT/noop"; cp -R "$BASE" "$D"
-out="$(cd "$D" && bash scripts/rename.sh app app 2>&1)"; rc=$?
-if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && git status --porcelain)" ]; then ok "app app is a no-op"; else bad "no-op (rc=$rc out=$out)"; fi
+out="$(cd "$D" && bash scripts/rename.sh "$CUR_MODULE" "$CUR" 2>&1)"; rc=$?
+if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && git status --porcelain)" ]; then ok "renaming to the current names is a no-op"; else bad "no-op (rc=$rc out=$out)"; fi
 
-# the real rename
+# name_tokens <dir> <name>: lines where <name> still appears in a project-name context. The generic
+# word (prose, internal/app, internal/web/app, the /app/ mount, APP_ENV) is NOT such a context.
+name_tokens() {
+  local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
+  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
+}
+
+# The real rename. The shipped name "app" is also a package, a directory, a URL prefix and an
+# environment variable prefix, so only the project-name contexts may change.
 R="$ROOT/renamed"; cp -R "$BASE" "$R"
-out="$(cd "$R" && bash scripts/rename.sh example.com/acme/shop shop 2>&1)"; rc=$?
+out="$(cd "$R" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
 [ $rc -eq 0 ] && ok "rename exits 0" || { bad "rename exit $rc: $out"; }
+echo "$out" | grep -q "Next steps" && ok "prints the next steps" || bad "no next steps in: $out"
 
-left="$(cd "$R" && grep -rIl --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=node_modules app . 2>/dev/null)"
-[ -z "$left" ] && ok "no 'app' left outside docs/superpowers" || bad "app remains in: $left"
-leftU="$(cd "$R" && grep -rIl --exclude-dir=.git --exclude-dir=superpowers --exclude-dir=node_modules APP . 2>/dev/null)"
-[ -z "$leftU" ] && ok "no 'APP' left" || bad "APP remains in: $leftU"
-grep -qx "module example.com/acme/shop" "$R/web/api/go.mod" && ok "go.mod module path" || bad "go.mod: $(head -1 "$R/web/api/go.mod")"
-[ -d "$R/web/api/cmd/shop" ] && [ ! -e "$R/web/api/cmd/app" ] && ok "cmd/shop exists" || bad "cmd dir"
-[ -f "$R/deploy/shop.service" ] && [ -f "$R/deploy/shop-backup.service" ] && [ -f "$R/deploy/shop-backup.timer" ] && ok "unit files renamed" || bad "unit files"
-grep -q "example.com/acme/shop/internal/version" "$R/Makefile" && ok "ldflags use the module path" || bad "Makefile ldflags"
+left="$(name_tokens "$R" "$CUR")"
+[ -z "$left" ] && ok "no project-name token '$CUR' left (module path, cmd, dist, units, cookie, db, ldflags, env)" || bad "$CUR tokens remain: $left"
+grep -qx "module $NEW_MODULE" "$R/web/api/go.mod" && ok "go.mod module path" || bad "go.mod: $(head -1 "$R/web/api/go.mod")"
+[ -d "$R/web/api/cmd/$NEW" ] && [ ! -e "$R/web/api/cmd/$CUR" ] && ok "cmd/$NEW exists" || bad "cmd dir"
+[ -f "$R/deploy/$NEW.service" ] && [ -f "$R/deploy/$NEW-backup.service" ] && [ -f "$R/deploy/$NEW-backup.timer" ] && [ ! -e "$R/deploy/$CUR.service" ] && ok "unit files renamed" || bad "unit files"
+grep -q "$NEW_MODULE/internal/version" "$R/Makefile" && ok "ldflags use the module path" || bad "Makefile ldflags"
 for f in Makefile scripts/deploy.sh web/test/e2e/global-setup.ts; do
-  grep -q "example.com/acme/shop/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
+  grep -q "$NEW_MODULE/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
 done
+grep -q "dist/$NEW" "$R/Makefile" && grep -q "dist/$NEW" "$R/README.md" && ok "binary path dist/$NEW in Makefile and README" || bad "dist/$NEW missing"
+[ -z "$(cd "$R" && git grep -n "dist/$CUR")" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
+grep -q "${NEW}_session" "$R/web/api/internal/auth/middleware.go" && grep -q "\"$NEW.db\"" "$R/web/api/internal/backup/backup.go" && ok "cookie and database names renamed" || bad "cookie or db name"
+grep -q "${NEW_UP}_BIN" "$R/scripts/restore.sh" && ! grep -q "${CUR_UP}_BIN" "$R/scripts/restore.sh" && ok "env var ${NEW_UP}_BIN renamed" || bad "${NEW_UP}_BIN missing"
+grep -q "<title>$NEW - " "$R/web/api/internal/web/pages/index.html" && grep -q "<h1>$NEW</h1>" "$R/web/api/internal/web/pages/index.html" && ok "page title and h1 carry the new name" || bad "index.html title/h1"
+
+# The generic word "app" must survive: package app, the composition-root directory, the embed
+# directory, the /app/ URL mount, APP_ENV and the shared log file name.
+[ -f "$R/web/api/internal/app/app.go" ] && [ -d "$R/web/api/internal/apptest" ] && ok "internal/app and internal/apptest untouched" || bad "internal/app moved"
+[ -f "$R/web/api/internal/web/app/.gitkeep" ] && ok "internal/web/app (embed directory) untouched" || bad "embed directory moved"
+grep -q "^package app$" "$R/web/api/internal/app/app.go" && grep -q "\"$NEW_MODULE/internal/app\"" "$R/web/api/cmd/$NEW/main.go" && ok "package app and its import path" || bad "package app"
+grep -q 'HasPrefix(p, "/app/")' "$R/web/api/internal/web/web.go" && grep -q "go:embed .*all:app" "$R/web/api/internal/web/web.go" && ok "/app/ mount and go:embed all:app untouched" || bad "/app/ mount or embed pattern"
+grep -q 'APP_ENV' "$R/web/api/internal/config/config.go" && [ -z "$(cd "$R" && git grep -n "${NEW_UP}_ENV" -- . ':!scripts/rename.test.sh')" ] && ok "APP_ENV is not renamed" || bad "APP_ENV was renamed"
+grep -q '"logs", "app.log"' "$R/web/api/internal/config/config.go" && ok "shared app.log name untouched" || bad "app.log"
+grep -q 'internal/web/app' "$R/.gitignore" && ok ".gitignore embed path untouched" || bad ".gitignore embed path"
 [ -x "$R/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
-grep -q "dist/shop" "$R/Makefile" && grep -q "dist/shop" "$R/README.md" && ok "binary path dist/shop in Makefile and README" || bad "dist/shop missing"
-[ -z "$(cd "$R" && git grep -n "dist/app")" ] && ok "old binary path dist/app gone" || bad "dist/app remains"
-grep -q "SHOP_BIN" "$R/scripts/restore.sh" && ok "env var prefix renamed" || bad "SHOP_BIN missing"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
+
+# Renaming back must restore the starter byte for byte: the contexts are symmetric and nothing
+# else is touched. This also proves a rename from a non-generic name works.
+RT="$ROOT/roundtrip"; cp -R "$R" "$RT"
+(cd "$RT" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m renamed && bash scripts/rename.sh "$CUR_MODULE" "$CUR" >/dev/null 2>&1; git add -A)
+rootc="$(cd "$RT" && git rev-list --max-parents=0 HEAD | head -1)"
+back="$(cd "$RT" && git diff --cached --stat "$rootc" 2>&1)"
+[ -z "$back" ] && ok "renaming $NEW back to $CUR restores the starter exactly" || bad "round trip differs: $back"
+
+# A name that contains "app" (the README example) builds too.
+MY=myapp; [ "$CUR" = myapp ] && MY=yourapp
+M="$ROOT/$MY"; cp -R "$BASE" "$M"
+out="$(cd "$M" && bash scripts/rename.sh "github.com/you/$MY" "$MY" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ -d "$M/web/api/cmd/$MY" ] && [ -f "$M/web/api/internal/app/app.go" ] && ok "rename to $MY" || bad "rename to $MY (rc=$rc): $out"
+if command -v go >/dev/null 2>&1; then
+  if (cd "$M/web/api" && go build ./... ) >"$ROOT/go-my.log" 2>&1; then ok "$MY copy builds"; else bad "$MY copy build: $(tail -10 "$ROOT/go-my.log")"; fi
+fi
 
 if command -v go >/dev/null 2>&1; then
   # The copy has no frontend build (it is gitignored), so the embed tests must skip

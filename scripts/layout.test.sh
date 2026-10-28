@@ -8,6 +8,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 cd "$REPO" || exit 2
 
+# The project name, read from the command directory so this test survives scripts/rename.sh.
+NAME="$(ls web/api/cmd 2>/dev/null | head -1)"
+
 pass=0; fail=0
 ok() { pass=$((pass+1)); echo "ok   - $1"; }
 bad() { fail=$((fail+1)); echo "FAIL - $1"; }
@@ -17,7 +20,7 @@ sh_in_deploy="$(ls deploy/*.sh 2>/dev/null)"
 [ -z "$sh_in_deploy" ] && ok "deploy/ contains no *.sh" || bad "deploy/ still has scripts: $sh_in_deploy"
 
 # deploy/ holds exactly the files installed or copied to a server.
-want="app-backup.service app-backup.timer app.service nginx.conf.example"
+want="$NAME-backup.service $NAME-backup.timer $NAME.service nginx.conf.example"
 have="$(cd deploy 2>/dev/null && ls | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "deploy/ holds only server files" || bad "deploy/ is '$have', want '$want'"
 
@@ -54,8 +57,8 @@ tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
 # The compiled binary goes to dist/ (ignored); nothing named like the binary is tracked at the root.
-git check-ignore -q dist/app && ok ".gitignore ignores dist/app" || bad ".gitignore does not ignore dist/app"
-[ -z "$(git ls-files app)" ] && ok "no tracked root file named app" || bad "a root file named app is tracked"
+git check-ignore -q "dist/$NAME" && ok ".gitignore ignores dist/$NAME" || bad ".gitignore does not ignore dist/$NAME"
+[ -z "$(git ls-files "$NAME")" ] && ok "no tracked root file named $NAME" || bad "a root file named $NAME is tracked"
 grep -E '^[[:space:]]*cd web/api && go build' Makefile | grep -q 'dist/' && ok "Makefile build target writes under dist/" || bad "Makefile build target does not mention dist/"
 
 # Stale references to the old locations, outside docs/superpowers (historical specs) and this
@@ -109,7 +112,7 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_fail "stale path in current-state text of CLAUDE.md" CLAUDE.md 'web/e2e/ holds Playwright'
   expect_pass "scripts/ path beside deploy/" README.md '- `deploy/` units; `scripts/deploy.sh` and `scripts/smoke.sh`'
   expect_pass "link to a file in deploy/" README.md 'see [x](../deploy/nginx.conf.example)'
-  expect_pass "a /home/deploy/ path" README.md 'DIR=/home/deploy/app/data/backups'
+  expect_pass "a /home/deploy/ path" README.md "DIR=/home/deploy/$NAME/data/backups"
   expect_pass "a file named like node_modules_notes" docs/node_modules_notes.md 'x'
   make_copy && mkdir -p "$WORK/c/web/node_modules" && echo x > "$WORK/c/web/node_modules/x" && git -C "$WORK/c" add -f web/node_modules/x
   inner && bad "guard did not flag a tracked node_modules file" || ok "guard flags a tracked node_modules file"
