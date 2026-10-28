@@ -1,0 +1,47 @@
+name: __APP__
+options:
+  bundleIdPrefix: com.caritos
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  __APP__Kit:
+    path: ../..
+targets:
+  __APP__:
+    type: application
+    platform: iOS
+    sources:
+      - path: __APP__
+    dependencies:
+      - package: __APP__Kit
+        product: __APP__Kit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.caritos.__SLUG__
+        PRODUCT_NAME: __APP__
+        DEVELOPMENT_TEAM: 3U8L77G9QV
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        # Single source of truth for versions; ship.sh bumps these after a successful upload.
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Required at the top level of settings too, or the test bundle has no Info.plist.
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: "__DISPLAY__"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        # false = no custom crypto. `true` fails upload with ITMS-90592. Never add a compliance code.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        # iPhone only. For a universal app set "1,2" AND add the iPad key with all four
+        # orientations, or App Store Connect rejects the upload (error 90474):
+        #   INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+schemes:
+  __APP__:
+    build:
+      targets:
+        __APP__: all
+    run:
+      config: Debug
