@@ -3,7 +3,7 @@
 .DS_Store
 
 # build outputs
-web/node_modules/
+node_modules/
 web/test/e2e/test-results/
 web/test/e2e/playwright-report/
 /goweb

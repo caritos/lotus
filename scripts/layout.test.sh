@@ -37,6 +37,12 @@ badnames="$(ls scripts/ | grep -i 'test' | grep -v '\.test\.sh$')"
 [ -f web/test/e2e/playwright.config.ts ] && ok "web/test/e2e/playwright.config.ts exists" || bad "web/test/e2e/playwright.config.ts missing"
 [ -f web/test/README.md ] && ok "web/test/README.md exists" || bad "web/test/README.md missing"
 
+# node_modules is ignored at any depth and never tracked.
+ign=1
+for p in web/node_modules/x node_modules/x web/test/e2e/node_modules/x; do git check-ignore -q "$p" || ign=0; done
+[ "$ign" -eq 1 ] && ok "node_modules/ is ignored at any depth" || bad ".gitignore does not ignore node_modules at any depth"
+[ "$(git ls-files | grep -c node_modules)" -eq 0 ] && ok "no tracked node_modules files" || bad "node_modules files are tracked"
+
 # No stale references to the old paths anywhere tracked (historical specs and this file excepted).
 stale="$(git grep -nE 'web/e2e|deploy/(deploy|smoke|restore|pull-backups|test)\.sh|deploy/test\b' -- . ':!docs/superpowers' ':!scripts/layout.test.sh' 2>/dev/null)"
 [ -z "$stale" ] && ok "no stale references to the old paths" || bad "stale references:"$'\n'"$stale"
