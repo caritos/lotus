@@ -182,14 +182,13 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - `ios/` reserved (2026-10-27): the kit is for the author's own apps, so a native iOS app belongs in it. Only
   `ios/README.md` exists for now (git keeps no empty directories); it does not block the `new-ios-app` scaffold,
   which refuses only when `ios/Package.swift` or an Xcode project exists. `scripts/layout.test.sh` keeps `ios/` tracked.
-
 - Binary output and rename (2026-10-27): `make build` writes `dist/<name>` (ignored; the frontend still builds
   into `web/api/internal/web/app/` because `go:embed` needs it inside the module); the project was renamed
-  from `goweb` to `app` with `scripts/rename.sh`, which was then rewritten to read the current names from the
+  from its original working name to `app` with `scripts/rename.sh`, which was then rewritten to read the current names from the
   repository and to replace the name only in project-name contexts (renaming away from the generic word `app`
   must not touch `internal/app`, `internal/web/app`, `/app/` or `APP_ENV`). `smoke.sh` now requires the name as
   a whole word in the home page's `<title>` or first `<h1>`. `docs/superpowers/` is historical and keeps the
-  old name `goweb`; the author's checkout directory `~/src/goweb` is not renamed.
+  original working name; the author's checkout directory (still named after it) is not renamed.
 
 ### Not yet verified
 
