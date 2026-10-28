@@ -1,11 +1,39 @@
 #!/usr/bin/env bash
-# Turn ~/src/goweb (its committed HEAD) into a new app and apply Eladio's hosting specifics.
+# Turn the starter repo this skill lives in (its committed HEAD) into a new app and apply Eladio's hosting specifics.
 # Usage: scaffold.sh <repo-dir> <slug> "<Display Name>" "<one-line description>" [--port N] [--allow-dirty]
-# Exit: 0 done; 1 refusal (goweb missing or dirty, file collision, fast tier failed); 2 bad input.
-# goweb is read-only here: GOWEB_DIR (default ~/src/goweb), `git archive HEAD` only.
+# Exit: 0 done; 1 refusal (starter missing or dirty, file collision, fast tier failed); 2 bad input (incl. a slug the starter's rename.sh refuses).
+# The starter is read-only here: GOWEB_DIR (default: the repo this script lives in), `git archive HEAD` only.
+# The skills under .claude/skills/ never go into the new app.
 # Everything is built in a temp git repo first and copied into <repo-dir> only at the end, so a
 # failure at any point leaves <repo-dir> untouched. The script does not commit.
 set -euo pipefail
+
+# ---- every path to a starter file lives here (the starter's layout may move; change only this block)
+SCRIPTS_DIR="scripts"                              # the starter's repo-level scripts
+RENAME_SH="$SCRIPTS_DIR/rename.sh"
+DEPLOY_SH="deploy.sh"                              # inside SCRIPTS_DIR; deploy-app.sh execs it
+DEPLOY_APP_SH="$SCRIPTS_DIR/deploy-app.sh"         # generated
+BACKUP_ENV_EXAMPLE="$SCRIPTS_DIR/backup-pull.env.example"
+ENV_EXAMPLE=".env.example"
+PAGES_GLOB="web/api/internal/web/pages/*.html"
+WEB_INDEX="web/index.html"
+README_FILE="README.md"
+ROOT_CLAUDE_MD="CLAUDE.md"; WEB_CLAUDE_MD="web/CLAUDE.md"   # where the starter's CLAUDE.md goes when the host has one
+SKILLS_DIR=".claude/skills"                        # excluded from what a new app copies
+# The wrapper marker is a fixed contract with the starter's layout guard (scripts/layout.test.sh builds
+# the same name from two pieces so rename.sh cannot rewrite it).
+ORIGIN_FILE=".go""web-origin"
+# Text in the starter that the wrapper replaces (the starter's shipped name is the bare word `app`).
+STARTER_FOOTER='The name in the header is a placeholder. Replace this footer with your own.'
+STARTER_TAGLINE='simple notes with photos'
+
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do   # follow symlinks (the skill is linked into ~/.claude/skills)
+  d="$(cd "$(dirname "$SELF")" && pwd)"; SELF="$(readlink "$SELF")"; case "$SELF" in /*) ;; *) SELF="$d/$SELF" ;; esac
+done
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
+# .claude/skills/new-web-app/scripts -> the repo root is 4 levels up
+DEFAULT_STARTER="$(cd "$SELF_DIR/../../../.." && pwd -P)"
 
 usage() { echo 'usage: scaffold.sh <repo-dir> <slug> "<Display Name>" "<description>" [--port N] [--allow-dirty]' >&2; exit 2; }
 bad() { echo "scaffold: $*" >&2; exit 2; }
@@ -42,11 +70,11 @@ fi
 # Resolve the target now: later steps cd into the temp stage, which would swallow a relative path.
 case "$TARGET_ARG" in /*) TARGET_ABS="$TARGET_ARG" ;; *) TARGET_ABS="$PWD/$TARGET_ARG" ;; esac
 
-GOWEB="${GOWEB_DIR:-$HOME/src/goweb}"
+GOWEB="${GOWEB_DIR:-$DEFAULT_STARTER}"
 git -C "$GOWEB" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || refuse "goweb not found at $GOWEB (set GOWEB_DIR); it must be a git repository"
+  || refuse "the starter was not found at $GOWEB (set GOWEB_DIR); it must be a git repository"
 if [ "$ALLOW_DIRTY" -ne 1 ] && [ -n "$(git -C "$GOWEB" status --porcelain)" ]; then
-  refuse "goweb has uncommitted changes and only its committed HEAD is used; commit them or pass --allow-dirty"
+  refuse "the starter at $GOWEB has uncommitted changes and only its committed HEAD is used; commit them or pass --allow-dirty"
 fi
 ORIGIN="$(git -C "$GOWEB" rev-parse HEAD)"
 
@@ -73,52 +101,71 @@ set_line() {
   else printf '%s\n' "$3" >> "$1"; fi
 }
 
-# ---- 1. stage goweb's HEAD in a temp git repo (rename.sh needs tracked files and a clean tree)
+# ---- 1. stage the starter's HEAD in a temp git repo (rename.sh needs tracked files and a clean tree)
 git -C "$GOWEB" archive HEAD | tar -x -C "$W"
-gitc init -q; gitc add -A; gitc commit -q -m "goweb $ORIGIN"
+rm -rf "${W:?}/$SKILLS_DIR"     # the skills stay in the starter; a new app does not carry them
+gitc init -q; gitc add -A; gitc commit -q --allow-empty -m "starter $ORIGIN"
 cd "$W"
 
-# ---- 2. mark the display-name spots with tokens (rename.sh would turn them into the slug)
-PAGE_FILES=(web/api/internal/web/pages/*.html)
-[ -e "${PAGE_FILES[0]}" ] || refuse "goweb has no web/api/internal/web/pages/*.html"
-replace_in 's/goweb is a placeholder name\. Replace this footer with your own\./\@\@WRAP_NAME\@\@ - contact support\@caritos.com/g;
-            s/simple notes with photos/\@\@WRAP_DESC\@\@/g;
+# ---- 1b. the starter's own rename.sh validates the slug (reserved words and names it could not undo)
+[ -f "$RENAME_SH" ] || refuse "the starter has no $RENAME_SH"
+if ! chk="$(bash "$RENAME_SH" --check "github.com/caritos/$SLUG" "$SLUG" 2>&1)"; then
+  echo "scaffold: the starter's $RENAME_SH refused the slug '$SLUG'; $TARGET_ARG was not touched:" >&2
+  printf '%s\n' "$chk" | sed 's/^/  /' >&2
+  exit 2
+fi
+
+# ---- 2. mark the display-name spots with tokens. rename.sh rewrites EVERY bare word `app` in an HTML page
+# that has a title, brand link or h1 (prose too), and the README title is left alone, so: the display-name
+# spots become @@WRAP_NAME@@ and every other bare `app` becomes @@WRAP_APP@@ (restored after the rename).
+PAGE_FILES=($PAGES_GLOB)
+[ -e "${PAGE_FILES[0]}" ] || refuse "the starter has no $PAGES_GLOB"
+WORDRE='(?<![A-Za-z0-9_./-])app(?![A-Za-z0-9_-])'   # the word rule 8 of rename.sh rewrites
+FOOTER="$STARTER_FOOTER" TAGLINE="$STARTER_TAGLINE" replace_in 's/\Q$ENV{FOOTER}\E/\@\@WRAP_NAME\@\@ - contact support\@caritos.com/g;
+            s/\Q$ENV{TAGLINE}\E/\@\@WRAP_DESC\@\@/g;
             s/[ \t]*<p class="note">Replace support\@example\.com[^\n]*\n//g;
             s/support\@example\.com/support\@caritos.com/g;
-            s/goweb/\@\@WRAP_NAME\@\@/g' "${PAGE_FILES[@]}"
-[ ! -f web/index.html ] || replace_in 's/goweb/\@\@WRAP_NAME\@\@/g' web/index.html
-[ ! -f README.md ] || replace_in 's/\A# goweb\n/# \@\@WRAP_NAME\@\@\n\n\@\@WRAP_DESC\@\@\n/' README.md
-gitc add -A; gitc commit -q -m "mark display name"
+            s{(<title>[^<]*?)'"$WORDRE"'}{$1\@\@WRAP_NAME\@\@};
+            s{(class="brand"[^>]*>)app(</a>)}{$1\@\@WRAP_NAME\@\@$2};
+            s{(<h1>)app(</h1>)}{$1\@\@WRAP_NAME\@\@$2};
+            s{(<h2>What is )app(\?</h2>)}{$1\@\@WRAP_NAME\@\@$2}g;
+            s{'"$WORDRE"'}{\@\@WRAP_APP\@\@}g' "${PAGE_FILES[@]}"
+if [ -f "$WEB_INDEX" ]; then
+  replace_in 's{(<title>[^<]*?)'"$WORDRE"'}{$1\@\@WRAP_NAME\@\@};
+              s{'"$WORDRE"'}{\@\@WRAP_APP\@\@}g' "$WEB_INDEX"
+fi
+[ ! -f "$README_FILE" ] || replace_in 's/\A# app\n/# \@\@WRAP_NAME\@\@\n\n\@\@WRAP_DESC\@\@\n/' "$README_FILE"
+gitc add -A; gitc commit -q --allow-empty -m "mark display name"
 
 # ---- 3. rename the module, binary, units and paths
-bash scripts/rename.sh "github.com/caritos/$SLUG" "$SLUG" >"$LOG" 2>&1 || fail_stage "scripts/rename.sh"
-gitc add -A; gitc commit -q -m rename
+bash "$RENAME_SH" "github.com/caritos/$SLUG" "$SLUG" >"$LOG" 2>&1 || fail_stage "$RENAME_SH"
+gitc add -A; gitc commit -q --allow-empty -m rename
 
 # ---- 4. display name and description, HTML-escaped
 SUBST_FILES=("${PAGE_FILES[@]}")
-[ ! -f web/index.html ] || SUBST_FILES+=(web/index.html)
-[ ! -f README.md ] || SUBST_FILES+=(README.md)
-NAME_H="$NAME_H" DESC_H="$DESC_H" replace_in 's/\@\@WRAP_NAME\@\@/$ENV{NAME_H}/g; s/\@\@WRAP_DESC\@\@/$ENV{DESC_H}/g' "${SUBST_FILES[@]}"
+[ ! -f "$WEB_INDEX" ] || SUBST_FILES+=("$WEB_INDEX")
+[ ! -f "$README_FILE" ] || SUBST_FILES+=("$README_FILE")
+NAME_H="$NAME_H" DESC_H="$DESC_H" replace_in 's/\@\@WRAP_NAME\@\@/$ENV{NAME_H}/g; s/\@\@WRAP_DESC\@\@/$ENV{DESC_H}/g; s/\@\@WRAP_APP\@\@/app/g' "${SUBST_FILES[@]}"
 
 # ---- 5. Eladio's hosting defaults
-set_line .env.example '^ADDR=' "ADDR=0.0.0.0:$ADDR_PORT"
-set_line .env.example '^PUBLIC_ORIGIN=' "PUBLIC_ORIGIN=https://$SLUG.caritos.com"
-BP=scripts/backup-pull.env.example
+set_line "$ENV_EXAMPLE" '^ADDR=' "ADDR=0.0.0.0:$ADDR_PORT"
+set_line "$ENV_EXAMPLE" '^PUBLIC_ORIGIN=' "PUBLIC_ORIGIN=https://$SLUG.caritos.com"
+BP="$BACKUP_ENV_EXAMPLE"
 set_line "$BP" '^#?REMOTE_DIR=' "REMOTE_DIR=$SLUG/data/backups"
 set_line "$BP" '^#?DEST=' "DEST=\$HOME/Backups/$SLUG"
 set_line "$BP" '^#?MIRROR_DIR=' "MIRROR_DIR=\"/Volumes/Treasure Chest/backups/$SLUG\""
 
-cat > scripts/deploy-app.sh <<'EOS'
+cat > "$DEPLOY_APP_SH" <<'EOS'
 #!/usr/bin/env bash
 # Mac-side deploy settings for __SLUG__, then scripts/deploy.sh: ./scripts/deploy-app.sh <user@host> [--check]
 # Generated by the new-web-app skill; scripts/deploy.sh itself stays generic.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ADDR_LINE="$(grep '^ADDR=' "$HERE/../.env.example" || true)"
+ADDR_LINE="$(grep '^ADDR=' "$HERE/__ENV_REL__" || true)"
 PORT="${ADDR_LINE##*:}"
 case "$PORT" in
   ""|*[!0-9]*)
-    echo "deploy-app: the app's port is not set. Pick a free port on the server (ss -tln, then ps aux), then set ADDR=0.0.0.0:<port> in .env.example and in the server .env, and the same port in the DreamHost panel Proxy Server. Nothing was changed." >&2
+    echo "deploy-app: the app's port is not set. Pick a free port on the server (ss -tln, then ps aux), then set ADDR=0.0.0.0:<port> in __ENV_NAME__ and in the server .env, and the same port in the DreamHost panel Proxy Server. Nothing was changed." >&2
     exit 1 ;;
 esac
 export PUBLIC_URL=https://__SLUG__.caritos.com
@@ -127,14 +174,17 @@ export EXPECT_PUBLIC_LISTENER=1
 export REQUIRE_BACKUP_TIMER=1
 # smoke.sh looks for this text in the home page HTML, so it is the HTML-escaped display name
 export APP_NAME=__NAME_Q__
-exec bash "$HERE/deploy.sh" "$@"
+exec bash "$HERE/__DEPLOY_SH__" "$@"
 EOS
-SLUG="$SLUG" NAME_Q="$(sq "$NAME_H")" replace_in 's/__SLUG__/$ENV{SLUG}/g; s/__NAME_Q__/$ENV{NAME_Q}/g' scripts/deploy-app.sh
-chmod +x scripts/deploy-app.sh
-printf '%s\n' "$ORIGIN" > .goweb-origin
+# the generated script sits in the starter's scripts directory, next to deploy.sh; .env.example is found relative to it
+ENV_REL="$(perl -e 'use File::Spec; print File::Spec->abs2rel($ARGV[1], $ARGV[0])' "$(dirname "$DEPLOY_APP_SH")" "$ENV_EXAMPLE")"
+SLUG="$SLUG" NAME_Q="$(sq "$NAME_H")" ENV_REL="$ENV_REL" ENV_NAME="$ENV_EXAMPLE" DEPLOY_SH="$DEPLOY_SH" \
+  replace_in 's/__SLUG__/$ENV{SLUG}/g; s/__NAME_Q__/$ENV{NAME_Q}/g; s/__ENV_REL__/$ENV{ENV_REL}/g; s/__ENV_NAME__/$ENV{ENV_NAME}/g; s/__DEPLOY_SH__/$ENV{DEPLOY_SH}/g' "$DEPLOY_APP_SH"
+chmod +x "$DEPLOY_APP_SH"
+printf '%s\n' "$ORIGIN" > "$ORIGIN_FILE"
 
 # ---- 6. fast tier in the staged copy (a failure means nothing is copied)
-gitc add -A; gitc commit -q -m "app settings"
+gitc add -A; gitc commit -q --allow-empty -m "app settings"
 if [ -f web/package.json ] && command -v pnpm >/dev/null 2>&1; then
   (cd web && pnpm install --frozen-lockfile) >"$LOG" 2>&1 || fail_stage "pnpm install"
 fi
@@ -145,17 +195,15 @@ gitc archive HEAD | tar -x -C "$X"
 mkdir -p "$TARGET_ABS"
 [ -d "$TARGET_ABS" ] || refuse "$TARGET_ARG is not a directory"
 T="$(cd "$TARGET_ABS" && pwd -P)"
-COPY=(); DEST_OF=(); NOTES=(); COLLIDE=(); POINTER=0; GITIGNORE=0; L3_HOST=()
-[ ! -d "$T/ios" ] || L3_HOST+=("ios/")
-[ ! -e "$T/CLAUDE.md" ] || L3_HOST+=("a root CLAUDE.md")
+COPY=(); DEST_OF=(); NOTES=(); COLLIDE=(); POINTER=0; GITIGNORE=0
 while IFS= read -r -d '' rel; do
   rel="${rel#./}"; dest="$rel"
   case "$rel" in
     .gitignore) GITIGNORE=1; [ -e "$T/.gitignore" ] && continue ;;
-    CLAUDE.md) if [ -e "$T/CLAUDE.md" ]; then dest="web/CLAUDE.md"; POINTER=1; fi ;;
-    README.md|AGENTS.md) if [ -e "$T/$rel" ]; then NOTES+=("skipped $rel (already exists in $TARGET_ARG)"); continue; fi ;;
+    "$ROOT_CLAUDE_MD") if [ -e "$T/$ROOT_CLAUDE_MD" ]; then dest="$WEB_CLAUDE_MD"; POINTER=1; fi ;;
+    "$README_FILE"|AGENTS.md) if [ -e "$T/$rel" ]; then NOTES+=("skipped $rel (already exists in $TARGET_ARG)"); continue; fi ;;
     ios/*) if [ -d "$T/ios" ]; then
-             case "${NOTES[*]:-}" in *"skipped ios/"*) ;; *) NOTES+=("skipped ios/ (the target already has ios/; goweb's placeholder was not copied)") ;; esac
+             case "${NOTES[*]:-}" in *"skipped ios/"*) ;; *) NOTES+=("skipped ios/ (the target already has ios/; the starter's placeholder was not copied)") ;; esac
              continue
            fi ;;
   esac
@@ -183,27 +231,24 @@ if [ "$GITIGNORE" -eq 1 ] && [ -e "$T/.gitignore" ]; then
   done < "$X/.gitignore"
 fi
 if [ "$POINTER" -eq 1 ]; then
-  PTR="Web app (Go + React): see web/CLAUDE.md."
-  grep -qxF -- "$PTR" "$T/CLAUDE.md" || {
-    [ -z "$(tail -c1 "$T/CLAUDE.md")" ] || printf '\n' >> "$T/CLAUDE.md"
-    printf '%s\n' "$PTR" >> "$T/CLAUDE.md"
+  PTR="Web app (Go + React): see $WEB_CLAUDE_MD."
+  grep -qxF -- "$PTR" "$T/$ROOT_CLAUDE_MD" || {
+    [ -z "$(tail -c1 "$T/$ROOT_CLAUDE_MD")" ] || printf '\n' >> "$T/$ROOT_CLAUDE_MD"
+    printf '%s\n' "$PTR" >> "$T/$ROOT_CLAUDE_MD"
   }
 fi
 
-echo "scaffold: $NAME ($SLUG) written to $T from goweb ${ORIGIN:0:7}; goweb's fast tier passed in the copy."
+echo "scaffold: $NAME ($SLUG) written to $T from the starter ${ORIGIN:0:7}; the starter's fast tier passed in the copy."
 [ "${#NOTES[@]}" -eq 0 ] || printf 'scaffold: %s\n' "${NOTES[@]}"
-if [ "${#L3_HOST[@]}" -gt 0 ]; then
-  echo "scaffold: WARNING (goweb L3): $TARGET_ARG already had ${L3_HOST[*]}. \`make test\` in this app will fail at scripts/layout.test.sh until goweb's guard is made host-aware (goweb L3, see the config repo CLAUDE.md). \`make test-fast\` and the other tiers are unaffected."
-fi
 cat <<EOS
 
-REWRITE THE PUBLIC COPY: web/api/internal/web/pages/ (privacy, terms, FAQ, support, home) still describes goweb's
+REWRITE THE PUBLIC COPY: $PAGES_GLOB (privacy, terms, FAQ, support, home) still describes the starter's
 example notes app. Rewrite all of it for the real app before release; only the name and footer were changed.
 
 One-time setup (details in the skill):
   1. DreamHost panel: add $SLUG.caritos.com (domain), then VPS Management -> Proxy Server -> the app's port.
   2. ssh-copy-id -i ~/.ssh/id_ed25519.pub <user>@<host>   (a FULL shell user, not SFTP-only)
-  3. Free port: ss -tln, then ps aux for who owns a taken one.$( [ "$HAVE_PORT" -eq 1 ] || echo " Re-run with --port N or edit ADDR in .env.example." )
-  4. Server .env from .env.example (docs/deploy.md); then: scripts/deploy-app.sh <user>@<host> --check
-  5. Mac backups: copy scripts/backup-pull.env.example to ~/.config/$SLUG/backup-pull.env, set REMOTE, run scripts/install-backup-agent.sh
+  3. Free port: ss -tln, then ps aux for who owns a taken one.$( [ "$HAVE_PORT" -eq 1 ] || echo " Re-run with --port N or edit ADDR in $ENV_EXAMPLE." )
+  4. Server .env from $ENV_EXAMPLE (docs/deploy.md); then: $DEPLOY_APP_SH <user>@<host> --check
+  5. Mac backups: copy $BACKUP_ENV_EXAMPLE to ~/.config/$SLUG/backup-pull.env, set REMOTE, run $SCRIPTS_DIR/install-backup-agent.sh
 EOS

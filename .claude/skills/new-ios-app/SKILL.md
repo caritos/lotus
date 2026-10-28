@@ -15,8 +15,8 @@ Every iOS app gets the same skeleton and two scripts from the first commit, so i
 ## Scaffold
 
 ```bash
-bash ~/.claude/skills/new-ios-app/scripts/scaffold.sh <repo-dir> <AppName> <bundle-slug> ["Display Name"]
-# e.g. bash .../scaffold.sh ~/src/fressh Fressh fressh "Fressh"
+bash <goweb-repo>/.claude/skills/new-ios-app/scripts/scaffold.sh <repo-dir> <AppName> <bundle-slug> ["Display Name"]
+# also via ~/.claude/skills/new-ios-app once linked; e.g. bash .../scaffold.sh ~/src/fressh Fressh fressh "Fressh"
 ```
 
 Creates (never overwrites an existing `ios/`): `ios/Package.swift` (`<App>Kit`, Swift Testing, `swift test` on Mac), `ios/App/<App>/project.yml` (XcodeGen, bundle `com.caritos.<slug>`, team `3U8L77G9QV`, iOS 17, encryption key false), a thin SwiftUI app, a placeholder alpha-free icon, `ship.sh`, `deploy.sh`, `ExportOptions.plist`, `app.env`, and a project `CLAUDE.md`.

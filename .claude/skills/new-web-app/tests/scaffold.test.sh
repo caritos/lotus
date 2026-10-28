@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fast tier: scripts/scaffold.sh against a small fixture repo standing in for goweb.
+# Fast tier: scripts/scaffold.sh against a small fixture repo standing in for the starter.
 # Sourced by run.sh (lib.sh already loaded). Each test runs in its own subshell under `set -e`.
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCAFFOLD="$SKILL_DIR/scripts/scaffold.sh"
@@ -7,22 +7,32 @@ T_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nwa-scaffold.XXXXXX")"
 trap 'rm -rf "$T_ROOT"' EXIT
 export FAKE_LOG="$T_ROOT/fake.log"
 
-# make_goweb <dir>: a git repo with the few files the wrapper touches. rename.sh is a tiny stand-in
-# (same CLI, refuses a dirty tree, replaces goweb in tracked text files).
+# The wrapper marker file name is a fixed contract with the starter's layout guard (two pieces on purpose).
+MARK=".go""web-origin"
+
+# make_goweb <dir>: a git repo with the few files the wrapper touches, shaped like the renamed starter
+# (shipped name `app`). rename.sh is a tiny stand-in with the same CLI as the real one: --check, a clean
+# tree, and, like the real rule 8, EVERY bare word `app` in an HTML page that has a title or brand link
+# becomes the new name, plus dist/app in text files. Prose elsewhere stays.
 make_goweb() {
   local d="$1"
-  mkdir -p "$d/scripts" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers"
+  mkdir -p "$d/scripts" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
   cat > "$d/scripts/rename.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
-A=(); for a in "$@"; do case "$a" in --force|--regen) ;; *) A+=("$a") ;; esac; done
+CHECK=0; A=(); for a in "$@"; do case "$a" in --check) CHECK=1 ;; --force|--regen) ;; *) A+=("$a") ;; esac; done
 [ "${#A[@]}" -eq 2 ] || exit 2
-echo "rename ${A[*]}" >> "${FAKE_LOG:-/dev/null}"
+FLAG=""; [ "$CHECK" = 1 ] && FLAG="--check "; echo "rename ${FLAG}${A[*]}" >> "${FAKE_LOG:-/dev/null}"
+case "${A[1]}" in verify|web) echo "rename: the name '${A[1]}' is reserved: pick another name" >&2; exit 1 ;; esac
+[ "$CHECK" = 0 ] || { echo "rename: --check: would be accepted"; exit 0; }
 cd "$(dirname "$0")/.."
 [ -z "$(git status --porcelain)" ] || { echo "rename: dirty tree" >&2; exit 1; }
 for f in $(git ls-files); do
-  case "$f" in docs/superpowers/*) continue ;; esac
-  perl -pi -e "s/goweb/${A[1]}/g" "$f"
+  case "$f" in docs/superpowers/*|.claude/skills/*) continue ;; esac
+  case "$f" in
+    *.html) grep -q '<title>\|class="brand"' "$f" && perl -pi -e "s{(?<![A-Za-z0-9_./-])app(?![A-Za-z0-9_-])}{${A[1]}}g" "$f" ;;
+    *) perl -pi -e "s{dist/app}{dist/${A[1]}}g" "$f" ;;
+  esac
 done
 EOS
   cat > "$d/scripts/deploy.sh" <<'EOS'
@@ -32,10 +42,10 @@ EOS
 EOS
   cat > "$d/scripts/backup-pull.env.example" <<'EOS'
 REMOTE=deploy@host.example.com
-REMOTE_DIR=goweb/data/backups
-#DEST=$HOME/Backups/goweb
+REMOTE_DIR=app/data/backups
+#DEST=$HOME/Backups/app
 #KEEP=30
-#MIRROR_DIR="/path/to/second drive/backups/goweb"
+#MIRROR_DIR="/path/to/second drive/backups/app"
 EOS
   cat > "$d/.env.example" <<'EOS'
 APP_ENV=production
@@ -45,20 +55,25 @@ ADDR=127.0.0.1:8080
 TRUSTED_PROXY=127.0.0.1/32
 EOS
   printf 'node_modules/\n*.log\n' > "$d/.gitignore"
-  printf '# goweb\n\nA starter. Run `cd goweb`.\n' > "$d/README.md"
-  printf '# goweb CLAUDE\n' > "$d/CLAUDE.md"
-  printf '# goweb AGENTS\n' > "$d/AGENTS.md"
+  printf '# app\n\nA starter. The app serves /app/. Binary: dist/app\n' > "$d/README.md"
+  printf '# app CLAUDE\nbinary dist/app\n' > "$d/CLAUDE.md"
+  printf '# app AGENTS\n' > "$d/AGENTS.md"
   printf '# ios\nreserved\n' > "$d/ios/README.md"
-  printf 'history of goweb\n' > "$d/docs/superpowers/plan.md"
-  printf '<title>goweb</title>\n' > "$d/web/index.html"
-  local p
+  printf 'history\n' > "$d/docs/superpowers/plan.md"
+  printf 'skill text with caritos.com and DreamHost\n' > "$d/.claude/skills/new-web-app/SKILL.md"
+  printf '#!/bin/bash\n' > "$d/.claude/skills/new-web-app/scripts/scaffold.sh"
+  printf '<!doctype html>\n<title>app</title>\n<div id="root"></div>\n' > "$d/web/index.html"
+  local p t h
   for p in index faq privacy terms support; do
-    cat > "$d/web/api/internal/web/pages/$p.html" <<'EOS'
-<title>goweb - simple notes with photos</title>
-<a class="brand" href="/">goweb</a>
+    case "$p" in index) t='app - simple notes with photos'; h='<h1>app</h1>' ;; faq) t='FAQ - app'; h='<h2>What is app?</h2>' ;; *) t="$p - app"; h="<h1>$p</h1>" ;; esac
+    cat > "$d/web/api/internal/web/pages/$p.html" <<EOS
+<title>$t</title>
+<a class="brand" href="/">app</a>
+$h
+<p>This is the example notes app. <a class="button" href="/app/">Open the app</a></p>
 <p>Email <a href="mailto:support@example.com">support@example.com</a>.</p>
 <p class="note">Replace support@example.com with your real support address.</p>
-<p>goweb is a placeholder name. Replace this footer with your own.</p>
+<p>The name in the header is a placeholder. Replace this footer with your own.</p>
 EOS
   done
   printf 'test-fast:\n\t@test ! -f FAIL_TEST_FAST\n' > "$d/Makefile"
@@ -118,7 +133,7 @@ test_refuses_when_goweb_is_missing() {
   new_env
   local rc=0 out
   out="$(GOWEB_DIR="$T_ROOT/nope" run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
-  assert_eq 1 "$rc"; assert_contains "$out" "goweb"
+  assert_eq 1 "$rc"; assert_contains "$out" "starter"
   mkdir "$T_ROOT/plain"; rc=0
   GOWEB_DIR="$T_ROOT/plain" run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null || rc=$?
   assert_eq 1 "$rc" "not a git repo"
@@ -166,15 +181,15 @@ test_appends_only_missing_gitignore_lines() {
   assert_eq $'.DS_Store\nnode_modules/\n*.log' "$(cat "$TARGET/.gitignore")"
 }
 
-test_root_claude_md_gets_a_pointer_and_goweb_s_goes_to_web() {
+test_root_claude_md_gets_a_pointer_and_the_starters_goes_to_web() {
   new_env
   printf '# Mine\nkeep this\n' > "$TARGET/CLAUDE.md"
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
   assert_contains "$(cat "$TARGET/CLAUDE.md")" "keep this"
   assert_contains "$(cat "$TARGET/CLAUDE.md")" "web/CLAUDE.md"
   assert_eq 1 "$(grep -c 'web/CLAUDE.md' "$TARGET/CLAUDE.md")"
-  assert_contains "$(cat "$TARGET/web/CLAUDE.md")" "shop CLAUDE"
-  # without an existing root file, goweb's lands at the root and no web/CLAUDE.md exists
+  assert_contains "$(cat "$TARGET/web/CLAUDE.md")" "dist/shop"
+  # without an existing root file, the starter's lands at the root and no web/CLAUDE.md exists
   rm -rf "$TARGET"; mkdir "$TARGET"
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
   [ -f "$TARGET/CLAUDE.md" ]; [ ! -e "$TARGET/web/CLAUDE.md" ]
@@ -191,10 +206,10 @@ test_skips_existing_readme_and_agents_and_says_so() {
   assert_contains "$out" "skipped AGENTS.md"
 }
 
-test_writes_goweb_origin_with_the_commit_hash() {
+test_writes_the_origin_marker_with_the_commit_hash() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  assert_eq "$(git -C "$GW" rev-parse HEAD)" "$(tr -d '[:space:]' < "$TARGET/.goweb-origin")"
+  assert_eq "$(git -C "$GW" rev-parse HEAD)" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
 }
 
 test_display_name_is_html_escaped_in_pages() {
@@ -247,7 +262,7 @@ test_applies_the_hosting_defaults() {
   grep -qxF "rename github.com/caritos/shop shop" "$FAKE_LOG"
 }
 
-test_hosting_specifics_stay_out_of_goweb() {
+test_hosting_specifics_stay_out_of_the_starter() {
   new_env
   local before after
   before="$(snapshot "$GW")"
@@ -255,15 +270,84 @@ test_hosting_specifics_stay_out_of_goweb() {
   after="$(snapshot "$GW")"
   assert_eq "$before" "$after"
   [ -z "$(git -C "$GW" status --porcelain)" ]
-  ! grep -rq "caritos.com\|Treasure Chest" "$GW" --exclude-dir=.git
+  ! grep -rq "caritos.com\|Treasure Chest" "$GW" --exclude-dir=.git --exclude-dir=skills
 }
 
-test_no_goweb_text_is_left_in_written_files() {
+test_no_starter_name_or_token_is_left_in_written_files() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  local left
-  left="$(grep -rli goweb "$TARGET" | grep -v '\.goweb-origin$\|/docs/superpowers/' || true)"
+  local left old="go""web"
+  left="$(grep -rli "$old" "$TARGET" | grep -v "$MARK\$" || true)"
   assert_eq "" "$left"
+  left="$(grep -rl '@@WRAP_' "$TARGET" || true)"
+  assert_eq "" "$left" "no unreplaced token"
+}
+
+test_the_skills_directory_is_not_copied_into_the_app() {
+  new_env
+  run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
+  [ ! -e "$TARGET/.claude/skills" ]
+  [ -f "$GW/.claude/skills/new-web-app/SKILL.md" ]   # still in the starter
+  ! grep -rq "caritos.com" "$TARGET/.claude" 2>/dev/null
+}
+
+test_prose_with_the_word_app_survives_and_display_spots_get_the_name() {
+  new_env
+  run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
+  local pg="$TARGET/web/api/internal/web/pages" f
+  for f in index faq privacy terms support; do
+    assert_contains "$(cat "$pg/$f.html")" "This is the example notes app." "$f prose"
+    assert_contains "$(cat "$pg/$f.html")" 'href="/app/">Open the app</a>' "$f link"
+    assert_contains "$(cat "$pg/$f.html")" '<a class="brand" href="/">Shop</a>' "$f brand"
+  done
+  assert_contains "$(cat "$pg/index.html")" "<h1>Shop</h1>"
+  assert_contains "$(cat "$pg/faq.html")" "<h2>What is Shop?</h2>"
+  assert_contains "$(sed -n 1p "$pg/index.html")" "<title>Shop - desc</title>"
+  assert_contains "$(sed -n 1p "$pg/support.html")" "<title>support - Shop</title>"
+  assert_contains "$(cat "$TARGET/README.md")" "The app serves /app/. Binary: dist/shop"
+}
+
+test_slug_refused_by_the_starters_rename_check_exits_2_and_touches_nothing() {
+  new_env
+  local rc=0 out before
+  echo keep > "$TARGET/mine.txt"; before="$(snapshot "$TARGET")"
+  out="$(run_scaffold "$TARGET" verify "Shop" "desc")" || rc=$?
+  assert_eq 2 "$rc"
+  assert_contains "$out" "reserved"
+  assert_contains "$out" "verify"
+  assert_eq "$before" "$(snapshot "$TARGET")"
+  grep -q 'rename --check github.com/caritos/verify verify' "$FAKE_LOG"
+}
+
+test_slug_equal_to_the_starter_name_app_works() {
+  new_env
+  run_scaffold "$TARGET" app "Shop" "desc" >/dev/null
+  grep -qxF "rename github.com/caritos/app app" "$FAKE_LOG"
+  assert_contains "$(cat "$TARGET/web/api/internal/web/pages/index.html")" "<title>Shop - desc</title>"
+  assert_contains "$(cat "$TARGET/web/api/internal/web/pages/index.html")" "Open the app"
+}
+
+test_default_starter_is_the_repo_the_script_lives_in_also_through_a_symlink() {
+  new_env
+  cp "$SCAFFOLD" "$GW/.claude/skills/new-web-app/scripts/scaffold.sh"
+  git -C "$GW" add -A; git -C "$GW" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m skill
+  local sc="$GW/.claude/skills/new-web-app/scripts/scaffold.sh" head; head="$(git -C "$GW" rev-parse HEAD)"
+  ( unset GOWEB_DIR; bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
+  rm -rf "$TARGET"; mkdir "$TARGET"
+  mkdir -p "$T_ROOT/home/.claude/skills"; rm -f "$T_ROOT/home/.claude/skills/new-web-app"
+  ln -s "$GW/.claude/skills/new-web-app" "$T_ROOT/home/.claude/skills/new-web-app"      # linked skill dir
+  ( unset GOWEB_DIR; bash "$T_ROOT/home/.claude/skills/new-web-app/scripts/scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
+  rm -rf "$TARGET"; mkdir "$TARGET"
+  ln -sf "$sc" "$T_ROOT/link-scaffold.sh"                                                # linked script
+  ( unset GOWEB_DIR; bash "$T_ROOT/link-scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
+  # GOWEB_DIR still overrides
+  rm -rf "$TARGET" "$T_ROOT/gw2"; mkdir "$TARGET"; cp -R "$GW" "$T_ROOT/gw2"
+  git -C "$T_ROOT/gw2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m other
+  GOWEB_DIR="$T_ROOT/gw2" bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1
+  assert_eq "$(git -C "$T_ROOT/gw2" rev-parse HEAD)" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
 }
 
 test_a_failing_fast_tier_leaves_the_target_untouched() {
@@ -287,7 +371,7 @@ test_existing_ios_files_are_not_modified() {
   out="$(run_scaffold "$TARGET" shop "Shop" "desc")"
   assert_eq "$before" "$(snapshot "$TARGET/ios")"
   assert_contains "$out" "skipped ios/"
-  # without an ios/ in the target, goweb's placeholder is copied
+  # without an ios/ in the target, the starter's placeholder is copied
   rm -rf "$TARGET"; mkdir "$TARGET"
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
   [ -f "$TARGET/ios/README.md" ]
@@ -351,31 +435,17 @@ test_deploy_app_is_not_a_stale_layout_violation() {
   ! grep -nE '(^|[^A-Za-z0-9_/])deploy/' "$TARGET/scripts/deploy-app.sh"
 }
 
-# ---- L3 warning: goweb's layout guard assumes goweb's own root ---------------------------------
+# ---- host targets: the starter's layout guard is host-aware now, so no warning ------------------------
 
-test_warns_when_the_target_has_ios_or_a_root_claude_md() {
-  new_env
-  mkdir -p "$TARGET/ios"; echo x > "$TARGET/ios/a.swift"
-  local out rc=0; out="$(run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
-  assert_eq 0 "$rc"
-  assert_contains "$out" "scripts/layout.test.sh"
-  assert_contains "$out" "L3"
-  new_env
-  echo "# mine" > "$TARGET/CLAUDE.md"
-  out="$(run_scaffold "$TARGET" shop "Shop" "desc")"
-  assert_contains "$out" "scripts/layout.test.sh"
+test_no_layout_warning_for_a_target_with_ios_or_a_root_claude_md() {
   new_env
   mkdir -p "$TARGET/ios"; echo x > "$TARGET/ios/a.swift"; echo "# mine" > "$TARGET/CLAUDE.md"
-  out="$(run_scaffold "$TARGET" shop "Shop" "desc")"
-  assert_contains "$out" "make test"
-}
-
-test_no_layout_warning_for_an_empty_target() {
-  new_env
-  local rc=0 out; out="$(run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
+  local out rc=0; out="$(run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
   assert_eq 0 "$rc"
   assert_not_contains "$out" "layout.test.sh"
   assert_not_contains "$out" "L3"
+  assert_not_contains "$out" "WARNING"
+  assert_contains "$out" "skipped ios/"
 }
 
 # ---- relative <repo-dir> ----------------------------------------------------------------------
@@ -384,7 +454,7 @@ test_relative_dot_target_lands_in_the_current_directory() {
   new_env
   local out
   out="$(cd "$TARGET" && bash "$SCAFFOLD" . shop "Shop" "desc" 2>&1)"
-  [ -f "$TARGET/scripts/deploy-app.sh" ]; [ -f "$TARGET/.goweb-origin" ]
+  [ -f "$TARGET/scripts/deploy-app.sh" ]; [ -f "$TARGET/$MARK" ]
   local real; real="$(cd "$TARGET" && pwd -P)"
   assert_contains "$out" "written to $real"
   assert_not_contains "$out" "written to ."

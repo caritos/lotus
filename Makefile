@@ -4,7 +4,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_ID := $(shell bash "$(CURDIR)/scripts/build-id.sh")
 LDFLAGS := -X app/internal/version.Version=$(VERSION) -X app/internal/version.Commit=$(COMMIT) -X app/internal/version.BuildID=$(BUILD_ID)
 
-.PHONY: help dev build test-fast test test-scripts test-api e2e e2e-install api
+.PHONY: help dev build test-fast test test-scripts test-skills test-api e2e e2e-install api
 
 help:
 	@echo "make dev          Go API on 127.0.0.1:8080 plus the Vite dev server on :5173"
@@ -12,6 +12,7 @@ help:
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
 	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id, layout"
+	@echo "make test-skills   fast tier of the new-web-app skill tests (skipped where .claude/skills is absent)"
 	@echo "make e2e-install  download Chromium for Playwright (once)"
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
@@ -39,6 +40,7 @@ test:
 	cd web && pnpm test && pnpm typecheck
 	bash scripts/gen-api.test.sh
 	$(MAKE) test-scripts
+	$(MAKE) test-skills
 
 # Shell tests for the deploy, generator, hook, rename, build-id and layout scripts (need sqlite3 and go).
 test-scripts:
@@ -48,6 +50,11 @@ test-scripts:
 	bash scripts/rename.test.sh
 	bash scripts/build-id.test.sh
 	bash scripts/layout.test.sh
+
+# Fast tier of the new-web-app skill tests (a fixture stands in for the starter). A project started from
+# this repo has no .claude/skills, so the target does nothing there. Full tier: see docs/testing.md.
+test-skills:
+	@if [ -f .claude/skills/new-web-app/tests/run.sh ]; then bash .claude/skills/new-web-app/tests/run.sh --fast; else echo "test-skills: no .claude/skills here, nothing to run"; fi
 
 test-api:
 	bash scripts/gen-api.test.sh

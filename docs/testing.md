@@ -21,9 +21,16 @@ make test                       # Go -race + vet, Vitest, typecheck, generated-c
 make e2e-install                # once: downloads Chromium for Playwright
 make e2e                        # builds the frontend and the binary, then runs Playwright
 make test-scripts               # scripts/deploy.test.sh, gen-api preflight, hook test, rename test, build-id test, layout test
+make test-skills                # fast tier of the skill tests in .claude/skills/new-web-app/tests (part of make test)
 ```
 
 Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `.nvmrc`).
+
+The two skills in `.claude/skills/` have their own tests. `make test-skills` runs the fast tier of
+`new-web-app` (a small fixture stands in for this repo). The full tier,
+`bash .claude/skills/new-web-app/tests/run.sh`, scaffolds a real app from the committed `HEAD` of this
+repo (it refuses a dirty tree), runs that app's fast tier and layout guard, builds and serves it and
+runs `scripts/smoke.sh` against it; it needs Node, pnpm and Go and takes a few minutes.
 
 ## Skipped under `-short`
 

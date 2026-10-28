@@ -28,6 +28,7 @@ docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ ho
 dist/              compiled binary from `make build` (ignored); the frontend build is NOT here, see below
 ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
+.claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
 ```
 
 `dist/` holds only the compiled Go binary. Vite's output (`pnpm build`) goes to
@@ -47,6 +48,7 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 | Command | What |
 |---|---|
 | `make test-fast` | fast tier: `go test -short ./...`, `pnpm test`, `pnpm typecheck` |
+| `make test-skills` | fast tier of the skill tests (`.claude/skills/new-web-app/tests/run.sh --fast`; the full tier is `bash .claude/skills/new-web-app/tests/run.sh`, which scaffolds a real app from the committed `HEAD`, see `docs/testing.md`) |
 | `make test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
 | `make e2e-install` then `make e2e` | Playwright against the built binary (not part of the other tiers) |
 | `make api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
@@ -167,6 +169,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Skills in the repo (2026-10-28): `new-web-app` and `new-ios-app` live in `.claude/skills/` and the wrapper's default starter is the repo it lives in (`GOWEB_DIR` still overrides). The wrapper leaves `.claude/skills/` out of a new app, validates the slug with `scripts/rename.sh --check`, protects generic prose "app" in the pages while the display name replaces the title, brand link, first h1 and "What is" heading, and its goweb L3 warning is gone (the layout guard has a host mode). `scripts/rename.sh`, `scripts/layout.test.sh` and `scripts/rename.test.sh` ignore `.claude/skills/` like `docs/superpowers/`. `make test-skills` is part of `make test`.
 - Follow-ups batch (2026-10-27): `deploy.sh` separates timer enabled / not enabled / could not determine, runs
   its test gate without the caller's `GOOS`/`GOARCH`, skips the Node check for a non-numeric `.nvmrc` and
   compares majors only, and reports a missing `ss` or an ssh failure after the restart as such; the deploy

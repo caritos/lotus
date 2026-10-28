@@ -139,7 +139,7 @@ rules, reserved words, and a check that renaming back would be exact) without ch
 ```
 .
 ├── CLAUDE.md  AGENTS.md  Makefile  .env.example  .nvmrc
-├── .claude/                settings.json, hooks/post-edit.sh, commands/
+├── .claude/                settings.json, hooks/post-edit.sh, commands/, skills/ (new-web-app, new-ios-app)
 ├── .github/workflows/      ci.yml (fast, full, e2e)
 ├── deploy/                 files installed on a server: systemd units, nginx example
 ├── docs/                   deploy.md, https.md, backups.md, testing.md
@@ -162,6 +162,11 @@ rules, reserved words, and a check that renaming back would be exact) without ch
 [AGENTS.md](AGENTS.md) is the short tool-neutral version. `.claude/` has shared permissions, a
 post-edit hook (Go edits run `go vet` and `go test -short` for the package; web edits run
 `tsc`), and the `/test` and `/backup-check` commands.
+
+`.claude/skills/` holds two agent skills that start new projects from this repo: `new-web-app` turns a
+committed copy of it into an app (scripts/rename.sh plus hosting settings) and `new-ios-app` scaffolds
+an iOS app. They are not part of what a new app copies: the wrapper leaves that directory out, and
+`scripts/rename.sh` and the layout guard ignore it. Their tests run with `make test-skills`.
 
 ## Replace these placeholders
 

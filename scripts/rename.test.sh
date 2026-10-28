@@ -175,7 +175,7 @@ done
 # The skills under .claude/skills/ are not part of the starter's own text: rename.sh neither rewrites
 # them nor counts what they say when it checks a name. Put project-name contexts into one, then
 # rename (and rename to a name that occurs only there) and check it came out byte for byte.
-SK="$ROOT/skills"; cp -R "$BASE" "$SK"
+SK="$ROOT/res-sk"; cp -R "$BASE" "$SK"
 mkdir -p "$SK/.claude/skills/demo"
 printf 'cmd/%s dist/%s %s.service com.%s.backup-pull dist/zzonlyskill\n' "$CUR" "$CUR" "$CUR" "$CUR" > "$SK/.claude/skills/demo/SKILL.md"
 (cd "$SK" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m skill)
@@ -185,7 +185,7 @@ out="$(cd "$SK" && bash scripts/rename.sh --check example.com/acme/zzonlyskill z
 out="$(cd "$SK" && bash scripts/rename.sh "$NEW_MODULE" "$NEW" 2>&1)"; rc=$?
 [ $rc -eq 0 ] && [ "$sk_before" = "$(cksum < "$SK/.claude/skills/demo/SKILL.md")" ] && [ -z "$(cd "$SK" && git status --porcelain -- .claude/skills)" ] && ok "rename leaves .claude/skills untouched" || bad "rename touched .claude/skills (rc=$rc out=$out)"
 # the same text anywhere else IS rewritten (the exemption is only for the skills)
-SK2="$ROOT/skills2"; cp -R "$BASE" "$SK2"
+SK2="$ROOT/res-sk2"; cp -R "$BASE" "$SK2"
 printf 'cmd/%s dist/%s\n' "$CUR" "$CUR" > "$SK2/docs/zz-note.md"
 (cd "$SK2" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m note && bash scripts/rename.sh "$NEW_MODULE" "$NEW" >/dev/null 2>&1)
 grep -q "dist/$NEW" "$SK2/docs/zz-note.md" && ok "the same contexts outside .claude/skills are still rewritten" || bad "docs/ line not rewritten"

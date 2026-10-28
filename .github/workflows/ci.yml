@@ -103,6 +103,8 @@ jobs:
         run: bash scripts/build-id.test.sh
       - name: Repository layout test
         run: bash scripts/layout.test.sh
+      - name: Skill tests (fast tier)
+        run: bash .claude/skills/new-web-app/tests/run.sh --fast
 
   e2e:
     runs-on: ubuntu-latest
