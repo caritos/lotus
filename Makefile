@@ -39,13 +39,14 @@ test:
 	bash scripts/gen-api.test.sh
 	$(MAKE) test-scripts
 
-# Shell tests for the deploy, generator, hook, rename and build-id scripts (need sqlite3 and go).
+# Shell tests for the deploy, generator, hook, rename, build-id and layout scripts (need sqlite3 and go).
 test-scripts:
-	bash deploy/test.sh
+	bash scripts/deploy.test.sh
 	bash scripts/gen-api-preflight.test.sh
 	bash .claude/hooks/post-edit.test.sh
 	bash scripts/rename.test.sh
 	bash scripts/build-id.test.sh
+	bash scripts/layout.test.sh
 
 test-api:
 	bash scripts/gen-api.test.sh

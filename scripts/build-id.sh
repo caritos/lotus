@@ -12,7 +12,7 @@
 #   BUILD_DATE          YYYYMMDD, overrides the date (used by tests)
 #   SOURCE_DATE_EPOCH   Unix seconds; the date is taken from it (reproducible builds)
 #
-# The build (Makefile, deploy/deploy.sh, web/e2e/global-setup.ts) passes this id to the
+# The build (Makefile, scripts/deploy.sh, web/test/e2e/global-setup.ts) passes this id to the
 # binary with -ldflags; nothing else may hard-code it.
 set -euo pipefail
 

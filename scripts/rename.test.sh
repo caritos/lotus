@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/rename.sh. Copies the repo (tracked and new files) into a temp dir,
 # commits it there, renames it and checks the result builds and tests.
-# Run: bash scripts/rename.test.sh   (RENAME_TEST_FULL=1 also runs deploy/test.sh in the copy)
+# Run: bash scripts/rename.test.sh   (RENAME_TEST_FULL=1 also runs scripts/deploy.test.sh in the copy)
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -73,11 +73,11 @@ grep -qx "module example.com/acme/shop" "$R/web/api/go.mod" && ok "go.mod module
 [ -d "$R/web/api/cmd/shop" ] && [ ! -e "$R/web/api/cmd/goweb" ] && ok "cmd/shop exists" || bad "cmd dir"
 [ -f "$R/deploy/shop.service" ] && [ -f "$R/deploy/shop-backup.service" ] && [ -f "$R/deploy/shop-backup.timer" ] && ok "unit files renamed" || bad "unit files"
 grep -q "example.com/acme/shop/internal/version" "$R/Makefile" && ok "ldflags use the module path" || bad "Makefile ldflags"
-for f in Makefile deploy/deploy.sh web/e2e/global-setup.ts; do
+for f in Makefile scripts/deploy.sh web/test/e2e/global-setup.ts; do
   grep -q "example.com/acme/shop/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
 done
 [ -x "$R/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
-grep -q "SHOP_BIN" "$R/deploy/restore.sh" && ok "env var prefix renamed" || bad "SHOP_BIN missing"
+grep -q "SHOP_BIN" "$R/scripts/restore.sh" && ok "env var prefix renamed" || bad "SHOP_BIN missing"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 
 if command -v go >/dev/null 2>&1; then
@@ -91,7 +91,7 @@ if command -v pnpm >/dev/null 2>&1; then
 else skip "pnpm not on PATH: gen-api.test.sh not run in the copy"; fi
 
 if [ "${RENAME_TEST_FULL:-}" = 1 ]; then
-  if (cd "$R" && bash deploy/test.sh) >"$ROOT/deploy.log" 2>&1; then ok "deploy/test.sh passes in the copy"; else bad "deploy/test.sh in the copy: $(tail -20 "$ROOT/deploy.log")"; fi
+  if (cd "$R" && bash scripts/deploy.test.sh) >"$ROOT/deploy.log" 2>&1; then ok "scripts/deploy.test.sh passes in the copy"; else bad "scripts/deploy.test.sh in the copy: $(tail -20 "$ROOT/deploy.log")"; fi
 fi
 
 echo "$pass passed, $fail failed"

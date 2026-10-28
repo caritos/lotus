@@ -92,7 +92,7 @@ jobs:
           pnpm test
           pnpm typecheck
       - name: Deploy, backup and restore script tests
-        run: bash deploy/test.sh
+        run: bash scripts/deploy.test.sh
       - name: Generator preflight tests
         run: bash scripts/gen-api-preflight.test.sh
       - name: Hook tests
@@ -101,6 +101,8 @@ jobs:
         run: bash scripts/rename.test.sh
       - name: Build id script test
         run: bash scripts/build-id.test.sh
+      - name: Repository layout test
+        run: bash scripts/layout.test.sh
 
   e2e:
     runs-on: ubuntu-latest

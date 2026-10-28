@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Tests for deploy/restore.sh, deploy/pull-backups.sh, deploy/deploy.sh and deploy/smoke.sh.
+# Tests for scripts/restore.sh, scripts/pull-backups.sh, scripts/deploy.sh and scripts/smoke.sh.
 # Builds the goweb binary once, builds fixtures with it and the sqlite3 CLI, and
-# uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash deploy/test.sh
-# (ONLY='test_deploy_*' bash deploy/test.sh runs the tests whose names match the glob).
+# uses fake SYSTEMCTL / HEALTH_CMD / NOTIFY_CMD scripts. Run: bash scripts/deploy.test.sh
+# (ONLY='test_deploy_*' bash scripts/deploy.test.sh runs the tests whose names match the glob).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
-  echo "test.sh: the sqlite3 CLI is required to build fixtures but was not found on PATH" >&2
+  echo "deploy.test.sh: the sqlite3 CLI is required to build fixtures but was not found on PATH" >&2
   exit 2
 fi
 
 ROOT="$(mktemp -d)"
-case "$ROOT" in /tmp/*|/var/*|/private/*) ;; *) echo "test.sh: unexpected temp dir $ROOT" >&2; exit 2 ;; esac
+case "$ROOT" in /tmp/*|/var/*|/private/*) ;; *) echo "deploy.test.sh: unexpected temp dir $ROOT" >&2; exit 2 ;; esac
 trap 'rm -rf "$ROOT"' EXIT
 umask 077
 
 echo "building goweb ..."
 if ! (cd "$REPO_ROOT/web/api" && go build -o "$ROOT/goweb" ./cmd/goweb); then
-  echo "test.sh: go build failed" >&2
+  echo "deploy.test.sh: go build failed" >&2
   exit 2
 fi
 export GOWEB_BIN="$ROOT/goweb"
@@ -888,7 +888,7 @@ trap 'stop_smoke_server; rm -rf "$ROOT"' EXIT
 # start_site <config-json>: sets SITE_URL.
 start_site() {
   if ! command -v python3 >/dev/null 2>&1; then
-    echo "test.sh: python3 is required for the smoke tests (fake HTTP server) but was not found" >&2
+    echo "deploy.test.sh: python3 is required for the smoke tests (fake HTTP server) but was not found" >&2
     fail "python3 missing"; return 1
   fi
   printf '%s' "$1" > "$T/site.json"
@@ -1563,7 +1563,7 @@ for t in \
   test_deploy_passes_the_build_id_to_the_build_and_to_smoke \
   test_deploy_smoke_fails_when_the_site_serves_another_build_id
 do
-  # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash deploy/test.sh
+  # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
 done
 

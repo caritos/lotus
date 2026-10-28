@@ -12,7 +12,7 @@
 #   current                    symlink to the active release
 #   data/                      the app's DATA_DIR (db/, logs/, storage/, backups/)
 #   .env                       the server's runtime config; never uploaded, never printed
-#   restore.sh                 copy of deploy/restore.sh, refreshed on every deploy
+#   restore.sh                 copy of scripts/restore.sh, refreshed on every deploy
 #
 # Steps: preflight; resolve APP_ENV, DATA_DIR and the app port from the server's .env
 # the way the service does (refusing unless APP_ENV=production); build (pnpm build,
