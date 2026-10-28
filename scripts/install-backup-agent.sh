@@ -43,9 +43,11 @@ esac
 # Validate everything before writing anything.
 [ -f "$ENV_FILE" ] || die 2 "settings file $ENV_FILE not found; copy $HERE/backup-pull.env.example there and edit it"
 [ -f "$PULL_SCRIPT" ] || die 2 "$PULL_SCRIPT not found"
-missing="$( set -a; . "$ENV_FILE" >/dev/null 2>&1
+bad_env="$ENV_FILE could not be read as shell settings; values containing spaces must be quoted"
+bash -n "$ENV_FILE" >/dev/null 2>&1 || die 2 "$bad_env"
+missing="$( set -e; set -a; . "$ENV_FILE" >/dev/null 2>&1
   m=""; [ -n "${REMOTE:-}" ] || m="$m REMOTE"; [ -n "${REMOTE_DIR:-}" ] || m="$m REMOTE_DIR"; echo "$m" )" \
-  || die 2 "$ENV_FILE could not be read"
+  || die 2 "$bad_env"
 [ -z "$missing" ] || die 2 "$ENV_FILE must define:$missing"
 
 mkdir -p "$LAUNCHAGENTS_DIR" "$LOG_DIR" || die 1 "cannot create $LAUNCHAGENTS_DIR or $LOG_DIR"

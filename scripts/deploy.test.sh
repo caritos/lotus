@@ -1658,6 +1658,21 @@ EOS
   assert_eq "$(cat "$T/recorded" 2>/dev/null)" "/tmp/x y" "MIRROR_DIR reached the pull script intact"
 }
 
+test_agent_install_rejects_an_env_file_that_does_not_source_cleanly() {
+  agent_env
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=x\nMIRROR_DIR=/tmp/x y\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "unquoted value with a space"
+  assert_contains "$(cat "$T/err")" "$ENV_FILE" "names the file"
+  assert_contains "$(cat "$T/err")" "quoted" "says to quote values with spaces"
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=x\nif then fi (\n' > "$ENV_FILE"
+  agent
+  assert_eq "$?" "2" "plain syntax error"
+  assert_contains "$(cat "$T/err")" "$ENV_FILE" "names the file"
+  assert_eq "$(ls "$T/agents" | wc -l | tr -d ' ')" "0" "no plist written"
+  assert_eq "$(cat "$LC_CALLS")" "" "launchctl untouched"
+}
+
 test_agent_plist_is_valid() {
   command -v plutil >/dev/null 2>&1 || { echo "    (plutil missing, skipped)"; return; }
   agent_env
@@ -1777,7 +1792,8 @@ for t in \
   test_agent_install_verifies_with_launchctl_list \
   test_agent_uninstall_removes_plist_and_boots_out \
   test_agent_passes_a_MIRROR_DIR_with_a_space_intact \
-  test_agent_plist_is_valid
+  test_agent_plist_is_valid \
+  test_agent_install_rejects_an_env_file_that_does_not_source_cleanly
 do
   # ONLY='glob' runs a subset, e.g. ONLY='test_deploy_*' bash scripts/deploy.test.sh
   case "$t" in ${ONLY:-*}) run_test "$t" ;; esac
