@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fast tier: scripts/scaffold.sh against a small fixture repo standing in for the starter.
 # Sourced by run.sh (lib.sh already loaded). Each test runs in its own subshell under `set -e`.
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCAFFOLD="$SKILL_DIR/scripts/scaffold.sh"
 T_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nwa-scaffold.XXXXXX")"
 trap 'rm -rf "$T_ROOT"' EXIT

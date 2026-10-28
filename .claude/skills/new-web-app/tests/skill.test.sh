@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for SKILL.md (sourced by run.sh; lib.sh already loaded).
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SKILL_MD="$SKILL_DIR/SKILL.md"
 
 test_skill_frontmatter_name_and_use_when() {

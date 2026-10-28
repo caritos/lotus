@@ -6,7 +6,7 @@
 # web/scripts/deploy-app.sh.
 # Needs Node (web/.nvmrc under ~/.nvm, or on PATH), pnpm and Go. goweb's `--check` logs in over ssh and
 # cannot run offline; the placeholder-port refusal before any ssh call is tested here and in the fast tier.
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCAFFOLD="$SKILL_DIR/scripts/scaffold.sh"
 STARTER_DIR="$(cd "$SKILL_DIR/../../.." && pwd -P)"
 MARK=".go""web-origin"
