@@ -80,8 +80,10 @@ echo "install-backup-agent: label $LABEL, settings $ENV_FILE, log $LOG" >&2
 [ -f "$PULL_SCRIPT" ] || die 2 "$PULL_SCRIPT not found"
 bad_env="$ENV_FILE could not be read as shell settings; values containing spaces must be quoted"
 bash -n "$ENV_FILE" >/dev/null 2>&1 || die 2 "$bad_env"
-missing="$( set -e; set -a; . "$ENV_FILE" >/dev/null 2>&1
-  m=""; [ -n "${REMOTE:-}" ] || m="$m REMOTE"; [ -n "${REMOTE_DIR:-}" ] || m="$m REMOTE_DIR"; echo "$m" )" \
+# A separate bash process, not a subshell: newer bash versions ignore `set -e` inside a command substitution
+# that sits on the left of `||`, which would let `KEY=a b` (a command named b) pass as a clean file.
+missing="$(bash -c 'set -e; set -a; . "$1" >/dev/null 2>&1
+  m=""; [ -n "${REMOTE:-}" ] || m="$m REMOTE"; [ -n "${REMOTE_DIR:-}" ] || m="$m REMOTE_DIR"; echo "$m"' _ "$ENV_FILE")" \
   || die 2 "$bad_env"
 [ -z "$missing" ] || die 2 "$ENV_FILE must define:$missing"
 
