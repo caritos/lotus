@@ -71,7 +71,7 @@ stale_report() {
     git grep -nE 'web/e2e' -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
     git grep -nE "deploy/($SCRIPT_RE|test([^A-Za-z]|$)|\*\.sh)|(^|[^A-Za-z0-9_/])(cd|bash|sh) +\.?/?deploy( |/|\$)|(^|[^.])\./deploy|\.\./deploy( |/$|/\*|/($SCRIPT_RE)|\`|\$)" -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
     # the binary now lives in dist/: a root binary reference such as `./<name> serve`
-    git grep -nE "(^|[^A-Za-z0-9_./-])\\./$NAME([^A-Za-z0-9_/-]|\$)" -- README.md AGENTS.md CLAUDE.md 'docs/*.md' ':!docs/superpowers'
+    git grep -nE "(^|[^A-Za-z0-9_./-])\\./$NAME(\$|[^A-Za-z0-9_/.-]|\\.([^A-Za-z]|\$))" -- README.md AGENTS.md CLAUDE.md 'docs/*.md' ':!docs/superpowers'
     # bare script name on a line that also names deploy/ (unless it is clearly about scripts/)
     git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . ':!docs/superpowers' ':!scripts/layout.test.sh' |
       grep -E "$SCRIPT_RE" | grep -v 'scripts/'
@@ -113,6 +113,10 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_fail "../deploy/*.sh" README.md 'ls ../deploy/*.sh'
   expect_fail "bare script names beside deploy/" README.md '- `deploy/`: units, `deploy.sh`, `smoke.sh`, NGINX example'
   expect_fail "root binary ./$NAME in README" README.md "run ./$NAME serve"
+  expect_fail "root binary ./$NAME at the end of a sentence" README.md "build it, then run ./$NAME."
+  expect_fail "root binary ./$NAME. followed by a space" README.md "run ./$NAME. Then wait"
+  expect_fail "backticked root binary" README.md 'run `./'"$NAME"'` now'
+  expect_pass "./$NAME.db is a file name, not the binary" README.md "the file ./$NAME.db is created"
   expect_pass "dist/$NAME in README" README.md "run ./dist/$NAME serve"
   expect_fail "stale path in current-state text of CLAUDE.md" CLAUDE.md 'web/e2e/ holds Playwright'
   expect_pass "scripts/ path beside deploy/" README.md '- `deploy/` units; `scripts/deploy.sh` and `scripts/smoke.sh`'
