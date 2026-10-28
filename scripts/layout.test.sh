@@ -26,7 +26,7 @@ have="$(cd deploy 2>/dev/null && ls | tr '\n' ' ' | sed 's/ $//')"
 
 # The repo-level scripts live in scripts/.
 missing=""
-for f in deploy.sh smoke.sh restore.sh pull-backups.sh deploy.test.sh build-id.sh rename.sh; do
+for f in deploy.sh smoke.sh restore.sh pull-backups.sh install-backup-agent.sh backup-pull.env.example deploy.test.sh build-id.sh rename.sh; do
   [ -f "scripts/$f" ] || missing="$missing $f"
 done
 [ -z "$missing" ] && ok "scripts/ holds the deploy, smoke, restore, pull-backups scripts and their test" || bad "missing from scripts/:$missing"

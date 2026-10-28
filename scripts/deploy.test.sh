@@ -608,7 +608,7 @@ echo "ss $*" >> "$DCALLS"
 printf '%s\n' "${FAKE_SS_LISTEN:-}" | while IFS= read -r a; do
   [ -n "$a" ] || continue
   case " $* " in
-    *" -H -ltnp "*) [ -n "${FAKE_SS_OWNED:-}" ] && u=' users:(("goweb",pid=1,fd=3))' || u="" ;;
+    *" -H -ltnp "*) [ -n "${FAKE_SS_OWNED:-}" ] && u=' users:(("app",pid=1,fd=3))' || u="" ;;
     *) u="" ;;
   esac
   echo "LISTEN 0      4096   $a   0.0.0.0:*$u"
@@ -783,7 +783,7 @@ test_deploy_refuses_a_port_already_in_use_by_another_service() {
   assert_contains "$(cat "$T/err")" "8080" "names the port"
   assert_contains "$(cat "$T/err")" "ss -ltnp | grep :8080" "says how to find the owner"
   assert_eq "$(active_release)" "releases/v1" "current unchanged"
-  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
   assert_false "no rsync" grep -q "^rsync" "$DCALLS"
 }
 
@@ -819,17 +819,17 @@ test_deploy_check_also_refuses_a_busy_port() {
 
 test_deploy_with_EXPECT_PUBLIC_LISTENER_refuses_a_loopback_ADDR_in_the_server_env() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/app/.env"
   EXPECT_PUBLIC_LISTENER=1 deploy deploy@host.example.com
   assert_false "exit status must be nonzero" test "$?" -eq 0
   assert_contains "$(cat "$T/err")" "ADDR=0.0.0.0:8080" "names the fix"
-  assert_false "nothing uploaded" test -e "$T/home/goweb/releases/v2"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
   assert_false "no rsync" grep -q "^rsync" "$DCALLS"
 }
 
 test_deploy_ignores_the_listener_checks_by_default() {
   setup_deploy; make_release v1 0001_init.sql active
-  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/goweb/.env"
+  printf 'APP_ENV=production\nSESSION_SECRET=x\nADDR=127.0.0.1:8080\n' > "$T/home/app/.env"
   FAKE_SS_LISTEN="127.0.0.1:8080" FAKE_SS_OWNED=1 deploy deploy@host.example.com
   assert_eq "$?" "0" "exit status"
 }
@@ -1615,10 +1615,10 @@ EOS
   : > "$LC_CALLS"
   export LAUNCHCTL="$T/launchctl" LAUNCHAGENTS_DIR="$T/agents" HOME="$T/home"
   export ENV_FILE="$T/backup-pull.env"
-  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=goweb/data/backups\n' > "$ENV_FILE"
+  printf 'REMOTE=deploy@host.example.com\nREMOTE_DIR=app/data/backups\n' > "$ENV_FILE"
 }
 agent() { bash "$SCRIPT_DIR/install-backup-agent.sh" "$@" >"$T/out" 2>"$T/err"; }
-AGENT_PLIST() { echo "$T/agents/com.goweb.backup-pull.plist"; }
+AGENT_PLIST() { echo "$T/agents/com.app.backup-pull.plist"; }
 
 test_agent_install_writes_a_plist_that_loads_the_env_file() {
   agent_env
@@ -1627,12 +1627,12 @@ test_agent_install_writes_a_plist_that_loads_the_env_file() {
   local p; p="$(AGENT_PLIST)"
   assert_true "plist written" test -f "$p"
   local c; c="$(cat "$p")"
-  assert_contains "$c" "<string>com.goweb.backup-pull</string>" "label"
+  assert_contains "$c" "<string>com.app.backup-pull</string>" "label"
   assert_contains "$c" "$ENV_FILE" "env file path in the command"
   assert_contains "$c" "$SCRIPT_DIR/pull-backups.sh" "pull script path"
   assert_contains "$c" "<key>Hour</key><integer>3</integer>" "hour"
   assert_contains "$c" "<key>Minute</key><integer>30</integer>" "minute"
-  assert_contains "$c" "$T/home/Library/Logs/goweb/backup-pull.log" "log path"
+  assert_contains "$c" "$T/home/Library/Logs/app/backup-pull.log" "log path"
   assert_contains "$(cat "$LC_CALLS")" "bootstrap" "bootstrapped"
 }
 
@@ -1667,7 +1667,7 @@ test_agent_install_verifies_with_launchctl_list() {
   agent_env
   FAKE_LIST_FAIL=1 agent
   assert_eq "$?" "1" "exit status"
-  assert_contains "$(cat "$T/err")" "$T/home/Library/Logs/goweb/backup-pull.log" "message names the log path"
+  assert_contains "$(cat "$T/err")" "$T/home/Library/Logs/app/backup-pull.log" "message names the log path"
 }
 
 test_agent_uninstall_removes_plist_and_boots_out() {

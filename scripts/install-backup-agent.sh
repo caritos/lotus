@@ -4,24 +4,24 @@
 #   scripts/install-backup-agent.sh               install or replace the agent
 #   scripts/install-backup-agent.sh --uninstall   unload and remove it
 #
-# Settings come from ENV_FILE (default $HOME/.config/goweb/backup-pull.env; copy
+# Settings come from ENV_FILE (default $HOME/.config/app/backup-pull.env; copy
 # scripts/backup-pull.env.example there). It must define REMOTE and REMOTE_DIR and may define
 # DEST, MIRROR_DIR, KEEP, SSH_KEY, STALE_DAYS (see pull-backups.sh). The agent sources the file
 # at run time, so later edits apply without reinstalling.
 #
 # Environment overrides (tests): ENV_FILE, LAUNCHAGENTS_DIR (default $HOME/Library/LaunchAgents),
 # LAUNCHCTL (default launchctl), PULL_SCRIPT (default pull-backups.sh next to this script).
-# Output goes to $HOME/Library/Logs/goweb/backup-pull.log.
+# Output goes to $HOME/Library/Logs/app/backup-pull.log.
 # Exit status: 0 ok; 1 install or verify failure; 2 bad configuration.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LABEL="com.goweb.backup-pull"
-ENV_FILE="${ENV_FILE:-$HOME/.config/goweb/backup-pull.env}"
+LABEL="com.app.backup-pull"
+ENV_FILE="${ENV_FILE:-$HOME/.config/app/backup-pull.env}"
 LAUNCHAGENTS_DIR="${LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
 LAUNCHCTL="${LAUNCHCTL:-launchctl}"
 PULL_SCRIPT="${PULL_SCRIPT:-$HERE/pull-backups.sh}"
-LOG_DIR="$HOME/Library/Logs/goweb"
+LOG_DIR="$HOME/Library/Logs/app"
 LOG="$LOG_DIR/backup-pull.log"
 PLIST="$LAUNCHAGENTS_DIR/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
@@ -65,7 +65,7 @@ cat > "$PLIST" <<EOP
     <string>/bin/bash</string>
     <string>-c</string>
     <string>set -a; . "\$1"; set +a; exec "\$2"</string>
-    <string>goweb-backup-pull</string>
+    <string>app-backup-pull</string>
     <string>$(xml "$ENV_FILE")</string>
     <string>$(xml "$PULL_SCRIPT")</string>
   </array>

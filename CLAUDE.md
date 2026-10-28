@@ -145,7 +145,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - `deploy.sh`: port-owner check (always) and optional `EXPECT_PUBLIC_LISTENER=1` public-listener checks,
   with shell tests using a fake `ss`.
 - `scripts/install-backup-agent.sh`: launchd agent for the Mac backup pull (daily 03:30, settings in
-  `~/.config/goweb/backup-pull.env` from `scripts/backup-pull.env.example`, `--uninstall`); shell tests use a fake
+  `~/.config/app/backup-pull.env` from `scripts/backup-pull.env.example`, `--uninstall`); shell tests use a fake
   `launchctl`. Real launchd load: not yet verified on a Mac.
 
 - Go server: config, SQLite open and embedded migrations, `/healthz`, security middleware,

@@ -93,12 +93,12 @@ or `launchctl list`), and look at `DEST` now and then.
 
 ## Mac backup agent
 
-`scripts/install-backup-agent.sh` installs a launchd user agent (`com.goweb.backup-pull`) that runs
+`scripts/install-backup-agent.sh` installs a launchd user agent (`com.app.backup-pull`) that runs
 `pull-backups.sh` daily at 03:30. Settings live in one file, not in the plist:
 
 ```sh
-mkdir -p ~/.config/goweb
-cp scripts/backup-pull.env.example ~/.config/goweb/backup-pull.env   # set REMOTE and REMOTE_DIR, others optional
+mkdir -p ~/.config/app
+cp scripts/backup-pull.env.example ~/.config/app/backup-pull.env   # set REMOTE and REMOTE_DIR, others optional
 scripts/install-backup-agent.sh               # install or replace the agent; verifies it with launchctl list
 scripts/install-backup-agent.sh --uninstall   # unload and remove it
 ```
@@ -107,8 +107,8 @@ scripts/install-backup-agent.sh --uninstall   # unload and remove it
   `SSH_KEY`, `STALE_DAYS` and `MIRROR_DIR` are optional and behave as in `pull-backups.sh`. The agent sources the
   file when it runs, so edits apply without reinstalling, and values with spaces must be quoted.
 - Re-running the installer replaces the agent (it boots the old one out first); it never leaves two.
-- Output goes to `~/Library/Logs/goweb/backup-pull.log`. A Mac that is asleep at 03:30 runs the job on wake.
-- Check it with `launchctl list com.goweb.backup-pull` and the log. A failed pull or a stale copy raises a
+- Output goes to `~/Library/Logs/app/backup-pull.log`. A Mac that is asleep at 03:30 runs the job on wake.
+- Check it with `launchctl list com.app.backup-pull` and the log. A failed pull or a stale copy raises a
   notification (see the exit table above).
 - Environment overrides for tests: `ENV_FILE`, `LAUNCHAGENTS_DIR`, `LAUNCHCTL`, `PULL_SCRIPT`.
 

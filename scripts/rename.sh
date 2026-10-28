@@ -13,6 +13,8 @@
 #   - the Go module path (module line, imports, -X ldflags), as `<module>/internal|cmd|tests`
 #   - after a path prefix: cmd/, dist/, current/, releases/<v>/, ~/, $HOME/, %h/, /opt/,
 #     /home/deploy/, Backups/, $VAR/, and as the deploy defaults (REMOTE_BASE, SERVICE, APP_NAME)
+#   - launchd and logs: the label com.<name>.<job>, ~/.config/<name>/, ~/Library/Logs/<name>/,
+#     backups/<name>, and the process name in an `ss -p` users:(("<name>",...)) field
 #   - before an identifier suffix: <name>.db, .log, .service, .example, -backup, -pull, -e2e,
 #     -web, -development-only, _session
 #   - as the command: `<name> backup|serve|user|verify-backup|schema-version`, `usage: <name> `
@@ -91,7 +93,7 @@ BEGIN {
   $m = $ENV{OLD_MODULE}; $o = $ENV{OLD_NAME}; $n = $ENV{NEW_NAME};
   $ou = $ENV{OLD_UPPER}; $nu = $ENV{NEW_UPPER}; $t = $ENV{TOK}; $f = $ENV{FILE};
   $A = '[A-Za-z0-9_]';
-  $pre = 'cmd/|dist/|current/|uploading/|Backups/|~/|\$HOME/|%h/|/opt/|/home/deploy/|/home/|/h/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/|releases/[^/\s]+/';
+  $pre = 'cmd/|dist/|current/|uploading/|Backups/|backups/|\.config/|Logs/|~/|\$HOME/|%h/|/opt/|/home/deploy/|/home/|/h/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/|releases/[^/\s]+/';
 }
 # 1. module path (parked behind a token so it survives the later steps)
 s{^module \Q$m\E[ \t]*$}{module $t}m;
@@ -106,6 +108,9 @@ s{((?:$pre))\Q$o\E(?!$A|\.go\b|/internal|\.tsx?\b|\.mjs)}{$1$n}g;
 s{web/api/\Q$o\E(?![A-Za-z0-9_/])}{web/api/$n}g;
 s{(?<!$A)\Q$o\E(?=/(?:current|data|releases|\.env|\.deploy|restore\.sh|pull-gate))}{$n}g;
 s{home_\Q$o\E_current}{home_${n}_current}g;
+# launchd: the label com.<name>.backup-pull, and the process name shown by `ss -p`
+s{(?<![A-Za-z0-9_])(com\.)\Q$o\E(\.)}{$1$n$2}g;
+s{(users:\(\(")\Q$o\E(")}{$1$n$2}g;
 # 5. defaults and variables
 s{((?:SERVICE|REMOTE_BASE|APP_NAME)(?::-|=))\Q$o\E(?!$A)}{$1$n}g;
 s{(?<![A-Za-z0-9_.])(default `?)\Q$o\E(?!$A)(?=`?[):.,\s]|`?$)}{$1$n}g;

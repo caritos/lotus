@@ -73,7 +73,7 @@ if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && 
 # word (prose, internal/app, internal/web/app, the /app/ mount, APP_ENV) is NOT such a context.
 name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
-  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
+  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!scripts/rename.sh' ':!scripts/rename.test.sh')
 }
 
 # The real rename. The shipped name "app" is also a package, a directory, a URL prefix and an
@@ -96,6 +96,7 @@ grep -q "dist/$NEW" "$R/Makefile" && grep -q "dist/$NEW" "$R/README.md" && ok "b
 [ -z "$(cd "$R" && git grep -n "dist/$CUR")" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
 grep -q "${NEW}_session" "$R/web/api/internal/auth/middleware.go" && grep -q "\"$NEW.db\"" "$R/web/api/internal/backup/backup.go" && ok "cookie and database names renamed" || bad "cookie or db name"
 grep -q "${NEW_UP}_BIN" "$R/scripts/restore.sh" && ! grep -q "${CUR_UP}_BIN" "$R/scripts/restore.sh" && ok "env var ${NEW_UP}_BIN renamed" || bad "${NEW_UP}_BIN missing"
+grep -q "com.$NEW.backup-pull" "$R/scripts/install-backup-agent.sh" && grep -q "Logs/$NEW/" "$R/scripts/install-backup-agent.sh" && grep -q ".config/$NEW/" "$R/scripts/backup-pull.env.example" && grep -q "users:((\"$NEW\"" "$R/scripts/deploy.test.sh" && ok "launchd label, log dir, env file path and ss process name renamed" || bad "launchd/ss contexts"
 grep -q "<title>$NEW - " "$R/web/api/internal/web/pages/index.html" && grep -q "<h1>$NEW</h1>" "$R/web/api/internal/web/pages/index.html" && ok "page title and h1 carry the new name" || bad "index.html title/h1"
 
 # The generic word "app" must survive: package app, the composition-root directory, the embed
