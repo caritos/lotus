@@ -65,7 +65,7 @@ snippet() { head -c 200 "$TMP/body" | tr '\n' ' '; }
 # a link or in body text does not count. Sets PAGE_TITLE and PAGE_H1 for the failure message.
 # (Explicit character classes: \b is not portable in grep -E.)
 heading_text() { # <html file> <tag, as a bracket-class pattern>: text of the first such tag, tags stripped
-  tr '\n\r' '  ' < "$1" | grep -oE "<$2[ >].*" | head -n 1 |
+  tr '\n\r' '  ' < "$1" | sed -E 's/<!--([^-]|-[^-])*-->//g' | grep -oE "<$2[[:space:]>].*" | head -n 1 |
     sed -E "s#</$2>.*##; s#^<$2[^>]*>##; s#<[^>]*># #g"
 }
 name_in_heading() {

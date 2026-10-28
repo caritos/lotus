@@ -182,6 +182,15 @@ start app" "service calls"
   assert_true "pre-restore storage exists" test -f "$pre/storage/only-in-live.jpg"
 }
 
+test_restore_non_drill_prints_what_it_will_touch() {
+  make_fakes
+  cp -R "$ROOT/master-live" "$T/data"
+  export DATA_DIR="$T/data" HEALTH_CMD="true"
+  local b; b="$(new_backup 20261027T120000Z)"
+  restore "$b"
+  assert_contains "$(cat "$T/err")" "DATA_DIR=$T/data SERVICE=$SMOKE_NAME APP_BIN=" "names the data dir, service and binary before changing anything"
+}
+
 test_restore_rolls_back_when_health_check_fails() {
   setup_live
   export HEALTH_CMD="$LIVE_HEALTH"
@@ -1079,14 +1088,24 @@ smoke_home() { # <config fragment: home_head/home_body> [APP_NAME]
   stop_smoke_server
 }
 
+# The tests use the project's own name (read from cmd/, so they survive scripts/rename.sh) because
+# the APP_NAME default is renamed with the project.
+SMOKE_NAME="$(ls "$REPO_ROOT/web/api/cmd" | head -1)"
+SMOKE_NAME_UP="$(printf '%s' "$SMOKE_NAME" | tr '[:lower:]' '[:upper:]')"
+
 test_smoke_passes_when_the_h1_has_the_name() {
-  smoke_home '"home_body":"<h1 class=\"x\">Welcome to <b>App</b> now</h1>"'
+  smoke_home '"home_body":"<h1 class=\"x\">Welcome to <b>'"$SMOKE_NAME_UP"'</b> now</h1>"'
   assert_true "exit zero" test "$SMOKE_RC" -eq 0
   assert_contains "$(cat "$T/out")" "whole word" "says it checked a whole word"
 }
 
 test_smoke_passes_when_only_the_title_has_the_name() {
-  smoke_home '"home_head":"<head><title>Notes - app</title></head>","home_body":"<h1>Notes</h1>"'
+  smoke_home '"home_head":"<head><title>Notes - '"$SMOKE_NAME"'</title></head>","home_body":"<h1>Notes</h1>"'
+  assert_true "exit zero" test "$SMOKE_RC" -eq 0
+}
+
+test_smoke_accepts_a_tab_after_h1() {
+  smoke_home '"home_head":"<title>Notes</title>","home_body":"<h1\tclass=\"x\">'"$SMOKE_NAME"'</h1>"'
   assert_true "exit zero" test "$SMOKE_RC" -eq 0
 }
 
@@ -1096,13 +1115,18 @@ test_smoke_name_is_case_insensitive_and_overridable() {
 }
 
 test_smoke_fails_when_the_name_is_only_part_of_another_word() {
-  smoke_home '"home_head":"<title>Notes application</title>","home_body":"<h1>My mapp and app2 and snapp_x</h1>"'
+  smoke_home '"home_head":"<title>Notes '"$SMOKE_NAME"'s</title>","home_body":"<h1>My m'"$SMOKE_NAME"' and '"$SMOKE_NAME"'2 and sn'"$SMOKE_NAME"'_x</h1>"'
   assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
   assert_contains "$(cat "$T/err")" "whole word" "explains the failure"
 }
 
 test_smoke_fails_when_the_name_is_only_in_a_link() {
-  smoke_home '"home_head":"<title>Notes</title>","home_body":"<h1>Notes</h1><a href=\"/app/\">Open it</a><p>the app is here</p>"'
+  smoke_home '"home_head":"<title>Notes</title>","home_body":"<h1>Notes</h1><a href=\"/'"$SMOKE_NAME"'/\">Open it</a><p>the '"$SMOKE_NAME"' is here</p>"'
+  assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
+}
+
+test_smoke_ignores_the_name_inside_html_comments() {
+  smoke_home '"home_head":"<title>Notes <!-- '"$SMOKE_NAME"' --></title>","home_body":"<h1>Notes<!-- '"$SMOKE_NAME"'\n--></h1>"'
   assert_false "exit nonzero" test "$SMOKE_RC" -eq 0
 }
 
@@ -1728,6 +1752,7 @@ for t in \
   test_restore_drill_fails_on_corrupt_db \
   test_restore_drill_fails_when_a_referenced_photo_is_missing \
   test_restore_non_drill_replaces_data_and_restarts_service \
+  test_restore_non_drill_prints_what_it_will_touch \
   test_restore_rolls_back_when_health_check_fails \
   test_restore_refuses_empty_or_missing_backup_dir_argument \
   test_restore_does_not_claim_rollback_when_still_unhealthy \
@@ -1781,6 +1806,8 @@ for t in \
   test_smoke_fails_when_the_name_is_only_part_of_another_word \
   test_smoke_fails_when_the_name_is_only_in_a_link \
   test_smoke_fails_when_the_name_is_absent \
+  test_smoke_accepts_a_tab_after_h1 \
+  test_smoke_ignores_the_name_inside_html_comments \
   test_smoke_requires_arguments \
   test_deploy_second_deploy_aborts_while_lock_is_held \
   test_deploy_takes_over_a_stale_lock_with_a_message \

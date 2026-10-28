@@ -20,8 +20,8 @@ sh_in_deploy="$(ls deploy/*.sh 2>/dev/null)"
 [ -z "$sh_in_deploy" ] && ok "deploy/ contains no *.sh" || bad "deploy/ still has scripts: $sh_in_deploy"
 
 # deploy/ holds exactly the files installed or copied to a server.
-want="$NAME-backup.service $NAME-backup.timer $NAME.service nginx.conf.example"
-have="$(cd deploy 2>/dev/null && ls | tr '\n' ' ' | sed 's/ $//')"
+want="$(printf '%s\n' "$NAME-backup.service" "$NAME-backup.timer" "$NAME.service" nginx.conf.example | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+have="$(cd deploy 2>/dev/null && ls | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "deploy/ holds only server files" || bad "deploy/ is '$have', want '$want'"
 
 # The repo-level scripts live in scripts/.
@@ -69,6 +69,8 @@ stale_report() {
   {
     git grep -nE 'web/e2e' -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
     git grep -nE "deploy/($SCRIPT_RE|test([^A-Za-z]|$)|\*\.sh)|(^|[^A-Za-z0-9_/])(cd|bash|sh) +\.?/?deploy( |/|\$)|(^|[^.])\./deploy|\.\./deploy( |/$|/\*|/($SCRIPT_RE)|\`|\$)" -- . ':!docs/superpowers' ':!scripts/layout.test.sh'
+    # the binary now lives in dist/: a root binary reference such as `./<name> serve`
+    git grep -nE "(^|[^A-Za-z0-9_./-])\\./$NAME([^A-Za-z0-9_/-]|\$)" -- README.md AGENTS.md CLAUDE.md 'docs/*.md' ':!docs/superpowers'
     # bare script name on a line that also names deploy/ (unless it is clearly about scripts/)
     git grep -nE "(^|[^A-Za-z0-9_/])deploy/" -- . ':!docs/superpowers' ':!scripts/layout.test.sh' |
       grep -E "$SCRIPT_RE" | grep -v 'scripts/'
@@ -109,6 +111,8 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_fail "../deploy/smoke.sh" README.md 'source ../deploy/smoke.sh'
   expect_fail "../deploy/*.sh" README.md 'ls ../deploy/*.sh'
   expect_fail "bare script names beside deploy/" README.md '- `deploy/`: units, `deploy.sh`, `smoke.sh`, NGINX example'
+  expect_fail "root binary ./$NAME in README" README.md "run ./$NAME serve"
+  expect_pass "dist/$NAME in README" README.md "run ./dist/$NAME serve"
   expect_fail "stale path in current-state text of CLAUDE.md" CLAUDE.md 'web/e2e/ holds Playwright'
   expect_pass "scripts/ path beside deploy/" README.md '- `deploy/` units; `scripts/deploy.sh` and `scripts/smoke.sh`'
   expect_pass "link to a file in deploy/" README.md 'see [x](../deploy/nginx.conf.example)'
