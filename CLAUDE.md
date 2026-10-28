@@ -220,6 +220,9 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   must not touch `internal/app`, `internal/web/app`, `/app/` or `APP_ENV`). `smoke.sh` now requires the name as
   a whole word in the home page's `<title>` or first `<h1>`. `docs/superpowers/` is historical and keeps the
   original working name; the author's checkout directory (still named after it) is not renamed.
+- Layout guard in a renamed app (2026-10-27): `scripts/layout.test.sh` compared the `deploy/` file list in
+  pre-rename `ls` order, so every renamed app failed it. It now compares sorted sets (self-tests prove an extra
+  and a missing file still fail), and `scripts/rename.test.sh` runs the guard in its renamed copy.
 
 ### Not yet verified
 
