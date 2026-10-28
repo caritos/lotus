@@ -104,10 +104,18 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
 
 ## Repository layout
 
-- `scripts/layout.test.sh`: `deploy/` holds no `*.sh` (only files installed on a server), the deploy, smoke,
-  restore and pull-backups scripts and `deploy.test.sh` are in `scripts/`, every test script ends in
-  `.test.sh`, Playwright is in `web/test/e2e/` (the old location is gone), and no tracked file outside
-  `docs/superpowers/` names an old path.
+- `scripts/layout.test.sh`: `deploy/` holds no `*.sh` (only files installed on a server: units and the NGINX
+  example), the deploy, smoke, restore and pull-backups scripts and `deploy.test.sh` are in `scripts/`, every
+  test script ends in `.test.sh`, Playwright is in `web/test/e2e/` (the old e2e directory directly under `web/` is gone), `node_modules/` and
+  the e2e output directories are ignored at any depth, no tracked file is ignored, and no tracked file names
+  an old location: the old e2e directory, a deploy script addressed through `deploy/`
+  (by path, glob, `cd`, `bash`, `./` or `../`), or a bare script name on a line that mentions `deploy/` without
+  `scripts/`.
+  `docs/superpowers/` (historical specs) and the dated entries under `### Done` in `CLAUDE.md` (history,
+  between the `### Done` and `### Not yet verified` headings) are exempt; the rest of `CLAUDE.md` is
+  current-state text and is checked. The test also proves the guard works: it injects each stale pattern into
+  a throwaway copy of the tracked files and expects a failure, and expects the legitimate lookalikes
+  (`scripts/deploy.sh`, `../deploy/nginx.conf.example`, `/home/deploy/...`) to pass.
 
 ## Build id
 

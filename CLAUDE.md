@@ -162,7 +162,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   `Footer`, Playwright spec, and `smoke.sh`/`deploy.sh` checks (`EXPECTED_BUILD_ID`).
 - Layout cleanup (2026-10-27): one `scripts/` for every repo-level script and its `*.test.sh` (`deploy.sh`,
   `smoke.sh`, `restore.sh`, `pull-backups.sh`, `deploy.test.sh` moved from `deploy/`, which now holds only files
-  installed on a server); Playwright moved from the old `e2e/` directory under `web/` to `web/test/e2e/` (+ `web/test/README.md`);
+  installed on a server); Playwright moved from `web/e2e/` to `web/test/e2e/` (+ `web/test/README.md`);
   `scripts/layout.test.sh` guards both and is part of `make test-scripts` and the CI full job. Pure moves, no
   behavior change; `deploy.sh` still uploads `restore.sh` to `~/goweb/restore.sh`.
 
