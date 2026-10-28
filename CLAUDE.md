@@ -56,7 +56,9 @@ If the full suite is slow, run it in the background and wait for the result.
 - SQLite: UUID text primary keys, Unix-millisecond integer timestamps, soft delete via
   `archived_at`. One owner of the connection (`internal/db`).
 - Migrations are numbered `.sql` files embedded in the binary, applied in order inside a
-  transaction. Never edit a released migration; add a new one (expand, then contract).
+  transaction. Never edit a released migration; add a new one (expand, then contract). The runner
+  enforces this: it records each file's sha256 in `schema_migrations.checksum` and refuses to run
+  (naming the file, applying nothing further) when an applied file's bytes change.
 - Never persist absolute file paths; store names relative to `DATA_DIR/storage`.
 - Configuration is environment variables only. `.env.example` is the server template
   (`APP_ENV=production`, required `SESSION_SECRET` and `PUBLIC_ORIGIN` left empty); `make dev` sets its
@@ -129,6 +131,9 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Migration checksums: `schema_migrations.checksum` (sha256 of the file); an edited applied migration stops
+  `Migrate` with "add a new migration instead". Databases from before this change get the column added and
+  backfilled from the files embedded in the binary at first run, so their earlier history cannot be verified.
 - `deploy.sh`: port-owner check (always) and optional `EXPECT_PUBLIC_LISTENER=1` public-listener checks,
   with shell tests using a fake `ss`.
 - `scripts/install-backup-agent.sh`: launchd agent for the Mac backup pull (daily 03:30, settings in
