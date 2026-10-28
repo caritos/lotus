@@ -1,15 +1,18 @@
 package tests
 
 import (
+	"html"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 
 	"goweb/internal/apptest"
 	"goweb/internal/db/migrations"
+	"goweb/internal/version"
 	"goweb/internal/web"
 )
 
@@ -68,6 +71,12 @@ func builtIndex(t *testing.T) []byte {
 	return b
 }
 
+// withBuildID is the on-disk index.html as the server serves it: the only difference is
+// the build id written over __BUILD_ID__.
+func withBuildID(index []byte) string {
+	return strings.ReplaceAll(string(index), "__BUILD_ID__", html.EscapeString(version.BuildID))
+}
+
 func TestEmbeddedAppPresentWhenBuilt(t *testing.T) {
 	index := builtIndex(t)
 	if !web.AppBuilt() {
@@ -75,8 +84,8 @@ func TestEmbeddedAppPresentWhenBuilt(t *testing.T) {
 	}
 	a := apptest.NewServer(t)
 	st, _, body := req(t, a.Client, http.MethodGet, a.URL+"/app/", nil, nil)
-	if st != http.StatusOK || string(body) != string(index) {
-		t.Fatalf("GET /app/ = %d, served index matches disk: %v", st, string(body) == string(index))
+	if st != http.StatusOK || string(body) != withBuildID(index) {
+		t.Fatalf("GET /app/ = %d, served index matches disk (plus build id): %v", st, string(body) == withBuildID(index))
 	}
 }
 
@@ -84,8 +93,8 @@ func TestAppDeepLinkServesIndexAndMissingAssetIs404(t *testing.T) {
 	index := builtIndex(t)
 	a := apptest.NewServer(t)
 	st, _, body := req(t, a.Client, http.MethodGet, a.URL+"/app/missing/deep/link", nil, nil)
-	if st != http.StatusOK || string(body) != string(index) {
-		t.Fatalf("deep link = %d, serves index: %v", st, string(body) == string(index))
+	if st != http.StatusOK || string(body) != withBuildID(index) {
+		t.Fatalf("deep link = %d, serves index: %v", st, string(body) == withBuildID(index))
 	}
 	if st, _, _ := req(t, a.Client, http.MethodGet, a.URL+"/app/assets/nope.js", nil, nil); st != http.StatusNotFound {
 		t.Fatalf("missing asset = %d, want 404", st)
