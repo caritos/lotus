@@ -77,6 +77,17 @@ the app log (`~/goweb/data/logs/`), or at the source of connections in `ss -tn` 
 per-IP limits (for example on sign-in attempts) are shared by all visitors. Restrict who can reach the port
 with the host's firewall if it offers one.
 
+Two optional deploy checks guard this setup. They are separate from `EXPECT_PUBLIC_LISTENER`: the first
+always runs, the second is off by default.
+
+- Port owner (always on): `deploy.sh` (also with `--check`) refuses to continue when something is already
+  listening on the app port and `systemctl --user is-active <unit>` does not say `active`, because that
+  listener belongs to someone else. Pick a free port.
+- `EXPECT_PUBLIC_LISTENER=1`: refuses a loopback `ADDR` (`127.0.0.1`, `::1`, `localhost`) in the server
+  `.env` before anything changes, and after the restart requires a listener on `0.0.0.0`, `*` or `[::]` on
+  the app port (`ss -H -ltn`). Otherwise the deploy exits 1 and tells you to set `ADDR=0.0.0.0:<port>`;
+  the release is not rolled back because the previous one has the same `.env`.
+
 **Health check address.** `deploy.sh` probes `http://127.0.0.1:<port>/healthz` on the server (the port is
 taken from `ADDR`). `127.0.0.1:<port>`, `0.0.0.0:<port>` and `:<port>` all answer there; an `ADDR` bound to a
 single non-loopback address (for example `203.0.113.5:8080`) does not, so every deploy would fail its health
