@@ -58,13 +58,29 @@ expect_fail "one arg" "usage" "$NEW_MODULE"
 RESERVED_LIST="$(sed -n 's/^RESERVED="\(.*\)"$/\1/p' "$REPO/scripts/rename.sh")"
 [ -n "$RESERVED_LIST" ] && ok "rename.sh has a RESERVED list" || bad "no RESERVED list in rename.sh"
 rw_bad=""
+d="$ROOT/res-all"; cp -R "$BASE" "$d"
 for w in $RESERVED_LIST; do
-  d="$ROOT/res-$w"; cp -R "$BASE" "$d"
   out="$(cd "$d" && bash scripts/rename.sh "example.com/acme/$w" "$w" 2>&1)"; rc=$?
   if [ $rc -eq 0 ] || ! echo "$out" | grep -q "reserved" || ! echo "$out" | grep -qF "'$w'" || [ -n "$(cd "$d" && git status --porcelain)" ]; then rw_bad="$rw_bad $w"; fi
-  rm -rf "$d"
 done
+rm -rf "$d"
 [ -z "$rw_bad" ] && ok "every reserved word is rejected by name with the tree untouched" || bad "reserved words not rejected cleanly:$rw_bad"
+# The list must not drift: every tool the scripts probe with `command -v` or the CI workflow runs
+# is a word the context rules could corrupt ("command -v go", "web/api/go.mod"), so it is reserved.
+drift=""
+for w in $(cd "$REPO" && { git grep -ohE 'command -v [a-z0-9]+' -- scripts Makefile .github .claude | sed 's/command -v //'; git grep -ohE 'run: [a-z0-9]+' -- .github | sed 's/run: //'; } | sort -u); do
+  [ "$w" = "$CUR" ] && continue
+  case " $RESERVED_LIST " in *" $w "*) ;; *) drift="$drift $w" ;; esac
+done
+[ -z "$drift" ] && ok "every probed or invoked tool is in the RESERVED list" || bad "tools missing from RESERVED:$drift"
+# Fixture words: $VAR/<word> targets in the shell tests (for example "$T/notify") are rewritten
+# by the $VAR/ prefix rule when the name equals them.
+fix=""
+for w in $(cd "$REPO" && git grep -ohE '\$\{?[A-Za-z_]+\}?/[a-z][a-z0-9]*' -- 'scripts/*.test.sh' .claude/hooks | sed 's#.*/##' | sort -u); do
+  [ "$w" = "$CUR" ] && continue
+  case " $RESERVED_LIST " in *" $w "*) ;; *) fix="$fix $w" ;; esac
+done
+[ -z "$fix" ] && ok "every \$VAR/<word> fixture target is in the RESERVED list" || bad "fixture words missing from RESERVED:$fix"
 # Every tracked directory name must be reserved (apart from the shipped name's own directories).
 missing=""
 for dn in $(cd "$REPO" && git ls-files | grep -v '^docs/superpowers/' | sed 's#/[^/]*$##' | grep -v '^[^/]*$' | tr '/' '\n' | sort -u | grep -E '^[a-z][a-z0-9]*$'); do
