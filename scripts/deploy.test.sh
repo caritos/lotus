@@ -613,8 +613,12 @@ if [ "$2" = is-active ]; then
 fi
 if [ "$2" = is-enabled ]; then
   if [ -n "${FAKE_TIMER_BUS_ERROR:-}" ]; then echo "Failed to connect to bus: No medium found" >&2; exit 1; fi
+  # FAKE_TIMER_EMPTY=1: exit 0 and print nothing. FAKE_TIMER_OLD_MISSING=1: older systemd's wording for
+  # a missing unit (stderr text, exit 1). Otherwise the state word is FAKE_TIMER_ENABLED.
+  if [ -n "${FAKE_TIMER_EMPTY:-}" ]; then exit 0; fi
+  if [ -n "${FAKE_TIMER_OLD_MISSING:-}" ]; then echo "Failed to get unit file state for $3: No such file or directory" >&2; exit 1; fi
   echo "${FAKE_TIMER_ENABLED:-enabled}"
-  case "${FAKE_TIMER_ENABLED:-enabled}" in enabled) exit 0 ;; not-found) exit 4 ;; *) exit 1 ;; esac
+  case "${FAKE_TIMER_ENABLED:-enabled}" in enabled|enabled-runtime|static|indirect|generated) exit 0 ;; not-found) exit 4 ;; *) exit 1 ;; esac
 fi
 EOS
   cat > "$T/rbin/ss" <<'EOS'
@@ -683,7 +687,7 @@ EOS
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
 }
 
 # make_release <name> <schema> [active]
@@ -1132,6 +1136,46 @@ test_deploy_treats_every_normal_systemd_answer_as_not_enabled() {
     assert_eq "$?" "0" "warns only, for $ans"
     assert_contains "$(cat "$T/err")" "is not enabled" "warning for $ans"
   done
+}
+
+test_deploy_warns_and_continues_when_ssh_fails_on_the_timer_check() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SSH_FAIL_END="goweb-backup.timer'" deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status (warn only without REQUIRE_BACKUP_TIMER)"
+  assert_contains "$(cat "$T/err")" "could not determine whether the backup timer is enabled" "warning"
+  assert_eq "$(active_release)" "releases/v2" "deployed"
+}
+
+test_deploy_only_enabled_states_on_exit_0_count_as_enabled() {
+  local st
+  for st in enabled enabled-runtime; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$st deploy deploy@host.example.com
+    assert_eq "$?" "0" "$st is enabled"
+    assert_false "no warning for $st" grep -q "backup.timer" "$T/err"
+  done
+  for st in static indirect generated; do
+    setup_deploy; make_release v1 0001_init.sql active
+    REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_ENABLED=$st deploy deploy@host.example.com
+    assert_false "$st (exit 0) is not enabled" test "$?" -eq 0
+    assert_contains "$(cat "$T/err")" "is not enabled" "message for $st"
+    assert_contains "$(cat "$T/err")" "state: $st" "names the state for $st"
+    assert_contains "$(cat "$T/err")" "enable --now goweb-backup.timer" "install hint for $st"
+  done
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_EMPTY=1 deploy deploy@host.example.com
+  assert_false "empty output on exit 0 refuses" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "could not determine" "empty output is undetermined"
+  assert_false "not called 'not enabled'" grep -q "is not enabled" "$T/err"
+}
+
+test_deploy_older_systemd_missing_unit_wording_is_not_enabled() {
+  setup_deploy; make_release v1 0001_init.sql active
+  REQUIRE_BACKUP_TIMER=1 FAKE_TIMER_OLD_MISSING=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "is not enabled" "not installed counts as not enabled"
+  assert_contains "$(cat "$T/err")" "enable --now goweb-backup.timer" "install hint"
+  assert_false "not 'could not determine'" grep -q "could not determine" "$T/err"
 }
 
 test_deploy_says_not_enabled_only_for_a_real_disabled_answer() {
@@ -2266,6 +2310,9 @@ for t in \
   test_deploy_warns_when_the_backup_timer_state_cannot_be_determined \
   test_deploy_says_not_enabled_only_for_a_real_disabled_answer \
   test_deploy_treats_every_normal_systemd_answer_as_not_enabled \
+  test_deploy_warns_and_continues_when_ssh_fails_on_the_timer_check \
+  test_deploy_only_enabled_states_on_exit_0_count_as_enabled \
+  test_deploy_older_systemd_missing_unit_wording_is_not_enabled \
   test_deploy_gate_runs_in_web_api_without_the_callers_GOOS_and_GOARCH \
   test_deploy_honors_SERVICE_in_the_port_owner_check \
   test_deploy_says_ss_is_unavailable_after_start_when_ss_is_missing \
