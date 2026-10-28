@@ -8,13 +8,13 @@ trap 'rm -rf "$T_ROOT"' EXIT
 export FAKE_LOG="$T_ROOT/fake.log"
 
 # The wrapper marker file name is a fixed contract with the starter's layout guard (two pieces on purpose).
-MARK=".go""web-origin"
+MARK=".lo""tus-origin"
 
-# make_goweb <dir>: a git repo with the few files the wrapper touches, shaped like the renamed starter
+# make_lotus <dir>: a git repo with the few files the wrapper touches, shaped like the renamed starter
 # (shipped name `app`). rename.sh is a tiny stand-in with the same CLI as the real one: --check, a clean
 # tree, and, like the real rule 8, EVERY bare word `app` in an HTML page that has a title or brand link
 # becomes the new name, plus dist/app in text files. Prose elsewhere stays.
-make_goweb() {
+make_lotus() {
   local d="$1"
   mkdir -p "$d/web/scripts" "$d/web/deploy" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
   cat > "$d/web/scripts/rename.sh" <<'EOS'
@@ -83,12 +83,12 @@ EOS
   git -C "$d" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m fixture
 }
 
-# new_env: sets GW (fixture goweb) and TARGET (empty repo dir); exports GOWEB_DIR.
+# new_env: sets GW (fixture lotus) and TARGET (empty repo dir); exports LOTUS_DIR.
 new_env() {
   rm -rf "$T_ROOT/gw" "$T_ROOT/target"; : > "$FAKE_LOG"
   GW="$T_ROOT/gw"; TARGET="$T_ROOT/target"
-  make_goweb "$GW"; mkdir -p "$TARGET"
-  export GOWEB_DIR="$GW"
+  make_lotus "$GW"; mkdir -p "$TARGET"
+  export LOTUS_DIR="$GW"
 }
 
 run_scaffold() { bash "$SCAFFOLD" "$@" 2>&1; }
@@ -130,18 +130,18 @@ test_rejects_bad_port() {
   [ -z "$(ls -A "$TARGET")" ]
 }
 
-test_refuses_when_goweb_is_missing() {
+test_refuses_when_lotus_is_missing() {
   new_env
   local rc=0 out
-  out="$(GOWEB_DIR="$T_ROOT/nope" run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
+  out="$(LOTUS_DIR="$T_ROOT/nope" run_scaffold "$TARGET" shop "Shop" "desc")" || rc=$?
   assert_eq 1 "$rc"; assert_contains "$out" "starter"
   mkdir "$T_ROOT/plain"; rc=0
-  GOWEB_DIR="$T_ROOT/plain" run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null || rc=$?
+  LOTUS_DIR="$T_ROOT/plain" run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null || rc=$?
   assert_eq 1 "$rc" "not a git repo"
   [ -z "$(ls -A "$TARGET")" ]
 }
 
-test_refuses_a_dirty_goweb_unless_allow_dirty() {
+test_refuses_a_dirty_lotus_unless_allow_dirty() {
   new_env
   echo "dirty" >> "$GW/README.md"
   local rc=0 out
@@ -277,7 +277,7 @@ test_hosting_specifics_stay_out_of_the_starter() {
 test_no_starter_name_or_token_is_left_in_written_files() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  local left old="go""web"
+  local left old="lo""tus"
   left="$(grep -rli "$old" "$TARGET" | grep -v "$MARK\$" || true)"
   assert_eq "" "$left"
   left="$(grep -rl '@@WRAP_' "$TARGET" || true)"
@@ -343,21 +343,21 @@ test_default_starter_is_the_repo_the_script_lives_in_also_through_a_symlink() {
   cp "$SCAFFOLD" "$GW/.claude/skills/new-web-app/scripts/scaffold.sh"
   git -C "$GW" add -A; git -C "$GW" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m skill
   local sc="$GW/.claude/skills/new-web-app/scripts/scaffold.sh" head; head="$(git -C "$GW" rev-parse HEAD)"
-  ( unset GOWEB_DIR; bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  ( unset LOTUS_DIR; bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
   assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
   rm -rf "$TARGET"; mkdir "$TARGET"
   mkdir -p "$T_ROOT/home/.claude/skills"; rm -f "$T_ROOT/home/.claude/skills/new-web-app"
   ln -s "$GW/.claude/skills/new-web-app" "$T_ROOT/home/.claude/skills/new-web-app"      # linked skill dir
-  ( unset GOWEB_DIR; bash "$T_ROOT/home/.claude/skills/new-web-app/scripts/scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  ( unset LOTUS_DIR; bash "$T_ROOT/home/.claude/skills/new-web-app/scripts/scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
   assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
   rm -rf "$TARGET"; mkdir "$TARGET"
   ln -sf "$sc" "$T_ROOT/link-scaffold.sh"                                                # linked script
-  ( unset GOWEB_DIR; bash "$T_ROOT/link-scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
+  ( unset LOTUS_DIR; bash "$T_ROOT/link-scaffold.sh" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1 )
   assert_eq "$head" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
-  # GOWEB_DIR still overrides
+  # LOTUS_DIR still overrides
   rm -rf "$TARGET" "$T_ROOT/gw2"; mkdir "$TARGET"; cp -R "$GW" "$T_ROOT/gw2"
   git -C "$T_ROOT/gw2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m other
-  GOWEB_DIR="$T_ROOT/gw2" bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1
+  LOTUS_DIR="$T_ROOT/gw2" bash "$sc" "$TARGET" shop "Shop" "desc" >/dev/null 2>&1
   assert_eq "$(git -C "$T_ROOT/gw2" rev-parse HEAD)" "$(tr -d '[:space:]' < "$TARGET/$MARK")"
 }
 

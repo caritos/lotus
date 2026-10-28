@@ -7,7 +7,7 @@ description: Use when starting a new Go + React + SQLite web app or backend (JSO
 
 ## Overview
 
-The repo this skill lives in (the goweb starter) is the single source for the Go + SQLite + React app (API, public pages, session auth, backups, deploy and smoke scripts). This skill does not duplicate it: it copies the starter's committed `HEAD` (without `.claude/skills/`) into a repo, renames it, and adds only what is specific to Eladio's VPS. Read the new app's `CLAUDE.md` and `web/docs/` for how the app itself works. Hosting specifics live here, never in the app.
+The repo this skill lives in (the lotus starter) is the single source for the Go + SQLite + React app (API, public pages, session auth, backups, deploy and smoke scripts). This skill does not duplicate it: it copies the starter's committed `HEAD` (without `.claude/skills/`) into a repo, renames it, and adds only what is specific to Eladio's VPS. Read the new app's `CLAUDE.md` and `web/docs/` for how the app itself works. Hosting specifics live here, never in the app.
 
 ## Scaffold
 
@@ -18,7 +18,7 @@ bash <starter-repo>/.claude/skills/new-web-app/scripts/scaffold.sh <repo-dir> <s
 Once linked it also works as `bash ~/.claude/skills/new-web-app/scripts/scaffold.sh ...`.
 
 - Exit 0 done; 1 refusal (starter missing or dirty, a file would be overwritten, the starter's fast tier failed in the copy); 2 bad input (slug not `^[a-z][a-z0-9]*$`, a slug the starter's `web/scripts/rename.sh --check` refuses, `| % \ "` or a newline in the text, port outside 1024-65535). Refusals leave `<repo-dir>` untouched. It does not commit.
-- `GOWEB_DIR` overrides the starter: the default is the repo the script lives in (the real path, symlinks followed). A dirty starter is refused because only its `HEAD` is used (`--allow-dirty` to ignore the rest). The marker file `.goweb-origin` records the commit the app started from; the starter's layout guard keys on it.
+- `LOTUS_DIR` overrides the starter: the default is the repo the script lives in (the real path, symlinks followed). A dirty starter is refused because only its `HEAD` is used (`--allow-dirty` to ignore the rest). The marker file `.lotus-origin` records the commit the app started from; the starter's layout guard keys on it.
 - The slug is checked up front by the starter's own `web/scripts/rename.sh --check github.com/caritos/<slug> <slug>` (reserved words, names it could not undo, no hyphens even if the iOS app name has one such as `busy-hive`). The slug `app` is allowed (module-only rename).
 - Collisions: root `.gitignore` gets missing lines appended; an existing root `CLAUDE.md` gets one pointer line and the starter's goes to `web/CLAUDE.md`; existing `README.md` and `AGENTS.md` are skipped (printed); the starter's `ios/` placeholder is skipped when `ios/` exists (run `new-ios-app` before or after). The starter's layout guard has a host mode keyed on the marker, so `make -C web test` passes next to `ios/` and a root `CLAUDE.md`.
 - Applies: `web/scripts/rename.sh github.com/caritos/<slug> <slug>`, the display name (HTML-escaped) and description in the pages' `<title>`, brand link, first `<h1>` and "What is ...?" heading, `web/index.html` and the README title (every other bare word "app" in the pages is protected through the rename), `support@caritos.com`, `web/deploy/.env.example` (`ADDR=0.0.0.0:<port>`, `PUBLIC_ORIGIN=https://<slug>.caritos.com`), and `web/scripts/backup-pull.env.example` (`MIRROR_DIR="/Volumes/Treasure Chest/backups/<slug>"`).

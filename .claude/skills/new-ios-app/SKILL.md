@@ -15,7 +15,7 @@ Every iOS app gets the same skeleton and two scripts from the first commit, so i
 ## Scaffold
 
 ```bash
-bash <goweb-repo>/.claude/skills/new-ios-app/scripts/scaffold.sh <repo-dir> <AppName> <bundle-slug> ["Display Name"]
+bash <lotus-repo>/.claude/skills/new-ios-app/scripts/scaffold.sh <repo-dir> <AppName> <bundle-slug> ["Display Name"]
 # also via ~/.claude/skills/new-ios-app once linked; e.g. bash .../scaffold.sh ~/src/fressh Fressh fressh "Fressh"
 ```
 

@@ -18,13 +18,13 @@ test_skill_carries_the_setup_table_and_failure_signatures() {
   local c; c="$(cat "$SKILL_MD")"
   for s in scripts/scaffold.sh ssh-copy-id 'ss -tln' 'ps aux' 'Proxy Server' 'deploy-app.sh' '--check' \
            install-backup-agent.sh backup-pull.env 'Index of /' 'SFTP' 'HTTP/1.0' 'Content-Length' \
-           'Treasure Chest' '--port' '.go''web-origin' 'Retro before closing' 'rewrite' 'GOWEB_DIR' 'rename.sh --check' '.claude/skills'; do
+           'Treasure Chest' '--port' '.go''web-origin' 'Retro before closing' 'rewrite' 'LOTUS_DIR' 'rename.sh --check' '.claude/skills'; do
     assert_contains "$c" "$s"
   done
 }
 
 test_skill_has_no_dead_references() {
-  local md="$SKILL_MD" n=0 t rc=0 g="${GOWEB_DIR:-$(cd "$SKILL_DIR/../../.." && pwd -P)}"
+  local md="$SKILL_MD" n=0 t rc=0 g="${LOTUS_DIR:-$(cd "$SKILL_DIR/../../.." && pwd -P)}"
   for t in $(grep -oE '[A-Za-z0-9_./~-]+\.sh' "$md" | sort -u); do
     n=$((n+1))
     case "$t" in
@@ -42,7 +42,7 @@ test_skill_has_no_dead_references() {
 test_skill_has_no_obsolete_l3_note_or_home_checkout_path() {
   local c; c="$(cat "$SKILL_MD")"
   assert_not_contains "$c" "L3"
-  assert_not_contains "$c" "~/src/goweb"
+  assert_not_contains "$c" "~/src/lotus"
 }
 
 test_old_skill_names_are_gone() {

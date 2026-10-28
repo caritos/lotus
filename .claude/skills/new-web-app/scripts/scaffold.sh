@@ -2,7 +2,7 @@
 # Turn the starter repo this skill lives in (its committed HEAD) into a new app and apply Eladio's hosting specifics.
 # Usage: scaffold.sh <repo-dir> <slug> "<Display Name>" "<one-line description>" [--port N] [--allow-dirty]
 # Exit: 0 done; 1 refusal (starter missing or dirty, file collision, fast tier failed); 2 bad input (incl. a slug the starter's rename.sh refuses).
-# The starter is read-only here: GOWEB_DIR (default: the repo this script lives in), `git archive HEAD` only.
+# The starter is read-only here: LOTUS_DIR (default: the repo this script lives in), `git archive HEAD` only.
 # The skills under .claude/skills/ never go into the new app.
 # Everything is built in a temp git repo first and copied into <repo-dir> only at the end, so a
 # failure at any point leaves <repo-dir> untouched. The script does not commit.
@@ -22,7 +22,7 @@ ROOT_CLAUDE_MD="CLAUDE.md"; WEB_CLAUDE_MD="web/CLAUDE.md"   # where the starter'
 SKILLS_DIR=".claude/skills"                        # excluded from what a new app copies
 # The wrapper marker is a fixed contract with the starter's layout guard (web/scripts/layout.test.sh builds
 # the same name from two pieces so rename.sh cannot rewrite it).
-ORIGIN_FILE=".go""web-origin"
+ORIGIN_FILE=".lo""tus-origin"
 # Text in the starter that the wrapper replaces (the starter's shipped name is the bare word `app`).
 STARTER_FOOTER='The name in the header is a placeholder. Replace this footer with your own.'
 STARTER_TAGLINE='simple notes with photos'
@@ -70,13 +70,13 @@ fi
 # Resolve the target now: later steps cd into the temp stage, which would swallow a relative path.
 case "$TARGET_ARG" in /*) TARGET_ABS="$TARGET_ARG" ;; *) TARGET_ABS="$PWD/$TARGET_ARG" ;; esac
 
-GOWEB="${GOWEB_DIR:-$DEFAULT_STARTER}"
-git -C "$GOWEB" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || refuse "the starter was not found at $GOWEB (set GOWEB_DIR); it must be a git repository"
-if [ "$ALLOW_DIRTY" -ne 1 ] && [ -n "$(git -C "$GOWEB" status --porcelain)" ]; then
-  refuse "the starter at $GOWEB has uncommitted changes and only its committed HEAD is used; commit them or pass --allow-dirty"
+LOTUS="${LOTUS_DIR:-$DEFAULT_STARTER}"
+git -C "$LOTUS" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || refuse "the starter was not found at $LOTUS (set LOTUS_DIR); it must be a git repository"
+if [ "$ALLOW_DIRTY" -ne 1 ] && [ -n "$(git -C "$LOTUS" status --porcelain)" ]; then
+  refuse "the starter at $LOTUS has uncommitted changes and only its committed HEAD is used; commit them or pass --allow-dirty"
 fi
-ORIGIN="$(git -C "$GOWEB" rev-parse HEAD)"
+ORIGIN="$(git -C "$LOTUS" rev-parse HEAD)"
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/new-web-app.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
@@ -102,7 +102,7 @@ set_line() {
 }
 
 # ---- 1. stage the starter's HEAD in a temp git repo (rename.sh needs tracked files and a clean tree)
-git -C "$GOWEB" archive HEAD | tar -x -C "$W"
+git -C "$LOTUS" archive HEAD | tar -x -C "$W"
 rm -rf "${W:?}/$SKILLS_DIR"     # the skills stay in the starter; a new app does not carry them
 # the starter's own logo and the README line that shows it stay in the starter too
 LOGO="docs/logo.jpg"

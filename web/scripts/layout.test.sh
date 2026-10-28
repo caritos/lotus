@@ -20,7 +20,7 @@ NAME="$(ls web/api/cmd 2>/dev/null | head -1)"
 # whatever the project is called, so it must keep matching after web/scripts/rename.sh. It is built from
 # two pieces so that rename.sh (which rewrites the project name in every tracked file) cannot
 # change it.
-MARKER=".go""web-origin"
+MARKER=".lo""tus-origin"
 # The starter is recognised by its shipped name and README title, also built from two pieces so that
 # rename.sh leaves them alone (they must keep meaning "the unrenamed starter" in a renamed app).
 # A renamed app has another name in web/api/cmd/ (and usually "# <Display Name>" as README title).

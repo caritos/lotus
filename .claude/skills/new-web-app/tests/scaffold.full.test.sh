@@ -1,36 +1,36 @@
 #!/bin/bash
-# Full tier: scaffold from the REAL starter (the repo this skill lives in, or GOWEB_DIR; it must be a clean
+# Full tier: scaffold from the REAL starter (the repo this skill lives in, or LOTUS_DIR; it must be a clean
 # committed tree) into a temp repo that already has ios/ and a root CLAUDE.md, run the starter's own fast tier
 # there, run its layout guard (web/scripts/layout.test.sh) in that host-shaped app and in a fresh scaffold, build the
 # binary, serve it locally and run the starter's web/scripts/smoke.sh against it with APP_NAME as written by
 # web/scripts/deploy-app.sh.
-# Needs Node (web/.nvmrc under ~/.nvm, or on PATH), pnpm and Go. goweb's `--check` logs in over ssh and
+# Needs Node (web/.nvmrc under ~/.nvm, or on PATH), pnpm and Go. lotus's `--check` logs in over ssh and
 # cannot run offline; the placeholder-port refusal before any ssh call is tested here and in the fast tier.
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCAFFOLD="$SKILL_DIR/scripts/scaffold.sh"
 STARTER_DIR="$(cd "$SKILL_DIR/../../.." && pwd -P)"
-MARK=".go""web-origin"
+MARK=".lo""tus-origin"
 F_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nwa-full.XXXXXX")"
 SERVER_PID=""
 trap '[ -z "$SERVER_PID" ] || { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; }; rm -rf "$F_ROOT"' EXIT
 DISPLAY_NAME="Tom's Notes"
 
 test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
-  local goweb="${GOWEB_DIR:-$STARTER_DIR}" r="$F_ROOT/repo" before out port pid
-  [ -e "$goweb/.git" ] || { echo "starter not found at $goweb" >&2; return 1; }   # -e: a linked worktree's .git is a file
-  before="$(git -C "$goweb" status --porcelain)"
+  local lotus="${LOTUS_DIR:-$STARTER_DIR}" r="$F_ROOT/repo" before out port pid
+  [ -e "$lotus/.git" ] || { echo "starter not found at $lotus" >&2; return 1; }   # -e: a linked worktree's .git is a file
+  before="$(git -C "$lotus" status --porcelain)"
   mkdir -p "$r/ios/App"; echo swift > "$r/ios/App/main.swift"; printf '# Mine\n' > "$r/CLAUDE.md"
   git -C "$r" init -q
-  out="$(GOWEB_DIR="$goweb" bash "$SCAFFOLD" "$r" shop "$DISPLAY_NAME" "Notes for Tom" --port 8123 2>&1)" || { echo "$out" >&2; return 1; }
+  out="$(LOTUS_DIR="$lotus" bash "$SCAFFOLD" "$r" shop "$DISPLAY_NAME" "Notes for Tom" --port 8123 2>&1)" || { echo "$out" >&2; return 1; }
   assert_contains "$out" "skipped ios/"
   assert_eq "swift" "$(cat "$r/ios/App/main.swift")"
   [ ! -e "$r/ios/README.md" ]
   assert_contains "$(cat "$r/CLAUDE.md")" "web/CLAUDE.md"
   [ -f "$r/web/CLAUDE.md" ]
-  assert_eq "$before" "$(git -C "$goweb" status --porcelain)" "goweb untouched"
+  assert_eq "$before" "$(git -C "$lotus" status --porcelain)" "lotus untouched"
 
   # leftover starter name anywhere except the origin file and the design history; no skills; no tokens
-  local old="go""web" left; left="$(grep -rli "$old" "$r" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=superpowers --exclude="$MARK" || true)"
+  local old="lo""tus" left; left="$(grep -rli "$old" "$r" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=superpowers --exclude="$MARK" || true)"
   [ -z "$left" ] || { echo "$old left in: $left" >&2; return 1; }
   [ ! -e "$r/.claude/skills" ] || { echo ".claude/skills was copied into the app" >&2; return 1; }
   left="$(grep -rl '@@WRAP_' "$r" --exclude-dir=.git --exclude-dir=node_modules || true)"
@@ -66,7 +66,7 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
 
   # deploy-app.sh refuses the placeholder port before any ssh call, and runs the real deploy.sh otherwise
   local r2="$F_ROOT/noport"; mkdir "$r2"
-  GOWEB_DIR="$goweb" bash "$SCAFFOLD" "$r2" shop "$DISPLAY_NAME" "d" >/dev/null 2>&1
+  LOTUS_DIR="$lotus" bash "$SCAFFOLD" "$r2" shop "$DISPLAY_NAME" "d" >/dev/null 2>&1
   # the starter's layout guard must pass on the renamed scaffold, with the extra web/scripts/deploy-app.sh
   git -C "$r2" init -q; git -C "$r2" add -A
   git -C "$r2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m start
@@ -99,9 +99,9 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
 }
 
 test_scaffold_with_the_slug_app_keeps_the_module_only_path() {
-  local goweb="${GOWEB_DIR:-$STARTER_DIR}" r="$F_ROOT/appslug"
+  local lotus="${LOTUS_DIR:-$STARTER_DIR}" r="$F_ROOT/appslug"
   mkdir -p "$r"; git -C "$r" init -q
-  GOWEB_DIR="$goweb" bash "$SCAFFOLD" "$r" app "$DISPLAY_NAME" "d" >"$F_ROOT/appslug.log" 2>&1 || { tail -n 20 "$F_ROOT/appslug.log" >&2; return 1; }
+  LOTUS_DIR="$lotus" bash "$SCAFFOLD" "$r" app "$DISPLAY_NAME" "d" >"$F_ROOT/appslug.log" 2>&1 || { tail -n 20 "$F_ROOT/appslug.log" >&2; return 1; }
   assert_eq "module github.com/caritos/app" "$(sed -n 1p "$r/web/api/go.mod")"
   [ -d "$r/web/api/cmd/app" ]
   grep -q "<title>Tom&#39;s Notes - d</title>" "$r/web/api/internal/web/pages/index.html"
@@ -109,9 +109,9 @@ test_scaffold_with_the_slug_app_keeps_the_module_only_path() {
 }
 
 test_a_reserved_slug_is_refused_by_the_real_rename_check() {
-  local goweb="${GOWEB_DIR:-$STARTER_DIR}" r="$F_ROOT/reserved" rc=0 out
+  local lotus="${LOTUS_DIR:-$STARTER_DIR}" r="$F_ROOT/reserved" rc=0 out
   mkdir -p "$r"
-  out="$(GOWEB_DIR="$goweb" bash "$SCAFFOLD" "$r" verify "V" "d" 2>&1)" || rc=$?
+  out="$(LOTUS_DIR="$lotus" bash "$SCAFFOLD" "$r" verify "V" "d" 2>&1)" || rc=$?
   assert_eq 2 "$rc"
   assert_contains "$out" "verify"
   [ -z "$(ls -A "$r")" ]
