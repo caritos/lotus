@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,7 +23,8 @@ func TestHandlerPanicIsAJSON500AndServerKeepsServing(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	ts := httptest.NewServer(server.Wrap(config.Config{PublicOrigin: "https://app.example"}, nil, inner))
+	var logs bytes.Buffer
+	ts := httptest.NewServer(server.Wrap(config.Config{PublicOrigin: "https://app.example"}, slog.New(slog.NewJSONHandler(&logs, nil)), inner))
 	defer ts.Close()
 
 	for i := 0; i < 2; i++ {
@@ -30,6 +33,9 @@ func TestHandlerPanicIsAJSON500AndServerKeepsServing(t *testing.T) {
 			strings.TrimSpace(string(body)) != `{"error":"internal error"}` || hdr.Get("X-Request-Id") == "" {
 			t.Fatalf("panic request %d: %d %v %q", i, st, hdr, body)
 		}
+	}
+	if got := strings.Count(logs.String(), `"msg":"panic"`); got != 2 || !strings.Contains(logs.String(), `"request_id"`) {
+		t.Errorf("want 2 panic log lines with a request_id, got: %s", logs.String())
 	}
 	if st, _, _ := req(t, ts.Client(), http.MethodGet, ts.URL+"/ok", nil, nil); st != http.StatusNoContent {
 		t.Fatalf("after panics: status = %d, want 204", st)
