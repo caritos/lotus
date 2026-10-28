@@ -17,6 +17,7 @@ binary, with backups, deploy scripts and tests.
   `server`, `app`, `web` (embedded pages and app), `apigen` (generated models)
 - `web/api/tests/` integration tests; `web/api/openapi.yaml` is the API contract
 - `web/src/` React app; `web/test/e2e/` Playwright tests
+- `ios/` reserved for the native iOS app (README only for now; scaffold with the new-ios-app skill)
 - `deploy/` files installed on a server (systemd units, NGINX example); `scripts/` every repo-level script and its test (deploy, smoke, restore, pull-backups, build-id, rename, gen-api)
   (`build-id.sh` prints the build id)
 

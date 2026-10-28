@@ -25,6 +25,7 @@ web/                Vite + React + TypeScript app (src/), Playwright (test/e2e/)
 deploy/             files installed on a server only: systemd units, nginx example
 scripts/            every repo-level script and its *.test.sh: deploy, smoke, restore, pull-backups, gen-api, rename, build-id, layout
 docs/               deploy.md, https.md, backups.md, testing.md (superpowers/ holds design history)
+ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 ```
 
@@ -165,6 +166,9 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   installed on a server); Playwright moved from `web/e2e/` to `web/test/e2e/` (+ `web/test/README.md`);
   `scripts/layout.test.sh` guards both and is part of `make test-scripts` and the CI full job. Pure moves, no
   behavior change; `deploy.sh` still uploads `restore.sh` to `~/goweb/restore.sh`.
+- `ios/` reserved (2026-10-27): the kit is for the author's own apps, so a native iOS app belongs in it. Only
+  `ios/README.md` exists for now (git keeps no empty directories); it does not block the `new-ios-app` scaffold,
+  which refuses only when `ios/Package.swift` or an Xcode project exists. `scripts/layout.test.sh` keeps `ios/` tracked.
 
 ### Not yet verified
 
@@ -175,6 +179,14 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Windows.
 
 ### Deferred
+
+iOS (`ios/` is only a placeholder)
+- Scaffold the app with the `new-ios-app` skill and wire its `ship.sh` / `deploy.sh`.
+- Generate the Swift models from `web/api/openapi.yaml` and commit them; no hand-written API types.
+- Decide native auth: the API uses a cookie session and checks `Origin` on mutating requests, so a native client
+  needs matching cookie handling or a token login endpoint.
+- Example screens: sign in, notes list, a note with a photo.
+- `scripts/rename.sh` does not know about the bundle id, `project.yml` or Kit names; extend it when the app exists.
 
 Server and HTTP
 - Login decoder accepts unknown fields and trailing data; require `Content-Type: application/json`.

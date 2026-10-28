@@ -16,6 +16,7 @@ feature is notes with an optional photo, behind email + password sign-in.
 - A build id (`YYYYMMDD-<short commit>`, UTC date) in the footer of every page and in `/healthz`,
   made by `scripts/build-id.sh`; it tells you which build is live (`-dirty` marks a modified tree)
 - `deploy/`: hardened systemd user units and the NGINX example; `scripts/deploy.sh` and `scripts/smoke.sh` deploy and check them
+- `ios/`: reserved for the native iOS app; not built yet (see `ios/README.md`)
 - Tests: Go unit and integration, Vitest, Playwright, shell tests, an import-direction guard, CI
 - `CLAUDE.md`, `AGENTS.md` and `.claude/` for AI assistants
 
@@ -121,6 +122,7 @@ files that carry the old name. Run it on a clean git tree; `scripts/rename.test.
 ├── .github/workflows/      ci.yml (fast, full, e2e)
 ├── deploy/                 files installed on a server: systemd units, nginx example
 ├── docs/                   deploy.md, https.md, backups.md, testing.md
+├── ios/                    reserved for the native iOS app (README only for now)
 ├── scripts/                deploy, smoke, restore, pull-backups, gen-api, rename, build-id and their *.test.sh
 └── web/
     ├── src/                React app (pages, API client, tests)
