@@ -22,3 +22,8 @@ web/logs/*
 web/storage/*
 !web/storage/.gitkeep
 web/api/internal/db/*.db*
+
+# SwiftPM
+ios/Caritos/.build/
+ios/Caritos/.swiftpm/
+.swiftpm/

@@ -108,6 +108,20 @@ if [ "$HOST" -eq 1 ]; then
 else
   [ -n "$(git ls-files ios)" ] && ok "ios/ is reserved at the repo root and tracked" || bad "ios/ has no tracked file"
   if [ -f ios/README.md ] || [ -f ios/Package.swift ]; then ok "ios/ has a README (placeholder) or a scaffolded Package.swift"; else bad "ios/ has neither README.md nor Package.swift"; fi
+  # The shared Swift package: tracked, declares all six products, and no SwiftPM build output is tracked.
+  CARITOS_PRODUCTS="CaritosDatabase CaritosSecurity CaritosNetworking CaritosLogging CaritosUI CaritosStorage"
+  if [ -n "$(git ls-files ios/Caritos/Package.swift)" ]; then
+    ok "ios/Caritos/Package.swift is tracked"
+    missing_products=""
+    for prod in $CARITOS_PRODUCTS; do
+      grep -qF "\"$prod\"" ios/Caritos/Package.swift || missing_products="$missing_products $prod"
+    done
+    [ -z "$missing_products" ] && ok "ios/Caritos/Package.swift lists all six products" || bad "ios/Caritos/Package.swift lacks products:$missing_products"
+  else
+    bad "ios/Caritos/Package.swift is not tracked"
+  fi
+  swift_out="$(git ls-files ios | grep -E '(^|/)(\.build|\.swiftpm)(/|$)')"
+  [ -z "$swift_out" ] && ok "no .build/ or .swiftpm/ tracked under ios/" || bad "SwiftPM build output tracked under ios/: $swift_out"
 fi
 
 # Migrations are checksummed over their exact bytes, so git must never rewrite their line endings.
@@ -279,6 +293,14 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     expect_set_fail "a root Makefile" "root Makefile still exists" extra Makefile
     expect_set_fail "a root .env.example" "root .env.example still exists" extra .env.example
     expect_set_fail "a stray root file" "repo root is" extra stray.txt
+    expect_set_fail "a missing ios/Caritos/Package.swift" "ios/Caritos/Package.swift is not tracked" missing ios/Caritos/Package.swift
+    # These paths are ignored, so they have to be force-added to be tracked.
+    for swift_junk in ios/Caritos/.build/x ios/Caritos/.swiftpm/x; do
+      make_copy && mkdir -p "$(dirname "$WORK/c/$swift_junk")" && echo x > "$WORK/c/$swift_junk" && git -C "$WORK/c" add -f "$swift_junk"
+      if out="$(inner_out)"; then bad "guard did not flag tracked $swift_junk"; elif printf '%s\n' "$out" | grep -qF "FAIL - SwiftPM build output tracked under ios"; then ok "guard flags tracked $swift_junk"; else bad "tracked $swift_junk failed for another reason"; fi
+    done
+    make_copy && sed -i.bak '/"CaritosStorage"/d' "$WORK/c/ios/Caritos/Package.swift" && rm -f "$WORK/c/ios/Caritos/Package.swift.bak" && git -C "$WORK/c" add -A
+    if out="$(inner_out)"; then bad "guard did not flag a missing product line"; elif printf '%s\n' "$out" | grep -qF "FAIL - ios/Caritos/Package.swift lacks products: CaritosStorage"; then ok "guard flags a missing product in Package.swift"; else bad "missing product failed for another reason"; fi
   fi
   expect_set_fail "an extra file in docs/" "docs/ is" extra docs/deploy.md
   make_copy && mkdir -p "$WORK/c/docs/superpowers" && echo x > "$WORK/c/docs/superpowers/y.md" && git -C "$WORK/c" add -A
