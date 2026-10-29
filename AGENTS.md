@@ -44,4 +44,4 @@ binary, with backups, deploy scripts and tests.
 9. The reverse proxy sets HSTS; the app never sends `Strict-Transport-Security`.
 10. New API routes are private by default (mounted behind `auth.Require`); a public one needs an entry, with a reason, in `publicRoutes` in `web/api/tests/guardrails_test.go`.
 11. Money is stored as integer cents (no floats); the example schema has no money column.
-12. Every HTML page shows a footer `Build YYYYMMDD-<short commit>` (UTC date, `-dirty` if modified): set only via `web/scripts/build-id.sh` and `-ldflags`, never hard-coded; a new page under `web/api/internal/web/pages/` must contain `@@BUILD_ID@@` in its footer.
+12. Every HTML page shows a footer `Build YYYYMMDD-<short commit>` (UTC date, `-dirty` if modified): set only via `web/scripts/build-id.sh` and `-ldflags`, never hard-coded; a new page under `web/public/pages/` must contain `@@BUILD_ID@@` in its footer.

@@ -23,9 +23,10 @@ web/                everything for the web platform; run its commands from here 
   .nvmrc            Node pin
   deploy/           files installed on a server only: systemd units, nginx example and the server env template
   docs/             deploy.md, https.md, backups.md, testing.md
-  scripts/          every script and its *.test.sh: deploy, smoke, restore, pull-backups, install-backup-agent, gen-api, rename, build-id, layout
+  scripts/          every script and its *.test.sh: deploy, smoke, restore, pull-backups, install-backup-agent, gen-api, rename, build-id, sync-public, layout
   dist/             compiled binary from `make -C web build` (ignored); the frontend build is NOT here, see below
   src/              React + TypeScript app
+  public/           pages/*.html (public pages) and static/ (CSS, fonts, icons; served at /static/<path>); the source of truth
   test/e2e/         Playwright (specs, global-setup, config); Vitest tests sit beside the sources in src/
   api/              Go module (go.mod, module path = see go.mod)
     cmd/app/        CLI: serve (default), user create, backup, verify-backup, schema-version
@@ -34,6 +35,7 @@ web/                everything for the web platform; run its commands from here 
       auth/ notes/ storage/ backup/ logging/ web/   features and infrastructure
       server/       HTTP wiring and middleware       app/   composition root
       apptest/ testutil/   test-only helpers (never imported by production code)
+    internal/web/public/  GENERATED copy of web/public (gitignored, .gitkeep tracked), the go:embed source; made by web/scripts/sync-public.sh
     tests/          integration tests, embed checks, import-direction guard
     openapi.yaml    the API contract (source of truth)
 ```
@@ -90,7 +92,7 @@ If the full suite is slow, run it in the background and wait for the result.
   (`REQUIRE_BACKUP_TIMER=1` refuses both).
   Secrets never go in the repo.
 - Embed everything static with `go:embed` so a release is one binary plus the server `.env`: migrations,
-  the React build, public pages, CSS, fonts (subfolders of `static/` are served at `/static/<path>`), icons,
+  the React build, public pages, CSS, fonts (they live in `web/public`; subfolders of `static/` are served at `/static/<path>`), icons,
   seed data, default config and email or text templates. Put seed data and templates in a `data/` or
   `templates/` folder inside the package that uses them (`//go:embed data/*`), never read them from disk at
   runtime, and have tests use the embedded `fs.FS`. Never embed anything written at runtime (the database,
@@ -126,7 +128,7 @@ If the full suite is slow, run it in the background and wait for the result.
   modified; `unknown` as the commit outside git). `/healthz` reports it as `build_id`. The id is set only by
   `web/scripts/build-id.sh` passed as `-ldflags -X <module>/internal/version.BuildID=...` (`make -C web build`, `make -C web dev`,
   `web/scripts/deploy.sh`, `web/test/e2e/global-setup.ts`); never hard-code it. The web package substitutes it once at
-  startup (before ETags and lengths): new HTML pages in `internal/web/pages/` must contain the literal
+  startup (before ETags and lengths): new HTML pages in `web/public/pages/` must contain the literal
   `@@BUILD_ID@@` exactly once inside a `site-footer` (a test enforces it); the React app reads it from the
   `build-id` meta tag in `web/index.html` (`__BUILD_ID__`). `smoke.sh` checks it after every deploy.
 - Every subcommand runs under umask 077 (set in `run`), so the database, WAL/SHM, logs, uploads and
@@ -139,18 +141,20 @@ If the full suite is slow, run it in the background and wait for the result.
 
 ## Layout rule: frontend in `web/src` and `web/public`, one binary out
 
-- Target (decided 2026-10-29): frontend source lives in `web/src` (React and TypeScript) or `web/public`
+- Rule (decided 2026-10-29, implemented the same day): frontend source lives in `web/src` (React and TypeScript) or `web/public`
   (HTML templates and public pages, CSS, fonts, images, icons and Markdown content that Go renders). Nothing
   frontend goes in `web/api`, which is Go code only.
-- `pnpm build` compiles `web/src` and copies `web/public` into one generated, gitignored folder inside
-  `web/api` (the embed folder).
-- `go build` embeds only that folder with `go:embed`. `go:embed` cannot reach outside the Go module, so the
-  frontend is built first and Go embeds the result.
-- The output is one static Go binary with no files beside it except the server `.env`. Build the frontend
-  before `go test` or `go build`.
-- To do: the public pages, CSS and fonts still live in `web/api/internal/web/pages` and
-  `web/api/internal/web/static`, and must move to `web/public` (test-first, with the layout guard, `rename.sh`
-  and the `new-web-app` wrapper updated). Until that lands, don't add new frontend files to `web/api`.
+- `pnpm build` compiles `web/src` into `web/api/internal/web/app/`; `bash web/scripts/sync-public.sh` copies
+  `web/public/{pages,static}` into `web/api/internal/web/public/`. Both folders are generated and gitignored
+  (each keeps a tracked `.gitkeep`). Every `make` target, `pnpm build` (`prebuild`), `deploy.sh`, the e2e
+  harness, CI and the post-edit hook (on an edit under `web/public`) run the sync; never edit the copy.
+- `go build` embeds only those two folders with `go:embed` (`all:public all:app`). `go:embed` cannot reach
+  outside the Go module, so the frontend is built and synced first and Go embeds the result. An empty
+  `public/` makes the `web` package panic with a message naming `web/scripts/sync-public.sh`.
+- The output is one static Go binary with no files beside it except the server `.env`. A fresh clone needs
+  `bash web/scripts/sync-public.sh` (any `make` target does it) before a bare `go test` or `go build`.
+- Guard: `web/scripts/layout.test.sh` fails when a tracked file with a frontend extension (`.html .css .woff
+  .woff2 .svg .png .ico .js .ts .tsx`) sits under `web/api`.
 
 ## Known properties
 
@@ -191,6 +195,14 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 ## Log
 
 ### Done (2026-10-27)
+
+- Frontend in `web/public` (2026-10-29): the public pages and CSS moved from `web/api/internal/web/{pages,static}`
+  to `web/public/{pages,static}`; `web/scripts/sync-public.sh` (+ test) copies them into the gitignored
+  `web/api/internal/web/public/` that `go:embed` reads (`all:public all:app`); `web.go` fails loudly naming the script when
+  that folder is empty and never serves dotfiles from `static/`. The sync runs in `make test-fast|test|build|dev`, `pnpm build`
+  (`prebuild`), `deploy.sh` (not in `--check`), the e2e harness, CI and the post-edit hook; `layout.test.sh` forbids tracked
+  frontend files under `web/api`; `smoke.sh`, `rename.sh` and the `new-web-app` wrapper use the new paths. Spec and plan in
+  `docs/superpowers/`.
 
 - Web layout (2026-10-28): everything that belongs to the web platform moved under `web/`: `Makefile`, `.nvmrc`, `deploy/` (now with
   `.env.example`), `docs/` (deploy, https, backups, testing), `scripts/` (every script and its test, including `rename.sh`,

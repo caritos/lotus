@@ -201,7 +201,7 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
 - `web/scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
   untracked-only files (stay clean), no git, no commits (`unknown`), `BUILD_DATE`, `SOURCE_DATE_EPOCH`
   (UTC, BSD and GNU `date`) and the output format.
-- `internal/version`: the default id is well formed. `internal/web`: every page source under `pages/`
+- `internal/version`: the default id is well formed. `internal/web`: every page source under `public/pages/` (the synced copy of `web/public/pages/`)
   holds the `@@BUILD_ID@@` placeholder exactly once (a new page cannot forget it) and sits in a
   `site-footer`; served pages, the 404 and the 503 pages show `Build <id>` (the 404 and 503 keep a
   `Content-Length` and no ETag); `/static/` files, nested ones included, are served unmodified; the app's `index.html`

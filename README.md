@@ -173,7 +173,7 @@ an iOS app. They are not part of what a new app copies: the wrapper leaves that 
 
 ## Replace these placeholders
 
-- [ ] Public page copy in `web/api/internal/web/pages/` (home, FAQ, privacy, terms, support)
+- [ ] Public page copy in `web/public/pages/` (home, FAQ, privacy, terms, support)
 - [ ] The support email `support@example.com` in those pages
 - [ ] This README's title and text
 - [ ] A `LICENSE` file: none is included, choose one yourself
