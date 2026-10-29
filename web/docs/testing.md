@@ -32,6 +32,14 @@ The two skills in `.claude/skills/` have their own tests. `make -C web test-skil
 repo (it refuses a dirty tree), runs that app's fast tier and layout guard, builds and serves it and
 runs `web/scripts/smoke.sh` against it; it needs Node, pnpm and Go and takes a few minutes.
 
+The Swift side has its own tests. `cd ios/Caritos && swift test` runs the shared Caritos package (Swift Testing, on the
+Mac); the real-Keychain tests are skipped unless `CARITOS_REAL_KEYCHAIN=1`
+(`CARITOS_REAL_KEYCHAIN=1 swift test --filter CaritosSecurityTests`). `bash .claude/skills/new-ios-app/tests/scaffold.test.sh`
+scaffolds an app and checks it copies and depends on the package (`--fast` skips the scaffolded app's `swift test`);
+it needs `xcodegen` and `swift`. `make -C web test-skills` runs it too, but prints "skipped new-ios-app tests: xcodegen
+or swift not installed" and skips it when either is missing (CI runs on Linux, so it skips there);
+`.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves that skip and that the tier still runs when both exist.
+
 ## Skipped under `-short`
 
 Integration tests in `web/api/tests/` call `integration(t)`, which skips them with `-short`,

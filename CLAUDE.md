@@ -18,6 +18,7 @@ Repo root:  README.md  CLAUDE.md  AGENTS.md  .gitignore  .gitattributes
 .claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
 docs/superpowers/   design history (specs and plans), the only thing at the root docs/
 ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
+  Caritos/          shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
 web/                everything for the web platform; run its commands from here or with `make -C web`
   Makefile          test-fast, test, test-skills, e2e-install, e2e, api, build, dev
   .nvmrc            Node pin
@@ -200,6 +201,18 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Done (2026-10-27)
 
+- Caritos package (2026-10-29): `ios/Caritos/` is a shared Swift package (swift-tools 5.9, iOS 17 and macOS 14) with six
+  products: `CaritosDatabase` (SQLite wrapper, `Migrator`, `DatabaseLocation`), `CaritosLogging` (`FileLogger`),
+  `CaritosNetworking` (`HTTPTransport`, `APIError`), `CaritosSecurity` (Keychain secret store, in-memory fake),
+  `CaritosStorage` (`JSONFileStore`) and `CaritosUI` (`ErrorBanner`, `EmptyStateView`, `SettingsRow`, `Haptics`,
+  `Color(hex:)`). Tests: `cd ios/Caritos && swift test`; the real-Keychain tests run only with `CARITOS_REAL_KEYCHAIN=1`
+  (`CARITOS_REAL_KEYCHAIN=1 swift test --filter CaritosSecurityTests`). `new-ios-app` copies the package into a new app and
+  depends on it (`.claude/skills/new-ios-app/tests/scaffold.test.sh`, `--fast` skips the app's `swift test`); the
+  `new-web-app` wrapper leaves `ios/Caritos` out; `web/scripts/layout.test.sh` checks it. `make -C web test-skills` skips
+  the new-ios-app tier with "skipped new-ios-app tests: xcodegen or swift not installed" when either tool is missing (CI
+  runs on Linux); `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves the skip and that the tier runs when both exist.
+  No app uses it yet.
+
 - Frontend in `web/public` (2026-10-29): the public pages and CSS moved from `web/api/internal/web/{pages,static}`
   to `web/public/{pages,static}`; `web/scripts/sync-public.sh` (+ test) copies them into the gitignored
   `web/api/embed/` that `go:embed` reads (one `all:*` in `package embed`, with the React bundle in `embed/spa/`);
@@ -306,8 +319,23 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Browsers other than Chromium.
 - The OpenAPI contract against a second client.
 - Windows.
+- Caritos `KeychainStore` on a simulator and a device (access groups, entitlements); only the Mac Keychain path is tested, and only with `CARITOS_REAL_KEYCHAIN=1`.
+- Caritos `HTTPTransport`, `Database`, `FileLogger`, `JSONFileStore` and the UI pieces are used by no app yet.
 
 ### Deferred
+
+Caritos package
+- `sync-caritos.sh` to re-copy a newer snapshot of `ios/Caritos` into an app that already has one (the scaffold copies once).
+- Per-app adoption, Stark first (it would take Logging, Security and UI); no app is migrated.
+- Minors from the build, by product:
+  - Package: the layout guard greps a product name anywhere in `Package.swift` (anchor on `.library(name: "X"`) and does not check tools version, platforms or the sqlite3 link.
+  - Security: no unicode or empty-value Keychain test, no concurrency test for `InMemorySecretStore`, `KeychainError` sits in `InMemorySecretStore.swift`.
+  - Logging: same-second sessions sort arbitrarily, a `DateFormatter` is built per call, the log file mode is the default (consider 0600), no concurrent-log test.
+  - Networking: `APIError.isTransient` also treats `.invalidResponse`, 408 and 429 as transient (pin in tests, document); long server messages are not truncated; `URLSessionTransport` lets `URLError` through (`.network` is never produced).
+  - Database: `Int32` lengths trap on 2 GB text or blobs, the WAL mode result is unchecked, a `Transaction` handle can escape its body, `DatabaseLocation` accepts `../` in the file name, no commit-failure rollback test; `Migrator` wraps `CancellationError` as `.failed` and has no two-process concurrency test.
+  - Storage: `JSONFileStore` does not validate the name for path separators or `..`.
+  - UI: `ErrorBanner` Retry hit target is under 44pt and VoiceOver reads the message twice, `HexColor` masking of values over 24 bits is untested, no `#Preview`s, `Haptics` creates a generator per call without `prepare()`.
+  - Scaffold tests: no test for a symlinked script loop or the "shared package not found" path, the `.build` exclusion test is vacuous in a clean checkout, a scaffold failure is not counted in `fail`.
 
 Frontend layout
 - `make -C web dev` syncs `web/public` once at start; an edit under `web/public` (or a rebuilt `web/src` bundle) needs a restart because

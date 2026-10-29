@@ -2,6 +2,10 @@
 
 Reserved for the native iOS app (Swift, SwiftUI, iOS 17+). Nothing is built here yet.
 
+`ios/Caritos/` is the shared Swift package (database, logging, networking, Keychain, storage and common UI;
+see its README). The `new-ios-app` scaffold copies it into a new app and depends on it. Test it with
+`cd ios/Caritos && swift test`.
+
 ## Starting it
 
 From the repo root, run the `new-ios-app` skill's scaffold:
@@ -12,8 +16,8 @@ bash ~/.claude/skills/new-ios-app/scripts/scaffold.sh . <AppName> <bundle-slug> 
 
 It creates the `<AppName>Kit` Swift package (`ios/Package.swift`, `ios/Sources/`, `ios/Tests/`), the XcodeGen
 app under `ios/App/`, and `ios/App/deploy.sh` (install on the connected iPhone) and `ios/App/ship.sh`
-(TestFlight). It refuses to run only when `ios/Package.swift` or an Xcode project already exists, so this
-README does not block it.
+(TestFlight), and copies `ios/Caritos`. It refuses to run only when `ios/Package.swift` or an Xcode project
+already exists, so this README does not block it.
 
 ## Decisions for later
 

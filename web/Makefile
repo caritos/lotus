@@ -12,7 +12,7 @@ help:
 	@echo "make test-fast    fast tier: go test -short, Vitest, typecheck"
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
 	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id, layout"
-	@echo "make test-skills   fast tier of the new-web-app and new-ios-app skill tests (skipped where .claude/skills is absent)"
+	@echo "make test-skills   fast tier of the new-web-app and new-ios-app skill tests (skipped where .claude/skills is absent; the new-ios-app tier needs xcodegen and swift)"
 	@echo "make e2e-install  download Chromium for Playwright (once)"
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
@@ -59,7 +59,13 @@ test-scripts:
 # Fast tier of the new-web-app skill tests (a fixture stands in for the starter). A project started from
 # this repo has no .claude/skills, so the target does nothing there. Full tier: see docs/testing.md.
 test-skills:
-	@if [ -f ../.claude/skills/new-web-app/tests/run.sh ]; then bash ../.claude/skills/new-web-app/tests/run.sh --fast && bash ../.claude/skills/new-ios-app/tests/scaffold.test.sh --fast; else echo "test-skills: no .claude/skills here, nothing to run"; fi
+	@if [ -f ../.claude/skills/new-web-app/tests/run.sh ]; then \
+	  bash ../.claude/skills/new-web-app/tests/run.sh --fast || exit 1; \
+	  bash ../.claude/skills/new-ios-app/tests/makefile-skip.test.sh || exit 1; \
+	  if command -v xcodegen >/dev/null 2>&1 && command -v swift >/dev/null 2>&1; then \
+	    bash ../.claude/skills/new-ios-app/tests/scaffold.test.sh --fast || exit 1; \
+	  else echo "skipped new-ios-app tests: xcodegen or swift not installed"; fi; \
+	else echo "test-skills: no .claude/skills here, nothing to run"; fi
 
 test-api:
 	bash scripts/gen-api.test.sh
