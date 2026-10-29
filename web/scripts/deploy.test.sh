@@ -19,6 +19,7 @@ trap 'rm -rf "$ROOT"' EXIT
 umask 077
 
 echo "building app ..."
+bash "$SCRIPT_DIR/sync-public.sh" >/dev/null || { echo "deploy.test.sh: sync-public.sh failed" >&2; exit 2; }
 if ! (cd "$REPO_ROOT/web/api" && go build -o "$ROOT/app" ./cmd/app); then
   echo "deploy.test.sh: go build failed" >&2
   exit 2
@@ -690,14 +691,22 @@ EOS
 #!/bin/sh
 echo "v${FAKE_NODE_MAJOR:-24}.1.0"
 EOS
-  chmod +x "$T/ssh" "$T/rsync" "$T/rbin/"* "$T/lbin/go" "$T/lbin/pnpm" "$T/lbin/node"
+  cat > "$T/sync-public.sh" <<'EOS'
+#!/bin/bash
+# fake sync-public.sh: records the call; FAKE_SYNC_FAIL=1 fails it.
+echo "sync-public PWD=$PWD" >> "$DCALLS"
+[ "${FAKE_SYNC_FAIL:-}" = 1 ] && { echo "fake sync-public: injected failure" >&2; exit 1; }
+exit 0
+EOS
+  chmod +x "$T/ssh" "$T/rsync" "$T/rbin/"* "$T/lbin/go" "$T/lbin/pnpm" "$T/lbin/node" "$T/sync-public.sh"
+  export SYNC_PUBLIC="$T/sync-public.sh"
   export FAKE_RBIN="$T/rbin" FAKEBIN_TMPL="$T/fakebin.tmpl"
   export SSH="$T/ssh" RSYNC="$T/rsync"
   export SKIP_WEB_BUILD=1 SKIP_TESTS=1 HEALTH_TIMEOUT=2 HEALTH_RECHECK_DELAY=0
   echo "<html>" > "$T/index.html"
   export EMBED_INDEX="$T/index.html"
   export PATH="$T/lbin:$PATH"
-  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_RC FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
+  unset ALLOW_DEV_DEPLOY FAKE_NO_UNIT FAKE_UNHEALTHY FAKE_LINGER FAKE_RSYNC_CORRUPT FAKE_NEW_SCHEMA PUBLIC_URL REMOTE_BASE FAKE_FLAP FAKE_BACKUP_FAIL FAKE_BACKUP_EMPTY HEALTH_PORT FAKE_SERVICE_ACTIVE FAKE_SS_LISTEN FAKE_SS_OWNED EXPECT_PUBLIC_LISTENER FAKE_TIMER_ENABLED FAKE_GO_FAIL FAKE_SYNC_FAIL FAKE_PNPM_FAIL FAKE_NODE_MAJOR REQUIRE_BACKUP_TIMER FAKE_SSH_FAIL_END FAKE_TIMER_EMPTY FAKE_TIMER_RC FAKE_TIMER_OLD_MISSING FAKE_TIMER_BUS_ERROR FAKE_SS_MISSING FAKE_EXPECT_UNIT
 }
 
 # make_release <name> <schema> [active]
@@ -885,6 +894,45 @@ test_deploy_runs_the_test_gate_before_anything_changes() {
   gate_line="$(grep -n '^pnpm ARGS=typecheck' "$DCALLS" | head -1 | cut -d: -f1)"
   lock_line="$(grep -n 'deploy.lock' "$DCALLS" | head -1 | cut -d: -f1)"
   assert_true "gate runs before the lock" test "$gate_line" -lt "$lock_line"
+}
+
+# The binary embeds a copy of web/public made by sync-public.sh: it runs before the gate and the
+# build (even when both are skipped, because the Go build always needs it), never in --check.
+test_deploy_syncs_web_public_before_the_gate_and_the_build() {
+  setup_deploy; make_release v1 0001_init.sql active
+  SKIP_TESTS=0 deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  local s v b
+  s="$(grep -n '^sync-public' "$DCALLS" | head -1 | cut -d: -f1)"
+  v="$(grep -n '^go .* vet' "$DCALLS" | head -1 | cut -d: -f1)"
+  b="$(grep -n '^go .* build' "$DCALLS" | head -1 | cut -d: -f1)"
+  assert_true "sync ran" test -n "$s"
+  assert_true "sync before go vet" test "${s:-99}" -lt "${v:-0}"
+  assert_true "sync before go build" test "${s:-99}" -lt "${b:-0}"
+}
+
+test_deploy_syncs_web_public_even_when_the_gate_and_web_build_are_skipped() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com
+  assert_eq "$?" "0" "exit status"
+  assert_true "sync ran" grep -q '^sync-public' "$DCALLS"
+}
+
+test_deploy_stops_when_the_public_sync_fails() {
+  setup_deploy; make_release v1 0001_init.sql active
+  FAKE_SYNC_FAIL=1 deploy deploy@host.example.com
+  assert_false "exit status must be nonzero" test "$?" -eq 0
+  assert_contains "$(cat "$T/err")" "sync-public" "names the failing step"
+  assert_false "nothing uploaded" test -e "$T/home/app/releases/v2"
+  assert_false "no go build" grep -q "^go .* build" "$DCALLS"
+  assert_false "no lock taken" grep -q "deploy.lock" "$DCALLS"
+}
+
+test_deploy_check_does_not_sync_web_public() {
+  setup_deploy; make_release v1 0001_init.sql active
+  deploy deploy@host.example.com --check
+  assert_eq "$?" "0" "exit status"
+  assert_false "no sync" grep -q '^sync-public' "$DCALLS"
 }
 
 test_deploy_skips_the_test_gate_with_SKIP_TESTS() {
@@ -2395,6 +2443,10 @@ for t in \
   test_agent_plist_is_valid \
   test_agent_install_rejects_an_env_file_that_does_not_source_cleanly \
   test_deploy_runs_the_test_gate_before_anything_changes \
+  test_deploy_syncs_web_public_before_the_gate_and_the_build \
+  test_deploy_syncs_web_public_even_when_the_gate_and_web_build_are_skipped \
+  test_deploy_stops_when_the_public_sync_fails \
+  test_deploy_check_does_not_sync_web_public \
   test_deploy_skips_the_test_gate_with_SKIP_TESTS \
   test_deploy_check_does_not_run_the_test_gate \
   test_deploy_installs_frozen_dependencies_before_the_tests_and_the_build \

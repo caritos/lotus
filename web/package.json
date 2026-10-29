@@ -8,7 +8,7 @@
   "packageManager": "pnpm@11.17.0",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/clean-app.mjs",
+    "prebuild": "bash scripts/sync-public.sh && node scripts/clean-app.mjs",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/e2e/tsconfig.json",
     "test": "vitest run",

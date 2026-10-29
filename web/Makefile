@@ -20,21 +20,25 @@ help:
 # Go API on 127.0.0.1:8080 (data under web/) plus the Vite dev server on :5173; Ctrl-C stops both.
 # It sets its own environment; deploy/.env.example is the server template and is not used here.
 dev:
-	@trap 'kill 0' INT TERM EXIT; \
+	@bash scripts/sync-public.sh; \
+	trap 'kill 0' INT TERM EXIT; \
 	(cd api && DATA_DIR=.. ADDR=127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:5173 APP_ENV=development go run -ldflags "-X app/internal/version.BuildID=$(BUILD_ID)" ./cmd/app serve) & \
 	pnpm dev & \
 	wait
 
 build:
+	bash scripts/sync-public.sh
 	pnpm install --frozen-lockfile && pnpm build
 	mkdir -p dist
 	cd api && go build -ldflags "$(LDFLAGS)" -o ../dist/app ./cmd/app
 
 test-fast:
+	bash scripts/sync-public.sh
 	cd api && go test -short ./...
 	pnpm test && pnpm typecheck
 
 test:
+	@bash scripts/sync-public.sh >/dev/null
 	@cd api && test -z "$$(gofmt -l .)" || { echo "gofmt needed on:"; gofmt -l .; exit 1; }
 	cd api && go test -race ./... && go vet ./...
 	pnpm test && pnpm typecheck

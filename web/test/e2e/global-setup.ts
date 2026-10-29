@@ -68,6 +68,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   try {
     const bin = path.join(tmp, "app");
+    // The Go binary embeds a copy of web/public; refresh it (also when E2E_SKIP_BUILD=1).
+    run("bash", [path.join(webDir, "scripts", "sync-public.sh")], webDir);
     // E2E_SKIP_BUILD=1 reuses the existing frontend build; the Go binary is
     // always rebuilt (cached, fast) because it lives in the temp dir.
     if (process.env.E2E_SKIP_BUILD !== "1") run("pnpm", ["build"], webDir);

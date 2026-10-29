@@ -47,6 +47,7 @@
 # relative to the unit's WorkingDirectory (REMOTE_BASE/data), otherwise REMOTE_BASE/data.
 #   VERSION           release name, default `git describe --tags --always --dirty`
 #   GOOS, GOARCH      default linux and amd64
+#   SYNC_PUBLIC       sync-public.sh to run before the gate and the build (tests substitute a fake)
 #   SKIP_WEB_BUILD=1  do not run `pnpm build` (the embedded app must already exist); also
 #                     skips the Node version check
 #   SKIP_TESTS=1      skip the test gate only (the Node check below still runs). Otherwise, after the preflight and before anything
@@ -360,6 +361,11 @@ if [ "${SKIP_TESTS:-0}" != 1 ] || [ "${SKIP_WEB_BUILD:-0}" != 1 ]; then
   step "installing web dependencies (pnpm install --frozen-lockfile)"
   (cd "$REPO_ROOT/web" && pnpm install --frozen-lockfile) >&2 || die "pnpm install --frozen-lockfile failed (the lockfile and package.json disagree, or the registry is unreachable). Nothing was changed."
 fi
+
+# The Go packages embed a generated copy of web/public (go:embed cannot reach outside web/api), so
+# refresh it before the gate and the build, whichever of them run. SYNC_PUBLIC overrides the script (tests).
+step "syncing web/public into the embed folder (sync-public.sh)"
+bash "${SYNC_PUBLIC:-$SCRIPT_DIR/sync-public.sh}" >&2 || die "sync-public.sh failed; nothing was changed"
 
 if [ "${SKIP_TESTS:-0}" != 1 ]; then
   step "test gate: go vet, go test -short, pnpm test, pnpm typecheck (SKIP_TESTS=1 skips the tests)"

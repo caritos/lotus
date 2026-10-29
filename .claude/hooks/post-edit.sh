@@ -2,7 +2,8 @@
 # PostToolUse hook for Edit|Write|MultiEdit. Reads the hook JSON on stdin and checks what was edited:
 #   web/api/**/*.go          -> go vet + go test -short for that package (run from web/api)
 #   web/src/** web/test/**   -> pnpm exec tsc --noEmit (run from web/)
-# Everything else (generated files, docs, lockfiles, the embed dir) is ignored.
+#   web/public/**            -> web/scripts/sync-public.sh (refreshes the go:embed copy)
+# Everything else (generated files, docs, lockfiles, the embed dirs) is ignored.
 # Success prints nothing and exits 0. Failure prints the last 40 lines to stderr and exits 2.
 set -u
 
@@ -50,6 +51,11 @@ fail() {
 
 case "$rel" in
   web/api/internal/web/app/*) exit 0 ;;
+  web/api/internal/web/public/*) exit 0 ;;
+  web/public/*)
+    [ -f "$root/web/scripts/sync-public.sh" ] || exit 0
+    bash "$root/web/scripts/sync-public.sh" >"$out" 2>&1 || fail "web/scripts/sync-public.sh"
+    ;;
   *.gen.go) exit 0 ;;
   web/api/*.go)
     command -v go >/dev/null 2>&1 || exit 0

@@ -32,6 +32,9 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+      # go:embed cannot reach outside web/api, so the Go packages embed a copy of web/public.
+      - name: Sync web/public into the embed folder
+        run: bash web/scripts/sync-public.sh
       # The embed tests run in every tier and fail (rather than skip) when CI is set
       # and the app is not built, so build it first.
       - name: Build the frontend and populate the embed directory
@@ -63,6 +66,8 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
+      - name: Sync web/public into the embed folder
+        run: bash web/scripts/sync-public.sh
       - name: Build the frontend and populate the embed directory
         run: |
           cd web && pnpm build
