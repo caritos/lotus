@@ -309,6 +309,11 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 ### Deferred
 
+Frontend layout
+- `make -C web dev` syncs `web/public` once at start; an edit under `web/public` (or a rebuilt `web/src` bundle) needs a restart because
+  `go run` embeds at build time. A watcher (fswatch on `web/public`, `web/src` and `web/api`, then sync and restart) is not built.
+- The `new-web-app` full tier (`bash .claude/skills/new-web-app/tests/run.sh`) was not run after the move to `web/api/embed`.
+
 iOS (`ios/` is only a placeholder)
 - Scaffold the app with the `new-ios-app` skill and wire its `ship.sh` / `deploy.sh`.
 - Generate the Swift models from `web/api/openapi.yaml` and commit them; no hand-written API types.
