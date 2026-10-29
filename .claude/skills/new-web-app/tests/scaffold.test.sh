@@ -60,6 +60,7 @@ EOS
   printf '# app CLAUDE\nbinary dist/app\n' > "$d/CLAUDE.md"
   printf '# app AGENTS\n' > "$d/AGENTS.md"
   printf '# ios\nreserved\n' > "$d/ios/README.md"
+  mkdir -p "$d/ios/Caritos/Sources"; printf '// swift-tools-version: 5.9\n' > "$d/ios/Caritos/Package.swift"; printf 'x\n' > "$d/ios/Caritos/Sources/a.swift"
   printf 'history\n' > "$d/docs/superpowers/plan.md"
   printf 'skill text with caritos.com and DreamHost\n' > "$d/.claude/skills/new-web-app/SKILL.md"
   printf '#!/bin/bash\n' > "$d/.claude/skills/new-web-app/scripts/scaffold.sh"
@@ -384,6 +385,14 @@ test_a_failing_fast_tier_leaves_the_target_untouched() {
   assert_eq 1 "$rc"
   after="$(snapshot "$TARGET")"
   assert_eq "$before" "$after"
+}
+
+test_the_caritos_package_is_not_copied_into_the_app() {
+  new_env
+  run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
+  [ -f "$TARGET/ios/README.md" ]
+  [ ! -e "$TARGET/ios/Caritos" ]
+  [ -f "$GW/ios/Caritos/Package.swift" ]   # still in the starter
 }
 
 test_existing_ios_files_are_not_modified() {

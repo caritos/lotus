@@ -105,6 +105,7 @@ set_line() {
 # ---- 1. stage the starter's HEAD in a temp git repo (rename.sh needs tracked files and a clean tree)
 git -C "$LOTUS" archive HEAD | tar -x -C "$W"
 rm -rf "${W:?}/$SKILLS_DIR"     # the skills stay in the starter; a new app does not carry them
+rm -rf "${W:?}/ios/Caritos"     # the shared Swift package is copied only by the new-ios-app skill
 # the starter's own logo and the README line that shows it stay in the starter too
 LOGO="docs/logo.jpg"
 if [ -f "$W/$LOGO" ]; then
