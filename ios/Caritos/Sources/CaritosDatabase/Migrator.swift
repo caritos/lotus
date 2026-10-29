@@ -1,10 +1,11 @@
 /// One schema step. Once an app version containing it has shipped, never edit it: add a new migration.
 public struct Migration: Sendable {
     public let version: Int
+    /// A script of one or more statements. It must not contain BEGIN, COMMIT or ROLLBACK: the Migrator
+    /// wraps each migration in its own transaction.
     public let sql: String
 
-    /// `version` is the `PRAGMA user_version` the database has after this migration runs; `sql` may be
-    /// a script of several statements.
+    /// `version` is the `PRAGMA user_version` the database has after this migration runs.
     public init(version: Int, sql: String) {
         self.version = version
         self.sql = sql
@@ -47,15 +48,24 @@ public struct Migrator: Sendable {
             throw MigrationError.databaseIsNewer(found: Int(current), supported: latest)
         }
         for migration in migrations where Int64(migration.version) > current {
-            do {
-                try await database.transaction { tx in
-                    try tx.execute(migration.sql)
-                    // PRAGMA cannot take bound values; the number is a validated Int, not user text.
-                    try tx.execute("PRAGMA user_version = \(migration.version)")
-                }
-            } catch {
-                throw MigrationError.failed(version: migration.version, message: String(describing: error))
+            try await applyIfPending(migration, to: database)
+        }
+    }
+
+    /// Runs one migration and its version bump in a single transaction. The version is re-read inside
+    /// the transaction (which holds the write lock), so a migration that another Migrator on the same
+    /// file applied after our first read is skipped instead of run twice.
+    func applyIfPending(_ migration: Migration, to database: Database) async throws {
+        do {
+            try await database.transaction { tx in
+                let applied = try tx.execute("PRAGMA user_version").first?.integer("user_version") ?? 0
+                if applied >= Int64(migration.version) { return }
+                try tx.execute(migration.sql)
+                // PRAGMA cannot take bound values; the number is a validated Int, not user text.
+                try tx.execute("PRAGMA user_version = \(migration.version)")
             }
+        } catch {
+            throw MigrationError.failed(version: migration.version, message: String(describing: error))
         }
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CaritosDatabase
+@testable import CaritosDatabase
 
 @Suite("Migrator")
 struct MigratorTests {
@@ -99,6 +99,45 @@ struct MigratorTests {
         #expect(try await database.execute("SELECT name FROM sqlite_master WHERE name = 'extra'").isEmpty)
         let columns = try await database.execute("PRAGMA table_info(note)").compactMap { $0.text("name") }
         #expect(columns == ["id", "title"])
+    }
+
+    @Test("a migration another process already applied is skipped, not run twice")
+    func staleReadDoesNotReapply() async throws {
+        // Two Migrators on one file both read user_version 1; the first finishes migration 2, then the
+        // second (acting on its stale read) reaches the same step. Calling the internal single step
+        // directly reproduces that second arrival deterministically.
+        let path = tempPath()
+        defer { removeFiles(path) }
+        let seed = Migration(version: 2, sql: "CREATE TABLE seeded (n INTEGER PRIMARY KEY); INSERT INTO seeded VALUES (1);")
+        let list = [Self.m1, seed]
+
+        let first = try Database(path: path)
+        let second = try Database(path: path)
+        try await Migrator([Self.m1]).migrate(first)
+        try await Migrator(list).migrate(first)
+
+        try await Migrator(list).applyIfPending(seed, to: second)
+
+        #expect(try await version(second) == 2)
+        #expect(try await second.execute("SELECT n FROM seeded").count == 1)
+    }
+
+    @Test("a failure in migration 3 keeps migrations 1 and 2 applied")
+    func laterFailureKeepsEarlierMigrations() async throws {
+        let database = try Database.inMemory()
+        let bad = Migration(version: 3, sql: "CREATE TABLE three (n INTEGER); INSERT INTO nope VALUES (1);")
+
+        await #expect {
+            try await Migrator([Self.m1, Self.m2, bad]).migrate(database)
+        } throws: { error in
+            guard case MigrationError.failed(let version, _) = error else { return false }
+            return version == 3
+        }
+
+        #expect(try await version(database) == 2)
+        let columns = try await database.execute("PRAGMA table_info(note)").compactMap { $0.text("name") }
+        #expect(columns == ["id", "title", "body"])
+        #expect(try await database.execute("SELECT name FROM sqlite_master WHERE name = 'three'").isEmpty)
     }
 
     @Test("an invalid list is rejected by init", arguments: [
