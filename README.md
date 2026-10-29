@@ -1,5 +1,3 @@
-# app
-
 <p align="center"><img src="docs/logo.jpg" alt="logo" width="360"></p>
 
 A starter for a small, self-hosted web product. One Go binary serves a JSON API backed by
