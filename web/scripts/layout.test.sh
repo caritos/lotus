@@ -82,7 +82,7 @@ fi
 
 # web/scripts/ holds every script and its test. deploy-app.sh is the Mac-side wrapper that the
 # external new-web-app skill generates next to deploy.sh; it is allowed, not required.
-WS=(backup-pull.env.example build-id.sh build-id.test.sh clean-app.mjs clean-app.test.ts deploy.sh deploy.test.sh gen-api-preflight.test.sh gen-api.sh gen-api.test.sh install-backup-agent.sh layout.test.sh pull-backups.sh rename.sh rename.test.sh restore.sh smoke.sh)
+WS=(backup-pull.env.example build-id.sh build-id.test.sh clean-app.mjs clean-app.test.ts deploy.sh deploy.test.sh gen-api-preflight.test.sh gen-api.sh gen-api.test.sh install-backup-agent.sh layout.test.sh pull-backups.sh rename.sh rename.test.sh restore.sh smoke.sh sync-public.sh sync-public.test.sh)
 if [ -f web/scripts/deploy-app.sh ]; then WS+=(deploy-app.sh); fi
 check_set web/scripts "web/scripts/" "${WS[@]}"
 

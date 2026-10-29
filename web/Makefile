@@ -49,6 +49,7 @@ test-scripts:
 	bash ../.claude/hooks/post-edit.test.sh
 	bash scripts/rename.test.sh
 	bash scripts/build-id.test.sh
+	bash scripts/sync-public.test.sh
 	bash scripts/layout.test.sh
 
 # Fast tier of the new-web-app skill tests (a fixture stands in for the starter). A project started from
