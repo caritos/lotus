@@ -126,10 +126,14 @@ nm="$(git ls-files | grep -E '(^|/)node_modules(/|$)')"
 tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
-# web/api is Go only: frontend files live in web/src or web/public. The generated, ignored embed copies
-# (internal/web/app, internal/web/public) are not tracked, so they pass.
+# web/api is Go only: frontend files live in web/src or web/public. The generated, ignored embed tree
+# (web/api/embed/{pages,static,spa}) is not tracked, so it passes.
 fe="$(git ls-files web/api | grep -iE '\.(html|css|woff2?|svg|png|ico|js|ts|tsx)$')"
 [ -z "$fe" ] && ok "no tracked frontend file under web/api (it lives in web/src or web/public)" || bad "frontend files tracked under web/api: $fe"
+# The embed tree is build output: only the package file and .gitkeep may be tracked in it.
+emb="$(git ls-files web/api/embed | grep -vxE 'web/api/embed/(\.gitkeep|embed\.go)')"
+[ -z "$emb" ] && ok "web/api/embed tracks only .gitkeep and embed.go" || bad "generated files tracked in web/api/embed: $emb"
+[ -f web/api/embed/.gitkeep ] && [ -f web/api/embed/embed.go ] && ok "web/api/embed has .gitkeep and embed.go" || bad "web/api/embed/.gitkeep or embed.go missing"
 [ -f web/public/pages/index.html ] && [ -f web/public/static/style.css ] && ok "web/public holds pages/ and static/" || bad "web/public/pages/index.html or web/public/static/style.css missing"
 
 # smoke.sh compares the served CSS with the source file; its default must be the one in web/public.

@@ -47,7 +47,7 @@ silently (both CI Go jobs run `pnpm build` first).
 when it is already built) and the Go binary into a temp directory, creates a user with the
 `user create` command in a fresh temp `DATA_DIR`, starts the server on a random free port and
 waits for `/healthz`. Everything is removed afterwards. No test touches your real data.
-The frontend build writes into `web/api/internal/web/app` (the embed directory), which is
+The frontend build writes into `web/api/embed/spa` (inside the embed directory), which is
 shared with `make -C web build`; the prebuild step clears it first, and it stays out of git.
 This is not Vite's usual `dist/`: `go:embed` can only embed files inside the Go module.
 `web/dist/` holds only the binary from `make -C web build`; e2e builds its own binary in a temp directory.
@@ -201,7 +201,7 @@ the module has no YAML library; a differently laid-out spec makes the guard fail
 - `web/scripts/build-id.test.sh`: temp git repos for a clean tree, a modified tracked file (`-dirty`),
   untracked-only files (stay clean), no git, no commits (`unknown`), `BUILD_DATE`, `SOURCE_DATE_EPOCH`
   (UTC, BSD and GNU `date`) and the output format.
-- `internal/version`: the default id is well formed. `internal/web`: every page source under `public/pages/` (the synced copy of `web/public/pages/`)
+- `internal/version`: the default id is well formed. `internal/web`: every page source under `pages/` of the embed tree (the synced copy of `web/public/pages/`)
   holds the `@@BUILD_ID@@` placeholder exactly once (a new page cannot forget it) and sits in a
   `site-footer`; served pages, the 404 and the 503 pages show `Build <id>` (the 404 and 503 keep a
   `Content-Length` and no ETag); `/static/` files, nested ones included, are served unmodified; the app's `index.html`

@@ -5,7 +5,6 @@ package web
 import (
 	"bytes"
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"errors"
 	"html"
@@ -16,28 +15,29 @@ import (
 	"strconv"
 	"strings"
 
+	uiembed "app/embed"
 	"app/internal/version"
 )
 
-//go:embed all:public all:app
-var content embed.FS
+// content is the embedded UI tree: pages/, static/ and spa/ (see package embed).
+var content = uiembed.FS
 
 const (
 	cacheRevalidate = "no-cache"
 	cacheImmutable  = "public, max-age=31536000, immutable"
 )
 
-// pageRoutes maps public URL paths to files in the embedded public/pages/.
+// pageRoutes maps public URL paths to files in the embedded pages/.
 var pageRoutes = map[string]string{
-	"/":        "public/pages/index.html",
-	"/faq":     "public/pages/faq.html",
-	"/privacy": "public/pages/privacy.html",
-	"/terms":   "public/pages/terms.html",
-	"/support": "public/pages/support.html",
+	"/":        "pages/index.html",
+	"/faq":     "pages/faq.html",
+	"/privacy": "pages/privacy.html",
+	"/terms":   "pages/terms.html",
+	"/support": "pages/support.html",
 }
 
 const (
-	// pagePlaceholder marks where the build id goes in every page source under public/pages/
+	// pagePlaceholder marks where the build id goes in every page source under pages/
 	// and in the generated 404 and 503 pages. It is replaced once, at startup.
 	pagePlaceholder = "@@BUILD_ID@@"
 	// appPlaceholder is the build id in web/index.html (the React app's meta tag).
@@ -96,9 +96,9 @@ func AppBuilt() bool {
 }
 
 func appFS() fs.FS {
-	sub, err := fs.Sub(content, "app")
+	sub, err := fs.Sub(content, "spa")
 	if err != nil {
-		panic(err) // the embed directive guarantees app/ exists
+		panic(err) // the embed directive guarantees the tree exists; requireUI reports an empty one
 	}
 	return sub
 }
@@ -111,7 +111,7 @@ func NewHandler(app fs.FS) http.Handler { return NewHandlerWithBuildID(app, vers
 // NewHandlerWithBuildID is NewHandler with an explicit build id, which is substituted once
 // (before ETags and lengths are computed) into the page footers and the app's index.html.
 func NewHandlerWithBuildID(app fs.FS, buildID string) http.Handler {
-	static, err := fs.Sub(content, "public/static")
+	static, err := fs.Sub(content, "static")
 	if err != nil {
 		panic(err) // the embed directive guarantees static/ exists
 	}
@@ -128,7 +128,7 @@ func newHandler(app, static fs.FS) http.Handler {
 // byte for byte; only the pages, the generated 404 and 503 pages and the app's index.html
 // get the build id.
 func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
-	if err := checkPublic(content); err != nil {
+	if err := requireUI(content); err != nil {
 		panic(err)
 	}
 	h := &handler{app: app, pages: map[string]asset{}, static: map[string]asset{}}
@@ -167,18 +167,18 @@ func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
 	return h
 }
 
-// checkPublic fails when the embedded public/ tree holds no pages. The tree is a generated
-// copy of web/public (go:embed cannot reach outside the Go module), so an empty one means
-// the sync was skipped; serving a site with nothing in it would hide that.
-func checkPublic(fsys fs.FS) error {
-	pages, err := fs.Glob(fsys, "public/pages/*.html")
+// requireUI fails when the embedded UI tree holds no pages. The tree is generated from web/src and
+// web/public (go:embed cannot reach outside the Go module), so an empty one means the build was
+// skipped; serving a site with nothing in it, or failing later with "file does not exist", would hide that.
+func requireUI(fsys fs.FS) error {
+	pages, err := fs.Glob(fsys, "pages/*.html")
 	if err != nil || len(pages) == 0 {
-		return errors.New("web: the embedded public/ folder has no pages; run `bash web/scripts/sync-public.sh` (web/scripts/sync-public.sh copies web/public into the binary's embed folder; every make target does it)")
+		return errors.New("web: the embedded UI (web/api/embed) has no pages; run `pnpm build` in web/ first (or `bash web/scripts/sync-public.sh` for the pages alone; every make target does it)")
 	}
 	return nil
 }
 
-// mustLoad reads an embedded page from public/pages/ and fills in the footer build id.
+// mustLoad reads an embedded page from pages/ and fills in the footer build id.
 func mustLoad(name, buildID string) asset {
 	b, err := content.ReadFile(name)
 	if err != nil {

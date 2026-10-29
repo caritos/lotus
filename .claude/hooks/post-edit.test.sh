@@ -7,10 +7,10 @@ ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
 
 PROJ="$ROOT/proj"
-mkdir -p "$PROJ/web/scripts" "$PROJ/web/public/pages" "$PROJ/web/public/static" "$PROJ/web/api/internal/web/public/pages" "$PROJ/web/api/internal/notes" "$PROJ/web/test/e2e" "$PROJ/web/src/api" "$PROJ/docs" "$ROOT/bin"
+mkdir -p "$PROJ/web/scripts" "$PROJ/web/public/pages" "$PROJ/web/public/static" "$PROJ/web/api/embed/pages" "$PROJ/web/api/internal/notes" "$PROJ/web/test/e2e" "$PROJ/web/src/api" "$PROJ/docs" "$ROOT/bin"
 touch "$PROJ/web/api/internal/notes/store.go" "$PROJ/web/api/internal/notes/x.gen.go" \
   "$PROJ/web/src/App.tsx" "$PROJ/web/test/e2e/a.spec.ts" "$PROJ/web/src/api/schema.d.ts" "$PROJ/docs/a.md" \
-  "$PROJ/web/public/pages/index.html" "$PROJ/web/public/static/style.css" "$PROJ/web/api/internal/web/public/pages/index.html"
+  "$PROJ/web/public/pages/index.html" "$PROJ/web/public/static/style.css" "$PROJ/web/api/embed/pages/index.html"
 
 LOG="$ROOT/calls.log"
 cat > "$PROJ/web/scripts/sync-public.sh" <<EOS
@@ -78,7 +78,7 @@ if [ $RC -eq 0 ] && echo "$CALLS" | grep -q "^sync-public"; then ok "web/public 
 FAKE_SYNC_FAIL=1 run_hook "$PROJ/web/public/pages/index.html"
 if [ $RC -eq 2 ] && echo "$OUT" | grep -q "FAKE SYNC FAILURE"; then ok "failing sync yields exit 2 with output"; else bad "sync failure: rc=$RC out=[$OUT]"; fi
 
-run_hook "$PROJ/web/api/internal/web/public/pages/index.html"
+run_hook "$PROJ/web/api/embed/pages/index.html"
 [ $RC -eq 0 ] && [ -z "$CALLS" ] && ok "the generated embed copy is ignored" || bad "generated public: rc=$RC calls=[$CALLS]"
 
 run_hook ""

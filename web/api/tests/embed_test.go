@@ -60,9 +60,9 @@ func TestEmbeddedMigrationsPresent(t *testing.T) {
 // a failure, so the check can never be skipped silently there.
 func builtIndex(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "internal", "web", "app", "index.html"))
+	b, err := os.ReadFile(filepath.Join("..", "embed", "spa", "index.html"))
 	if err != nil {
-		msg := "React app not built (internal/web/app/index.html missing); run `make build` first"
+		msg := "React app not built (embed/spa/index.html missing); run `make build` first"
 		if os.Getenv("CI") != "" {
 			t.Fatal(msg + " (CI is set, so this is a failure, not a skip)")
 		}
@@ -78,7 +78,7 @@ func withBuildID(index []byte) string {
 }
 
 // The frontend files live in web/public; the binary embeds the synced copy under
-// internal/web/public. A stale copy (sync-public.sh not run) must fail here, not ship.
+// embed/. A stale copy (sync-public.sh not run) must fail here, not ship.
 func TestEmbeddedPublicFilesMatchWebPublic(t *testing.T) {
 	a := apptest.NewServer(t)
 	css, err := os.ReadFile(filepath.Join("..", "..", "public", "static", "style.css"))
@@ -107,6 +107,25 @@ func TestEmbeddedAppPresentWhenBuilt(t *testing.T) {
 	st, _, body := req(t, a.Client, http.MethodGet, a.URL+"/app/", nil, nil)
 	if st != http.StatusOK || string(body) != withBuildID(index) {
 		t.Fatalf("GET /app/ = %d, served index matches disk (plus build id): %v", st, string(body) == withBuildID(index))
+	}
+}
+
+// The /app/ mount serves only the React build (embed/spa). Pages and static files sit beside it
+// in the embed tree and must not be reachable through it, and the build must not copy them in
+// (Vite's publicDir defaults to web/public).
+func TestAppMountServesOnlyTheReactBuild(t *testing.T) {
+	index := builtIndex(t)
+	for _, leaked := range []string{"pages", "static"} {
+		if _, err := os.Stat(filepath.Join("..", "embed", "spa", leaked)); err == nil {
+			t.Errorf("embed/spa/%s exists: the React build copied web/public into its output (set publicDir: false)", leaked)
+		}
+	}
+	a := apptest.NewServer(t)
+	for _, p := range []string{"/app/pages/privacy.html", "/app/static/style.css", "/app/embed.go"} {
+		st, _, body := req(t, a.Client, http.MethodGet, a.URL+p, nil, nil)
+		if st != http.StatusOK || string(body) != withBuildID(index) {
+			t.Errorf("GET %s = %d, want the SPA index (not the file itself): index served %v", p, st, string(body) == withBuildID(index))
+		}
 	}
 }
 

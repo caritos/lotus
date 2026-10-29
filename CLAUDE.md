@@ -35,13 +35,13 @@ web/                everything for the web platform; run its commands from here 
       auth/ notes/ storage/ backup/ logging/ web/   features and infrastructure
       server/       HTTP wiring and middleware       app/   composition root
       apptest/ testutil/   test-only helpers (never imported by production code)
-    internal/web/public/  GENERATED copy of web/public (gitignored, .gitkeep tracked), the go:embed source; made by web/scripts/sync-public.sh
+    embed/          package embed (embed.go) plus the GENERATED UI tree pages/ static/ spa/ (gitignored, .gitkeep tracked); the only go:embed source of the UI
     tests/          integration tests, embed checks, import-direction guard
     openapi.yaml    the API contract (source of truth)
 ```
 
 `web/dist/` holds only the compiled Go binary. Vite's output (`pnpm build`) goes to
-`web/api/internal/web/app/` (ignored) instead of Vite's usual `dist/`, because `go:embed` can only embed
+`web/api/embed/spa/` (ignored) instead of Vite's usual `dist/`, because `go:embed` can only embed
 files inside the Go module.
 
 Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
@@ -144,17 +144,21 @@ If the full suite is slow, run it in the background and wait for the result.
 - Rule (decided 2026-10-29, implemented the same day): frontend source lives in `web/src` (React and TypeScript) or `web/public`
   (HTML templates and public pages, CSS, fonts, images, icons and Markdown content that Go renders). Nothing
   frontend goes in `web/api`, which is Go code only.
-- `pnpm build` compiles `web/src` into `web/api/internal/web/app/`; `bash web/scripts/sync-public.sh` copies
-  `web/public/{pages,static}` into `web/api/internal/web/public/`. Both folders are generated and gitignored
-  (each keeps a tracked `.gitkeep`). Every `make` target, `pnpm build` (`prebuild`), `deploy.sh`, the e2e
-  harness, CI and the post-edit hook (on an edit under `web/public`) run the sync; never edit the copy.
-- `go build` embeds only those two folders with `go:embed` (`all:public all:app`). `go:embed` cannot reach
-  outside the Go module, so the frontend is built and synced first and Go embeds the result. An empty
-  `public/` makes the `web` package panic with a message naming `web/scripts/sync-public.sh`.
+- `pnpm build` compiles `web/src` into `web/api/embed/spa/`; `bash web/scripts/sync-public.sh` copies
+  `web/public/{pages,static}` into `web/api/embed/pages/` and `static/`. Everything in `web/api/embed/` except
+  `embed.go` and `.gitkeep` is generated and gitignored; never edit it. Every `make` target, `pnpm build`
+  (`prebuild`), `deploy.sh`, the e2e harness, CI and the post-edit hook (on an edit under `web/public`) run the sync.
+- `go build` embeds only that folder: `package embed` has one `//go:embed all:*` (it always matches `.gitkeep`, so
+  a missing build compiles), and `internal/web` takes `pages/`, `static/` and `spa/` from it. `go:embed` cannot reach
+  outside the Go module, so the frontend is built and synced first and Go embeds the result. `/app/` is only the URL
+  mount of `spa/`; templates and pages sit beside it and are not reachable through it.
+- Fail fast: `requireUI` in `internal/web` (and `TestMain` in `web/api/tests`) report an empty embed tree with
+  "run `pnpm build` in web/ first", instead of a "file does not exist" panic.
 - The output is one static Go binary with no files beside it except the server `.env`. A fresh clone needs
   `bash web/scripts/sync-public.sh` (any `make` target does it) before a bare `go test` or `go build`.
 - Guard: `web/scripts/layout.test.sh` fails when a tracked file with a frontend extension (`.html .css .woff
-  .woff2 .svg .png .ico .js .ts .tsx`) sits under `web/api`.
+  .woff2 .svg .png .ico .js .ts .tsx`) sits under `web/api`, or when anything but `embed.go` and `.gitkeep` is tracked
+  in `web/api/embed`.
 
 ## Known properties
 
@@ -173,7 +177,7 @@ If the full suite is slow, run it in the background and wait for the result.
 - Deploy, HTTPS and backups: [web/docs/deploy.md](web/docs/deploy.md), [web/docs/https.md](web/docs/https.md),
   [web/docs/backups.md](web/docs/backups.md). Tests: [web/docs/testing.md](web/docs/testing.md).
 - Rename the starter for a real project with `web/scripts/rename.sh <module-path> <name>`. The shipped name `app`
-  is also a Go package (`internal/app`), the embed directory (`internal/web/app`), the `/app/` URL mount and
+  is also a Go package (`internal/app`), the embed directory (`web/api/embed`), the `/app/` URL mount and
   the `APP_` env prefix, so the script never replaces the bare word: it reads the current module path and name
   from `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (module path,
   `cmd/<name>`, `web/dist/<name>`, `<name>_session`, `<name>.db`, unit names, `~/<name>`, `<NAME>_BIN`, page title
@@ -198,8 +202,8 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 
 - Frontend in `web/public` (2026-10-29): the public pages and CSS moved from `web/api/internal/web/{pages,static}`
   to `web/public/{pages,static}`; `web/scripts/sync-public.sh` (+ test) copies them into the gitignored
-  `web/api/internal/web/public/` that `go:embed` reads (`all:public all:app`); `web.go` fails loudly naming the script when
-  that folder is empty and never serves dotfiles from `static/`. The sync runs in `make test-fast|test|build|dev`, `pnpm build`
+  `web/api/embed/` that `go:embed` reads (one `all:*` in `package embed`, with the React bundle in `embed/spa/`);
+  `requireUI` and `TestMain` fail loudly when it is empty, and `web.go` never serves dotfiles from `static/`. The sync runs in `make test-fast|test|build|dev`, `pnpm build`
   (`prebuild`), `deploy.sh` (not in `--check`), the e2e harness, CI and the post-edit hook; `layout.test.sh` forbids tracked
   frontend files under `web/api`; `smoke.sh`, `rename.sh` and the `new-web-app` wrapper use the new paths. Spec and plan in
   `docs/superpowers/`.
@@ -285,10 +289,10 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   `ios/README.md` exists for now (git keeps no empty directories); it does not block the `new-ios-app` scaffold,
   which refuses only when `ios/Package.swift` or an Xcode project exists. `scripts/layout.test.sh` keeps `ios/` tracked.
 - Binary output and rename (2026-10-27): `make build` writes `dist/<name>` (ignored; the frontend still builds
-  into `web/api/internal/web/app/` because `go:embed` needs it inside the module); the project was renamed
+  into `web/api/embed/spa/` because `go:embed` needs it inside the module); the project was renamed
   from its original working name to `app` with `scripts/rename.sh`, which was then rewritten to read the current names from the
   repository and to replace the name only in project-name contexts (renaming away from the generic word `app`
-  must not touch `internal/app`, `internal/web/app`, `/app/` or `APP_ENV`). `smoke.sh` now requires the name as
+  must not touch `internal/app`, `web/api/embed`, `/app/` or `APP_ENV`). `smoke.sh` now requires the name as
   a whole word in the home page's `<title>` or first `<h1>`. `docs/superpowers/` is historical and keeps the
   original working name; the author's checkout directory (still named after it) is not renamed.
 - Layout guard in a renamed app (2026-10-27): `scripts/layout.test.sh` compared the `deploy/` file list in

@@ -115,7 +115,7 @@ server paths (`~/<name>`) and the page titles, and renames `web/api/cmd/<name>` 
 Run it on a clean git tree; `web/scripts/rename.test.sh` covers it.
 
 The shipped name `app` is also an ordinary word, a Go package (`internal/app`), the embed
-directory (`internal/web/app`), the `/app/` URL mount and the `APP_` environment prefix. The script
+directory (`web/api/embed`), the `/app/` URL mount and the `APP_` environment prefix. The script
 therefore never replaces the bare word: it reads the current module path and name from
 `web/api/go.mod` and `web/api/cmd/`, and replaces the name only in project-name contexts (listed in
 the header of the script). Those other uses stay as they are. It works for any name that is not

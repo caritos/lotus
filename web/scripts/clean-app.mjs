@@ -14,5 +14,5 @@ export function cleanApp(dir) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const here = fileURLToPath(new URL(".", import.meta.url));
-  cleanApp(resolve(here, "..", "api", "internal", "web", "app"));
+  cleanApp(resolve(here, "..", "api", "embed", "spa"));
 }

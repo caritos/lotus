@@ -32,7 +32,7 @@
 #   - the page <title>, brand link, <h1> and "What is <name>?" heading of the HTML pages
 #
 # Prose that merely mentions the name is NOT rewritten; edit the README and page copy by hand.
-# Paths are moved only for web/api/cmd/<name>/ and web/deploy/<name>*; internal/app, internal/web/app
+# Paths are moved only for web/api/cmd/<name>/ and web/deploy/<name>*; internal/app, web/api/embed
 # and the /app/ URL mount are never touched. Rewrites tracked text files only (never .git,
 # node_modules, docs/superpowers, .claude/skills, pnpm-lock.yaml, this script and its test, or binary files). Refuses to run outside a git
 # work tree or with uncommitted changes unless --force.

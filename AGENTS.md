@@ -34,7 +34,7 @@ binary, with backups, deploy scripts and tests.
 1. Write the failing test first, then the code. Run `make -C web test-fast` before saying you are done.
 2. Never edit generated files (`web/api/internal/apigen/*.gen.go`, `web/src/api/schema.d.ts`).
    Change `web/api/openapi.yaml` and run `make -C web api`.
-3. Do not edit `web/api/internal/web/app/` by hand; it is filled by `make -C web build`.
+3. Do not edit `web/api/embed/{pages,static,spa}` by hand; they are filled by `make -C web build` (or `web/scripts/sync-public.sh` for pages and static).
 4. Respect the import direction enforced by `web/api/tests/boundary_test.go`.
 5. Migrations are numbered and immutable once released; add a new one instead of editing.
 6. Never commit secrets: runtime config is environment variables (see `web/deploy/.env.example`); `.env`

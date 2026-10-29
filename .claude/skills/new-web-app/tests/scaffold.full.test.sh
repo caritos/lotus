@@ -54,7 +54,7 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
   grep -q "example notes app" "$pg/index.html" || { echo "generic prose 'app' was rewritten in index.html" >&2; return 1; }
   grep -q "<title>Tom&#39;s Notes</title>" "$r/web/index.html" || { echo "web/index.html title" >&2; return 1; }
   assert_eq "# Tom&#39;s Notes" "$(sed -n 1p "$r/README.md")" "README title"
-  [ -f "$r/web/api/internal/web/app/.gitkeep" ] || { echo "internal/web/app lost" >&2; return 1; }
+  [ -f "$r/web/api/embed/.gitkeep" ] || { echo "web/api/embed lost" >&2; return 1; }
 
   git -C "$r" add -A
   git -C "$r" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m start

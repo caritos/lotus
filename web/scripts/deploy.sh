@@ -66,7 +66,7 @@
 #                     is not enabled on the server, or when that cannot be determined (ssh or
 #                     user-bus failure); without it either case only prints a warning.
 #                     The preflight, and so --check, checks the timer either way
-#   EMBED_INDEX       the built app's index.html, default web/api/internal/web/app/index.html
+#   EMBED_INDEX       the built app's index.html, default web/api/embed/spa/index.html
 #   KEEP_OLD          releases kept besides the active and previous one, default 3
 #   PUBLIC_URL        e.g. https://app.example.com; when set, smoke.sh runs at the end
 #   EXPECT_PUBLIC_LISTENER=1  for servers behind a reverse proxy that reaches the app on the
@@ -93,7 +93,7 @@ LOCK_STALE_SECONDS=1800
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-20}"
 KEEP_OLD="${KEEP_OLD:-3}"
 PUBLIC_URL="${PUBLIC_URL:-}"
-EMBED_INDEX="${EMBED_INDEX:-$REPO_ROOT/web/api/internal/web/app/index.html}"
+EMBED_INDEX="${EMBED_INDEX:-$REPO_ROOT/web/api/embed/spa/index.html}"
 
 die() { echo "deploy: $*" >&2; exit 1; }
 step() { echo "deploy: $*"; }

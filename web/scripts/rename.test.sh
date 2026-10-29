@@ -159,7 +159,7 @@ out="$(cd "$D" && bash web/scripts/rename.sh "$CUR_MODULE" "$CUR" 2>&1)"; rc=$?
 if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && git status --porcelain)" ]; then ok "renaming to the current names is a no-op"; else bad "no-op (rc=$rc out=$out)"; fi
 
 # name_tokens <dir> <name>: lines where <name> still appears in a project-name context. The generic
-# word (prose, internal/app, internal/web/app, the /app/ mount, APP_ENV) is NOT such a context.
+# word (prose, internal/app, web/api/embed, the /app/ mount, APP_ENV) is NOT such a context.
 name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
   (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!web/scripts/rename.sh' ':!web/scripts/rename.test.sh' | grep -v 'new-web-app')
@@ -219,12 +219,12 @@ grep -q "<title>$NEW - " "$R/web/public/pages/index.html" && grep -q "<h1>$NEW</
 # The generic word "app" must survive: package app, the composition-root directory, the embed
 # directory, the /app/ URL mount, APP_ENV and the shared log file name.
 [ -f "$R/web/api/internal/app/app.go" ] && [ -d "$R/web/api/internal/apptest" ] && ok "internal/app and internal/apptest untouched" || bad "internal/app moved"
-[ -f "$R/web/api/internal/web/app/.gitkeep" ] && ok "internal/web/app (embed directory) untouched" || bad "embed directory moved"
+[ -f "$R/web/api/embed/.gitkeep" ] && [ -f "$R/web/api/embed/embed.go" ] && ok "web/api/embed (embed directory) untouched" || bad "embed directory moved"
 grep -q "^package app$" "$R/web/api/internal/app/app.go" && grep -q "\"$NEW_MODULE/internal/app\"" "$R/web/api/cmd/$NEW/main.go" && ok "package app and its import path" || bad "package app"
-grep -q 'HasPrefix(p, "/app/")' "$R/web/api/internal/web/web.go" && grep -q "go:embed .*all:app" "$R/web/api/internal/web/web.go" && ok "/app/ mount and go:embed all:app untouched" || bad "/app/ mount or embed pattern"
+grep -q 'HasPrefix(p, "/app/")' "$R/web/api/internal/web/web.go" && grep -q "go:embed all:" "$R/web/api/embed/embed.go" && ok "/app/ mount and the go:embed pattern untouched" || bad "/app/ mount or embed pattern"
 grep -q 'APP_ENV' "$R/web/api/internal/config/config.go" && [ -z "$(cd "$R" && git grep -n "${NEW_UP}_ENV" -- . ':!web/scripts/rename.test.sh')" ] && ok "APP_ENV is not renamed" || bad "APP_ENV was renamed"
 grep -q '"logs", "app.log"' "$R/web/api/internal/config/config.go" && ok "shared app.log name untouched" || bad "app.log"
-grep -q 'internal/web/app' "$R/.gitignore" && ok ".gitignore embed path untouched" || bad ".gitignore embed path"
+grep -q 'web/api/embed' "$R/.gitignore" && ok ".gitignore embed path untouched" || bad ".gitignore embed path"
 [ -x "$R/web/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash web/scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 

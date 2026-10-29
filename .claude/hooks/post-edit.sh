@@ -50,8 +50,7 @@ fail() {
 }
 
 case "$rel" in
-  web/api/internal/web/app/*) exit 0 ;;
-  web/api/internal/web/public/*) exit 0 ;;
+  web/api/embed/pages/*|web/api/embed/static/*|web/api/embed/spa/*) exit 0 ;;
   web/public/*)
     [ -f "$root/web/scripts/sync-public.sh" ] || exit 0
     bash "$root/web/scripts/sync-public.sh" >"$out" 2>&1 || fail "web/scripts/sync-public.sh"

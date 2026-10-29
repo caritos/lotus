@@ -9,11 +9,10 @@ web/test/e2e/playwright-report/
 web/dist/
 /bin/
 web/api/app
-web/api/internal/web/app/*
-!web/api/internal/web/app/.gitkeep
-# generated copy of web/public (go:embed source); see web/scripts/sync-public.sh
-web/api/internal/web/public/*
-!web/api/internal/web/public/.gitkeep
+# go:embed source, generated: pages/ and static/ by web/scripts/sync-public.sh, spa/ by pnpm build
+web/api/embed/*
+!web/api/embed/.gitkeep
+!web/api/embed/embed.go
 
 # runtime data
 web/db/*
