@@ -20,7 +20,7 @@ docs/superpowers/   design history (specs and plans), the only thing at the root
 ios/                reserved for the native iOS app; no app yet, only a README and the shared Caritos package (scaffold an app with the new-ios-app skill)
   Caritos/          shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
 web/                everything for the web platform; run its commands from here or with `make -C web`
-  Makefile          test-fast, test, test-skills, e2e-install, e2e, api, build, dev
+  Makefile          test-fast, test, test-skills, test-ios, e2e-install, e2e, api, build, dev
   .nvmrc            Node pin
   deploy/           files installed on a server only: systemd units, nginx example and the server env template
   docs/             deploy.md, https.md, backups.md, testing.md
@@ -59,7 +59,8 @@ Import-direction rules (enforced by `web/api/tests/boundary_test.go`):
 |---|---|
 | `make -C web test-fast` | fast tier: `go test -short ./...`, `pnpm test`, `pnpm typecheck` |
 | `make -C web test-skills` | fast tier of the skill tests (`.claude/skills/new-web-app/tests/run.sh --fast`; the full tier is `bash .claude/skills/new-web-app/tests/run.sh`, which scaffolds a real app from the committed `HEAD`, see `web/docs/testing.md`) |
-| `make -C web test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests |
+| `make -C web test-ios` | `swift test --package-path ../ios/Caritos` (the shared Swift package); prints "skipped ios/Caritos tests: swift not installed" without `swift` (Linux CI), does nothing where `ios/Caritos` is absent |
+| `make -C web test` | full tier: `go test -race ./...`, `go vet ./...`, Vitest, typecheck, generated-code check, shell script tests, `test-skills`, `test-ios` |
 | `make -C web e2e-install` then `make -C web e2e` | Playwright against the built binary (not part of the other tiers) |
 | `make -C web api` | regenerate `models.gen.go` and `schema.d.ts` from `openapi.yaml` |
 | `make -C web build` | `pnpm build` (fills the embed directory) then `go build` into `web/dist/app` |
@@ -174,7 +175,7 @@ If the full suite is slow, run it in the background and wait for the result.
 
 - Run locally: `make -C web dev`, create a user with
   `cd web/api && printf 'a-long-password\n' | DATA_DIR=.. go run ./cmd/app user create you@example.com`.
-- Verify: `make -C web test-fast` while working, `make -C web test` before merging, `make -C web e2e` for UI changes.
+- Verify: `make -C web test-fast` while working (`cd ios/Caritos && swift test`, or `make -C web test-ios`, for the Swift package), `make -C web test` before merging (it includes `test-ios`), `make -C web e2e` for UI changes.
 - Deploy, HTTPS and backups: [web/docs/deploy.md](web/docs/deploy.md), [web/docs/https.md](web/docs/https.md),
   [web/docs/backups.md](web/docs/backups.md). Tests: [web/docs/testing.md](web/docs/testing.md).
 - Rename the starter for a real project with `web/scripts/rename.sh <module-path> <name>`. The shipped name `app`

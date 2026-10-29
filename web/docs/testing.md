@@ -22,6 +22,7 @@ make -C web e2e-install                # once: downloads Chromium for Playwright
 make -C web e2e                        # builds the frontend and the binary, then runs Playwright
 make -C web test-scripts               # web/scripts/deploy.test.sh, gen-api preflight, hook test, rename test, build-id test, layout test
 make -C web test-skills                # fast tier of the skill tests in .claude/skills/new-web-app/tests (part of make -C web test)
+make -C web test-ios                   # swift test for ios/Caritos (part of make -C web test; skipped without swift)
 ```
 
 Web commands need Node 24 and pnpm through corepack (`corepack enable`, see `web/.nvmrc`).
@@ -32,13 +33,15 @@ The two skills in `.claude/skills/` have their own tests. `make -C web test-skil
 repo (it refuses a dirty tree), runs that app's fast tier and layout guard, builds and serves it and
 runs `web/scripts/smoke.sh` against it; it needs Node, pnpm and Go and takes a few minutes.
 
-The Swift side has its own tests. `cd ios/Caritos && swift test` runs the shared Caritos package (Swift Testing, on the
-Mac); the real-Keychain tests are skipped unless `CARITOS_REAL_KEYCHAIN=1`
+The Swift side has its own tests. `cd ios/Caritos && swift test` (or `make -C web test-ios`, which `make -C web test`
+runs) runs the shared Caritos package (Swift Testing, on the Mac). `test-ios` prints "skipped ios/Caritos tests: swift
+not installed" without `swift` and does nothing where `ios/Caritos` is absent (a web app started from this repo). The real-Keychain tests are skipped unless `CARITOS_REAL_KEYCHAIN=1`
 (`CARITOS_REAL_KEYCHAIN=1 swift test --filter CaritosSecurityTests`). `bash .claude/skills/new-ios-app/tests/scaffold.test.sh`
 scaffolds an app and checks it copies and depends on the package (`--fast` skips the scaffolded app's `swift test`);
 it needs `xcodegen` and `swift`. `make -C web test-skills` runs it too, but prints "skipped new-ios-app tests: xcodegen
 or swift not installed" and skips it when either is missing (simulated by hiding them from PATH; not yet seen on the real Linux CI runner);
-`.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves that skip and that the tier still runs when both exist.
+`.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves that skip and that the tier still runs when both exist,
+and the same for `test-ios` (run, failure, skip without `swift`, nothing without `ios/Caritos`, part of `test` but not `test-fast`).
 
 ## Skipped under `-short`
 

@@ -4,7 +4,7 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_ID := $(shell bash "$(CURDIR)/scripts/build-id.sh")
 LDFLAGS := -X app/internal/version.Version=$(VERSION) -X app/internal/version.Commit=$(COMMIT) -X app/internal/version.BuildID=$(BUILD_ID)
 
-.PHONY: help dev build test-fast test test-scripts test-skills test-api e2e e2e-install api
+.PHONY: help dev build test-fast test test-scripts test-skills test-ios test-api e2e e2e-install api
 
 help:
 	@echo "make dev          Go API on 127.0.0.1:8080 plus the Vite dev server on :5173"
@@ -13,6 +13,7 @@ help:
 	@echo "make test         full tier: go test -race, go vet, Vitest, typecheck, generated-code check, script tests"
 	@echo "make test-scripts shell tests: deploy, generator preflight, hook, rename, build id, layout"
 	@echo "make test-skills   fast tier of the new-web-app and new-ios-app skill tests (skipped where .claude/skills is absent; the new-ios-app tier needs xcodegen and swift)"
+	@echo "make test-ios     swift test for the shared ios/Caritos package (part of make test; skipped without swift or ios/Caritos)"
 	@echo "make e2e-install  download Chromium for Playwright (once)"
 	@echo "make e2e          Playwright against the built binary"
 	@echo "make api          regenerate Go models and the TypeScript schema from web/api/openapi.yaml"
@@ -45,6 +46,7 @@ test:
 	bash scripts/gen-api.test.sh
 	$(MAKE) test-scripts
 	$(MAKE) test-skills
+	$(MAKE) test-ios
 
 # Shell tests for the deploy, generator, hook, rename, build-id and layout scripts (need sqlite3 and go).
 test-scripts:
@@ -66,6 +68,14 @@ test-skills:
 	    bash ../.claude/skills/new-ios-app/tests/scaffold.test.sh --fast || exit 1; \
 	  else echo "skipped new-ios-app tests: xcodegen or swift not installed"; fi; \
 	else echo "test-skills: no .claude/skills here, nothing to run"; fi
+
+# swift test for the shared Swift package in ios/Caritos (Mac only: CI runs on Linux, so it skips without swift).
+# A web app started from this repo has no ios/Caritos, so the target does nothing there.
+test-ios:
+	@if [ -f ../ios/Caritos/Package.swift ]; then \
+	  if command -v swift >/dev/null 2>&1; then swift test --package-path ../ios/Caritos || exit 1; \
+	  else echo "skipped ios/Caritos tests: swift not installed"; fi; \
+	else echo "test-ios: no ios/Caritos here, nothing to run"; fi
 
 test-api:
 	bash scripts/gen-api.test.sh
