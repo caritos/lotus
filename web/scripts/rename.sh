@@ -19,7 +19,7 @@
 # from, and back, byte for byte (rename.test.sh proves this for several names).
 # The contexts:
 #
-#   - the Go module path (module line, imports, -X ldflags), as `<module>/internal|cmd|tests`
+#   - the Go module path (module line, imports, -X ldflags), as `<module>/internal|cmd|tests|embed`
 #   - after a path prefix: cmd/, dist/, current/, releases/<v>/, ~/, $HOME/, %h/, /opt/,
 #     /home/deploy/, Backups/, $VAR/, and as the deploy defaults (REMOTE_BASE, SERVICE, APP_NAME)
 #   - launchd and logs: the label com.<name>.<job>, ~/.config/<name>/, ~/Library/Logs/<name>/,
@@ -68,7 +68,7 @@ NAME_RE='^[a-z][a-z0-9]*$'
 # `git describe`, `pnpm`) and the fixture words of the shell tests (`$T/notify`, `$T/style`): a
 # project with such a name would have those occurrences rewritten. rename.test.sh
 # fails when a tracked directory name is missing here; add new directories and variable targets.
-RESERVED="web api apigen apptest internal cmd tests test testing testutil data db logs log storage static pages public docs deploy scripts script ios android src node bin tmp lib backup backups releases current dist config client commands hooks workflows e2e fixtures embed migrations models handlers auth notes server version uid layout logging main middleware package schema settings setup smoke restore rename home base body build calls case claude curl custom dest dirty empty err fake gen head healthz index install junk master mirror new out owner pid post pull remote renamed roundtrip rsync set site slow ssh started stderr systemctl tracked pre page marker systemd nginx x to go git pnpm sh node make bash curl ssh rsync systemctl launchctl loginctl sqlite3 openssl python3 jq perl awk sed tar ss timeout gtimeout osascript plutil sha256sum shasum wget corepack npm npx tsc agents c dcalls does err1 fakebin fakecurl h lbin lc nogit noop notified notify out1 proj rbin recorded ren res style t repo dirname"
+RESERVED="web api apigen apptest internal cmd tests test testing testutil data db logs log storage static pages public docs deploy scripts script ios android src node bin tmp lib backup backups releases current dist config client commands hooks workflows e2e fixtures embed migrations models handlers auth notes server version uid layout logging main middleware package schema settings setup smoke restore rename home base body build calls case claude curl custom dest dirty empty err fake gen head healthz index install junk master mirror new out owner pid post pull remote renamed roundtrip rsync set site slow ssh started stderr systemctl tracked pre page marker systemd nginx x to go git pnpm sh node make bash curl ssh rsync systemctl launchctl loginctl sqlite3 openssl python3 jq perl awk sed tar ss timeout gtimeout osascript plutil sha256sum shasum wget corepack npm npx tsc agents c dcalls does err1 fakebin fakecurl h lbin lc nogit noop notified notify out1 proj rbin recorded ren res style t repo dirname copy fresh keep no spa stale sync"
 reserved_word() { case " $RESERVED " in *" $1 "*) return 0 ;; esac; return 1; }
 [[ "$MODULE" =~ $MODULE_RE ]] || die "invalid module path '$MODULE': use lowercase letters, digits, '.', '_' and '-', with '/' separated segments (for example github.com/acme/shop)"
 [[ "$NAME" =~ $NAME_RE ]] || die "invalid name '$NAME': use a lowercase letter followed by lowercase letters and digits only (for example shop)"
@@ -121,7 +121,7 @@ BEGIN {
 }
 # 1. module path (parked behind a token so it survives the later steps)
 s{^module \Q$m\E[ \t]*$}{module $t}m;
-s{(?<![\w./~-])\Q$m\E/(internal|cmd|tests)(?!$A)}{$t/$1}g;
+s{(?<![\w./~-])\Q$m\E/(internal|cmd|tests|embed)(?!$A)}{$t/$1}g;
 s{\Q$m\E}{$t}g if index($m, "/") >= 0;
 # 2. upper-case env vars of the project (APP_ENV is shared and stays)
 s{(?<![A-Za-z0-9])\Q$ou\E_(BIN|AUTH_PANIC_CHILD)(?!$A)}{${nu}_$1}g;

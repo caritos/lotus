@@ -30,5 +30,5 @@
    full tier (`bash .claude/skills/new-web-app/tests/run.sh`).
 7. **Docs**: `CLAUDE.md` (replace the "To do" line, layout tree, build-id and embed paragraphs), `README.md` line 176,
    `AGENTS.md`, `web/docs/testing.md`; add a dated Done entry to the Log.
-8. **Verify**: clean rebuild (`rm -rf` the generated folders, `make -C web build`), run `dist/app` and `curl` `/`, `/privacy`,
+8. **Verify**: clean rebuild (`rm -rf` the generated folders, `make -C web build`), run the built binary and `curl` `/`, `/privacy`,
    `/static/style.css`, `/app/`; `make -C web test` (background); `make -C web e2e`; grep the repo for the old paths.
