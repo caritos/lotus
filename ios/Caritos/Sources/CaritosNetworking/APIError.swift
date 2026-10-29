@@ -18,7 +18,8 @@ public enum APIError: Error, Equatable, LocalizedError {
         }
     }
 
-    /// Worth retrying automatically, as opposed to needing the user to act.
+    /// Worth retrying automatically, as opposed to needing the user to act. Deliberately wider than 5xx
+    /// (ported from caritos-com): 408, 429, network failures and malformed responses count too.
     public var isTransient: Bool {
         switch self {
         case .network, .invalidResponse: true

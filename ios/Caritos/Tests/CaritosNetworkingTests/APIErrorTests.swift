@@ -40,3 +40,14 @@ func checkPassesSuccess(status: Int) throws {
     #expect(!APIError.server(status: 404, message: nil).isTransient)
     #expect(!APIError.notConfigured.isTransient)
 }
+
+/// The rule is wider than 5xx on purpose (ported from caritos-com): timeouts, rate limits and
+/// malformed responses are worth retrying; other client errors are not.
+@Test func transientIncludesTimeoutRateLimitAndInvalidResponse() {
+    #expect(APIError.server(status: 408, message: nil).isTransient)
+    #expect(APIError.server(status: 429, message: nil).isTransient)
+    #expect(APIError.invalidResponse.isTransient)
+    #expect(!APIError.server(status: 401, message: nil).isTransient)
+    #expect(!APIError.server(status: 400, message: nil).isTransient)
+    #expect(!APIError.server(status: 404, message: nil).isTransient)
+}
