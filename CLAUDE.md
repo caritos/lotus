@@ -17,7 +17,7 @@ Repo root:  README.md  CLAUDE.md  AGENTS.md  .gitignore  .gitattributes
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 .claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
 docs/superpowers/   design history (specs and plans), the only thing at the root docs/
-ios/                reserved for the native iOS app; only a README so far (scaffold it with the new-ios-app skill)
+ios/                reserved for the native iOS app; no app yet, only a README and the shared Caritos package (scaffold an app with the new-ios-app skill)
   Caritos/          shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
 web/                everything for the web platform; run its commands from here or with `make -C web`
   Makefile          test-fast, test, test-skills, e2e-install, e2e, api, build, dev
@@ -210,7 +210,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   depends on it (`.claude/skills/new-ios-app/tests/scaffold.test.sh`, `--fast` skips the app's `swift test`); the
   `new-web-app` wrapper leaves `ios/Caritos` out; `web/scripts/layout.test.sh` checks it. `make -C web test-skills` skips
   the new-ios-app tier with "skipped new-ios-app tests: xcodegen or swift not installed" when either tool is missing (CI
-  runs on Linux); `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves the skip and that the tier runs when both exist.
+  is Linux; see Not yet verified); `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` tests the skip (simulated by hiding the tools from PATH) and that the tier runs when both exist.
   No app uses it yet.
 
 - Frontend in `web/public` (2026-10-29): the public pages and CSS moved from `web/api/internal/web/{pages,static}`
@@ -319,6 +319,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Browsers other than Chromium.
 - The OpenAPI contract against a second client.
 - Windows.
+- The new-ios-app skip on the real ubuntu CI runner is simulated with a restricted PATH, not seen in CI.
 - Caritos `KeychainStore` on a simulator and a device (access groups, entitlements); only the Mac Keychain path is tested, and only with `CARITOS_REAL_KEYCHAIN=1`.
 - Caritos `HTTPTransport`, `Database`, `FileLogger`, `JSONFileStore` and the UI pieces are used by no app yet.
 
@@ -341,7 +342,7 @@ Frontend layout
 - `make -C web dev` syncs `web/public` once at start; an edit under `web/public` (or a rebuilt `web/src` bundle) needs a restart because
   `go run` embeds at build time. A watcher (fswatch on `web/public`, `web/src` and `web/api`, then sync and restart) is not built.
 
-iOS (`ios/` is only a placeholder)
+iOS (no app in `ios/` yet)
 - Scaffold the app with the `new-ios-app` skill and wire its `ship.sh` / `deploy.sh`.
 - Generate the Swift models from `web/api/openapi.yaml` and commit them; no hand-written API types.
 - Decide native auth: the API uses a cookie session and checks `Origin` on mutating requests, so a native client

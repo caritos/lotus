@@ -37,7 +37,7 @@ Mac); the real-Keychain tests are skipped unless `CARITOS_REAL_KEYCHAIN=1`
 (`CARITOS_REAL_KEYCHAIN=1 swift test --filter CaritosSecurityTests`). `bash .claude/skills/new-ios-app/tests/scaffold.test.sh`
 scaffolds an app and checks it copies and depends on the package (`--fast` skips the scaffolded app's `swift test`);
 it needs `xcodegen` and `swift`. `make -C web test-skills` runs it too, but prints "skipped new-ios-app tests: xcodegen
-or swift not installed" and skips it when either is missing (CI runs on Linux, so it skips there);
+or swift not installed" and skips it when either is missing (simulated by hiding them from PATH; not yet seen on the real Linux CI runner);
 `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` proves that skip and that the tier still runs when both exist.
 
 ## Skipped under `-short`
