@@ -16,7 +16,7 @@ MARK=".lo""tus-origin"
 # becomes the new name, plus dist/app in text files. Prose elsewhere stays.
 make_lotus() {
   local d="$1"
-  mkdir -p "$d/web/scripts" "$d/web/deploy" "$d/web/api/internal/web/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
+  mkdir -p "$d/web/scripts" "$d/web/deploy" "$d/web/public/pages" "$d/ios" "$d/docs/superpowers" "$d/.claude/skills/new-web-app/scripts"
   cat > "$d/web/scripts/rename.sh" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -67,7 +67,7 @@ EOS
   local p t h
   for p in index faq privacy terms support; do
     case "$p" in index) t='app - simple notes with photos'; h='<h1>app</h1>' ;; faq) t='FAQ - app'; h='<h2>What is app?</h2>' ;; *) t="$p - app"; h="<h1>$p</h1>" ;; esac
-    cat > "$d/web/api/internal/web/pages/$p.html" <<EOS
+    cat > "$d/web/public/pages/$p.html" <<EOS
 <title>$t</title>
 <a class="brand" href="/">app</a>
 $h
@@ -218,21 +218,21 @@ test_display_name_is_html_escaped_in_pages() {
   run_scaffold "$TARGET" shop "Tom's & <Notes>" "Notes for <Tom> & co" >/dev/null
   local p f
   for p in index faq privacy terms support; do
-    f="$TARGET/web/api/internal/web/pages/$p.html"
+    f="$TARGET/web/public/pages/$p.html"
     assert_contains "$(cat "$f")" "Tom&#39;s &amp; &lt;Notes&gt;" "$p"
     ! grep -q "<Notes>" "$f"
   done
-  assert_contains "$(cat "$TARGET/web/api/internal/web/pages/index.html")" "<title>Tom&#39;s &amp; &lt;Notes&gt; - Notes for &lt;Tom&gt; &amp; co</title>"
+  assert_contains "$(cat "$TARGET/web/public/pages/index.html")" "<title>Tom&#39;s &amp; &lt;Notes&gt; - Notes for &lt;Tom&gt; &amp; co</title>"
   assert_contains "$(cat "$TARGET/web/index.html")" "<title>Tom&#39;s &amp; &lt;Notes&gt;</title>"
   assert_eq "# Tom&#39;s &amp; &lt;Notes&gt;" "$(sed -n 1p "$TARGET/README.md")"
   # the slug is not the visible brand any more, the slug stays in the Go-facing text
-  ! grep -q 'class="brand" href="/">shop<' "$TARGET/web/api/internal/web/pages/index.html"
+  ! grep -q 'class="brand" href="/">shop<' "$TARGET/web/public/pages/index.html"
 }
 
 test_footer_and_support_address_use_caritos() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  local f="$TARGET/web/api/internal/web/pages/support.html"
+  local f="$TARGET/web/public/pages/support.html"
   assert_contains "$(cat "$f")" "support@caritos.com"
   ! grep -q "example.com" "$f"
   ! grep -q "placeholder name" "$f"
@@ -305,7 +305,7 @@ test_the_starters_logo_is_not_copied_into_the_app() {
 test_prose_with_the_word_app_survives_and_display_spots_get_the_name() {
   new_env
   run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
-  local pg="$TARGET/web/api/internal/web/pages" f
+  local pg="$TARGET/web/public/pages" f
   for f in index faq privacy terms support; do
     assert_contains "$(cat "$pg/$f.html")" "This is the example notes app." "$f prose"
     assert_contains "$(cat "$pg/$f.html")" 'href="/app/">Open the app</a>' "$f link"
@@ -334,8 +334,8 @@ test_slug_equal_to_the_starter_name_app_works() {
   new_env
   run_scaffold "$TARGET" app "Shop" "desc" >/dev/null
   grep -qxF "rename github.com/caritos/app app" "$FAKE_LOG"
-  assert_contains "$(cat "$TARGET/web/api/internal/web/pages/index.html")" "<title>Shop - desc</title>"
-  assert_contains "$(cat "$TARGET/web/api/internal/web/pages/index.html")" "Open the app"
+  assert_contains "$(cat "$TARGET/web/public/pages/index.html")" "<title>Shop - desc</title>"
+  assert_contains "$(cat "$TARGET/web/public/pages/index.html")" "Open the app"
 }
 
 test_default_starter_is_the_repo_the_script_lives_in_also_through_a_symlink() {

@@ -38,7 +38,7 @@ test_scaffold_from_the_real_starter_builds_serves_and_passes_smoke() {
 
   # the replacement patterns must match the real page text, not only the fixture's: the display name lands
   # in <title>, the brand link and the first <h1> (smoke.sh looks there), the generic prose keeps "app"
-  local pg="$r/web/api/internal/web/pages" f
+  local pg="$r/web/public/pages" f
   for f in index faq privacy terms support; do
     ! grep -q "is a placeholder" "$pg/$f.html" || { echo "$f.html still has the placeholder footer" >&2; return 1; }
     grep -q "Tom&#39;s Notes - contact support@caritos.com" "$pg/$f.html" || { echo "$f.html lacks the new footer" >&2; return 1; }
@@ -104,8 +104,8 @@ test_scaffold_with_the_slug_app_keeps_the_module_only_path() {
   LOTUS_DIR="$lotus" bash "$SCAFFOLD" "$r" app "$DISPLAY_NAME" "d" >"$F_ROOT/appslug.log" 2>&1 || { tail -n 20 "$F_ROOT/appslug.log" >&2; return 1; }
   assert_eq "module github.com/caritos/app" "$(sed -n 1p "$r/web/api/go.mod")"
   [ -d "$r/web/api/cmd/app" ]
-  grep -q "<title>Tom&#39;s Notes - d</title>" "$r/web/api/internal/web/pages/index.html"
-  grep -q 'Open the app' "$r/web/api/internal/web/pages/index.html"
+  grep -q "<title>Tom&#39;s Notes - d</title>" "$r/web/public/pages/index.html"
+  grep -q 'Open the app' "$r/web/public/pages/index.html"
 }
 
 test_a_reserved_slug_is_refused_by_the_real_rename_check() {

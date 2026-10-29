@@ -15,7 +15,7 @@ DEPLOY_SH="deploy.sh"                              # inside SCRIPTS_DIR; deploy-
 DEPLOY_APP_SH="$SCRIPTS_DIR/deploy-app.sh"         # generated
 BACKUP_ENV_EXAMPLE="$SCRIPTS_DIR/backup-pull.env.example"
 ENV_EXAMPLE="web/deploy/.env.example"
-PAGES_GLOB="web/api/internal/web/pages/*.html"
+PAGES_GLOB="web/public/pages/*.html"
 WEB_INDEX="web/index.html"
 README_FILE="README.md"
 ROOT_CLAUDE_MD="CLAUDE.md"; WEB_CLAUDE_MD="web/CLAUDE.md"   # where the starter's CLAUDE.md goes when the host has one
