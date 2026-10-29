@@ -17,8 +17,8 @@ Repo root:  README.md  CLAUDE.md  AGENTS.md  .gitignore  .gitattributes
 .claude/            shared settings, post-edit hook, /test and /backup-check commands
 .claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
 docs/superpowers/   design history (specs and plans), the only thing at the root docs/
-ios/                reserved for the native iOS app; no app yet, only a README and the shared Caritos package (scaffold an app with the new-ios-app skill)
-  Caritos/          shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
+ios/                reserved for the native iOS app; no app yet, only a README (scaffold an app with the new-ios-app skill)
+  Caritos/          in lotus only: shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
 web/                everything for the web platform; run its commands from here or with `make -C web`
   Makefile          test-fast, test, test-skills, test-ios, e2e-install, e2e, api, build, dev
   .nvmrc            Node pin
