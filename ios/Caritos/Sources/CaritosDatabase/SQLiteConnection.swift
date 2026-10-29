@@ -63,14 +63,35 @@ final class SQLiteConnection {
                 // Only whitespace or a comment was left: nothing to run.
                 guard let statement else { continue }
                 statementCount += 1
-                if statementCount > 1 && !bindings.isEmpty {
+                // Checked before anything is stepped, so a rejected call changes nothing.
+                if !bindings.isEmpty && hasStatement(from: cursor) {
                     throw SQLiteError.prepare(sql: sql, message: "bindings are only accepted for a single statement")
                 }
                 try bind(bindings, to: statement)
                 rows += try run(statement)
             }
+            if statementCount == 0 && !bindings.isEmpty {
+                throw SQLiteError.bindCount(expected: 0, got: bindings.count)
+            }
             return rows
         }
+    }
+
+    /// True when the SQL from `cursor` on holds anything but whitespace, comments and semicolons.
+    /// Only prepares (never steps); SQL that fails to prepare counts as a statement.
+    private func hasStatement(from start: UnsafePointer<CChar>) -> Bool {
+        var cursor = start
+        while cursor.pointee != 0 {
+            var statement: OpaquePointer?
+            var tail: UnsafePointer<CChar>?
+            let result = sqlite3_prepare_v2(db, cursor, -1, &statement, &tail)
+            sqlite3_finalize(statement)
+            guard result == SQLITE_OK else { return true }
+            if statement != nil { return true }
+            guard let next = tail, next > cursor else { return false }
+            cursor = next
+        }
+        return false
     }
 
     func begin() throws { try execute("BEGIN IMMEDIATE", []) }

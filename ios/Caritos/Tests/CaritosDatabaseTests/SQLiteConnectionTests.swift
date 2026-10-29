@@ -160,6 +160,46 @@ struct SQLiteConnectionTests {
         }
     }
 
+    @Test("bindings on a script are rejected before any statement runs")
+    func bindingsOnAScriptRunNothing() throws {
+        let connection = try SQLiteConnection(path: ":memory:")
+        try connection.execute("CREATE TABLE t (n INTEGER)", [])
+        let rejection = SQLiteError.prepare(
+            sql: "INSERT INTO t VALUES (?); DELETE FROM nope",
+            message: "bindings are only accepted for a single statement"
+        )
+
+        #expect(throws: rejection) {
+            try connection.execute("INSERT INTO t VALUES (?); DELETE FROM nope", [.integer(1)])
+        }
+        #expect(throws: SQLiteError.self) {
+            try connection.execute("INSERT INTO t VALUES (?); -- c\n ; INSERT INTO t VALUES (2)", [.integer(1)])
+        }
+
+        #expect(try connection.execute("SELECT COUNT(*) AS c FROM t", []).first?.integer("c") == 0)
+    }
+
+    @Test("a single statement followed only by comments and semicolons still takes bindings")
+    func trailingCommentsAreFine() throws {
+        let connection = try SQLiteConnection(path: ":memory:")
+        try connection.execute("CREATE TABLE t (n INTEGER)", [])
+
+        try connection.execute("INSERT INTO t VALUES (?); -- done\n ; /* end */ ", [.integer(5)])
+
+        #expect(try connection.execute("SELECT n FROM t", []).map { $0.integer("n") } == [5])
+    }
+
+    @Test("bindings with empty or comment-only SQL throw .bindCount")
+    func bindingsWithNoStatement() throws {
+        let connection = try SQLiteConnection(path: ":memory:")
+
+        #expect(throws: SQLiteError.bindCount(expected: 0, got: 1)) { try connection.execute("", [.integer(1)]) }
+        #expect(throws: SQLiteError.bindCount(expected: 0, got: 1)) {
+            try connection.execute("-- nothing here", [.integer(1)])
+        }
+        #expect(try connection.execute("-- nothing here", []).isEmpty)
+    }
+
     @Test("begin, commit and rollback control a transaction")
     func transactions() throws {
         let connection = try SQLiteConnection(path: ":memory:")
