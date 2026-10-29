@@ -213,6 +213,19 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   the new-ios-app tier with "skipped new-ios-app tests: xcodegen or swift not installed" when either tool is missing (CI
   is Linux; see Not yet verified); `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` tests the skip (simulated by hiding the tools from PATH) and that the tier runs when both exist.
   No app uses it yet.
+  Final-review fixes (2026-10-29): `make -C web test-ios` runs `swift test --package-path ../ios/Caritos` and is part of
+  `make -C web test` (not `test-fast`); it prints "skipped ios/Caritos tests: swift not installed" without `swift` and does
+  nothing where `ios/Caritos` is absent (a new web app); `makefile-skip.test.sh` covers it. `new-ios-app` copies the package
+  from lotus's committed `HEAD` (`git archive`), so uncommitted edits, untracked files and `.build`/`.swiftpm` never reach
+  an app; it refuses, creating nothing, when lotus is not a git repo or `HEAD` has no `ios/Caritos`, and leaves
+  `ios/Caritos` alone when the target is lotus itself (all tested against throwaway git copies). The generated app's
+  `CLAUDE.md` calls `ios/Caritos` a read-only snapshot (fix lotus first, then re-copy) and its `ios/.gitignore` ignores
+  `.swiftpm/`. `Migrator` turns foreign keys off around a whole run (outside any transaction, restored also on failure) and
+  runs `PRAGMA foreign_key_check` inside each migration's transaction before the version bump, so SQLite's table rebuild of
+  a parent keeps its cascading child rows and a migration that leaves a dangling reference fails with `.failed` and rolls
+  back. `URLSessionTransport` throws `APIError.network` for a failed request and lets cancellation through; `isTransient`
+  for 408, 429 and `.invalidResponse` is pinned; `FileLogger`'s subsystem defaults to the main bundle id; `ErrorBanner`
+  reads its message once in VoiceOver and gives Retry a 44pt target (iOS build only; VoiceOver not tried on a device).
 
 - Frontend in `web/public` (2026-10-29): the public pages and CSS moved from `web/api/internal/web/{pages,static}`
   to `web/public/{pages,static}`; `web/scripts/sync-public.sh` (+ test) copies them into the gitignored
@@ -323,21 +336,33 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - The new-ios-app skip on the real ubuntu CI runner is simulated with a restricted PATH, not seen in CI.
 - Caritos `KeychainStore` on a simulator and a device (access groups, entitlements); only the Mac Keychain path is tested, and only with `CARITOS_REAL_KEYCHAIN=1`.
 - Caritos `HTTPTransport`, `Database`, `FileLogger`, `JSONFileStore` and the UI pieces are used by no app yet.
+- An Xcode build of a scaffolded app that resolves the nested Caritos package (xcodebuild / `deploy.sh`) has not been run;
+  only `swift test` on macOS has (plus an iOS Simulator `xcodebuild` of the `CaritosUI` scheme in lotus itself).
+- `ErrorBanner` with VoiceOver on a device.
 
 ### Deferred
 
 Caritos package
 - `sync-caritos.sh` to re-copy a newer snapshot of `ios/Caritos` into an app that already has one (the scaffold copies once).
 - Per-app adoption, Stark first (it would take Logging, Security and UI); no app is migrated.
+- An `HTTPTransport` stub for apps' tests (only the package's own tests have a `URLProtocol` stub).
+- fressh versions its schema with a `schema_version` table, not `PRAGMA user_version`, so adopting `CaritosDatabase` there
+  needs a bridge migration.
+- caritos-com's transport has `upload(for:fromFile:)`, which `HTTPTransport` lacks.
+- `FileLogger` keeps session files forever (no retention).
+- OPEN DECISION for the author before the first app adopts `JSONFileStore`: `load()` returns nil after moving a corrupt or
+  newer-version file aside, which a caller cannot tell from "no file" (the global rule says storage errors must surface,
+  not look like empty data). Options: a `loadReportingAside()` variant, or a thrown `.movedAside(URL)` on the first load.
+- `FileLogger` log files are created with default permissions (0600 would matter on macOS); `JSONFileStore` does not
+  validate `name` for path separators or `..`.
 - Minors from the build, by product:
   - Package: the layout guard greps a product name anywhere in `Package.swift` (anchor on `.library(name: "X"`) and does not check tools version, platforms or the sqlite3 link.
   - Security: no unicode or empty-value Keychain test, no concurrency test for `InMemorySecretStore`, `KeychainError` sits in `InMemorySecretStore.swift`.
-  - Logging: same-second sessions sort arbitrarily, a `DateFormatter` is built per call, the log file mode is the default (consider 0600), no concurrent-log test.
-  - Networking: `APIError.isTransient` also treats `.invalidResponse`, 408 and 429 as transient (pin in tests, document); long server messages are not truncated; `URLSessionTransport` lets `URLError` through (`.network` is never produced).
+  - Logging: same-second sessions sort arbitrarily, a `DateFormatter` is built per call, no concurrent-log test.
+  - Networking: long server messages are not truncated.
   - Database: `Int32` lengths trap on 2 GB text or blobs, the WAL mode result is unchecked, a `Transaction` handle can escape its body, `DatabaseLocation` accepts `../` in the file name, no commit-failure rollback test; `Migrator` wraps `CancellationError` as `.failed` and has no two-process concurrency test.
-  - Storage: `JSONFileStore` does not validate the name for path separators or `..`.
-  - UI: `ErrorBanner` Retry hit target is under 44pt and VoiceOver reads the message twice, `HexColor` masking of values over 24 bits is untested, no `#Preview`s, `Haptics` creates a generator per call without `prepare()`.
-  - Scaffold tests: no test for a symlinked script loop or the "shared package not found" path, the `.build` exclusion test is vacuous in a clean checkout, a scaffold failure is not counted in `fail`.
+  - UI: `HexColor` masking of values over 24 bits is untested, no `#Preview`s, `Haptics` creates a generator per call without `prepare()`.
+  - Scaffold tests: no test for a symlinked script loop, a failure of the two scaffolds of the real checkout (direct, linked) is not counted in `fail`.
 
 Frontend layout
 - `make -C web dev` syncs `web/public` once at start; an edit under `web/public` (or a rebuilt `web/src` bundle) needs a restart because
