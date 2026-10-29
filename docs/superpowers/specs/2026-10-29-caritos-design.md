@@ -1,11 +1,11 @@
-# CaritosPackage: one shared Swift package for the iOS apps
+# Caritos: one shared Swift package for the iOS apps
 
-Status: draft for review. Date: 2026-10-29. Source: a read-only survey of busy-hive, fressh, stark, spool,
+Status: updated after review. Date: 2026-10-29. Source: a read-only survey of busy-hive, fressh, stark, spool,
 caritos-com, pusoy-dos, book-reader, ancient-art-of-war, hop and analyze-tennis-stroke. The survey was done
 by subagents and not every claim was verified; the first plan task re-checks the files named here.
 
-Name: the package is called **CaritosPackage** (the author's name; earlier notes say `CaritosKit`). It is a
-single string in `Package.swift` and the docs, so a rename is cheap.
+Name: the package is called **Caritos** (the author's choice; earlier notes say `CaritosKit`). It is a single
+string in `Package.swift` and the docs, so a rename is cheap.
 
 ## Intent
 
@@ -15,7 +15,7 @@ package, used by every app, means a bug is fixed once and a new app starts with 
 
 ## Goals
 
-1. A local SwiftPM package `CaritosPackage` (swift-tools 5.9, `.iOS(.v17)`, `.macOS(.v14)` so `swift test`
+1. A local SwiftPM package `Caritos`, at `ios/Caritos/` in this repo (swift-tools 5.9, `.iOS(.v17)`, `.macOS(.v14)` so `swift test`
    runs on the Mac) with these products, each its own library target so an app imports only what it uses:
    - `CaritosDatabase`: `SQLiteConnection` (prepared statements, typed bindings, row decoding, transactions,
      statements always finalized, errors thrown), `Migrator` using `PRAGMA user_version` with versioned,
@@ -31,7 +31,8 @@ package, used by every app, means a bug is fixed once and a new app starts with 
 2. Every product is test-first, with in-memory or fake seams, and its tests run with `swift test`.
 3. The `new-ios-app` skill scaffolds an app that depends on the package, and its full tier proves the scaffold
    builds and tests.
-4. Existing apps adopt it one at a time, each in its own branch, with their existing tests as the safety net.
+4. Existing apps may adopt it later, one at a time, each in its own branch with its own tests as the safety
+   net. That is not part of the first plan (see Adoption).
 
 ## Non-goals
 
@@ -50,9 +51,14 @@ package, used by every app, means a bug is fixed once and a new app starts with 
 
 ## Constraints
 
-- Where it lives: its own git repo, `~/src/caritos-package`, consumed by apps as a local path dependency
-  during development and a tagged version afterwards (my call; the author decides the remote). The `new-ios-app`
-  skill stays in lotus.
+- Where it lives (decided by the author): in lotus, at `ios/Caritos/`, because lotus is the template for the iOS
+  apps as well as the web apps. No separate repo. `ios/Caritos/` has its own `Package.swift`; the `new-ios-app`
+  refusal rule (an `ios/Package.swift` or an Xcode project) is not triggered by a nested package, and
+  `web/scripts/layout.test.sh` must be updated to allow `ios/Caritos/` (test first).
+- How an app gets it (my call): `new-ios-app` copies `ios/Caritos/` from lotus's committed `HEAD` into the new
+  app's `ios/Caritos/` and the Kit depends on it by relative path, so the app builds on any machine and in CI.
+  The copy is a snapshot; a small `sync-caritos.sh` (later) re-copies a newer version. Fixes are made in lotus
+  first, test first.
 - Swift language mode 5 for the package (matches most apps); strict concurrency warnings on, errors off.
   Revisit when the apps move to Swift 6 (my call).
 - System `libsqlite3` only; no GRDB. UUID text keys, Unix-ms timestamps, money in cents, soft delete via
@@ -72,14 +78,16 @@ package, used by every app, means a bug is fixed once and a new app starts with 
 - Project generation: new apps use XcodeGen (`project.yml` is the source of truth); converting fressh, stark and
   spool is a separate follow-up.
 
-## Adoption order (the builder may reorder with a reason)
+## Adoption
 
-1. `CaritosDatabase` and `CaritosSecurity` (largest duplication, clearest tests).
-2. `CaritosLogging`, `CaritosNetworking`.
-3. `CaritosUI`, `CaritosStorage`.
-4. Scaffold: `new-ios-app` adds the dependency and a smoke test of one product.
-5. Adoption per app, starting with the smallest that has SQLite (fressh), then busy-hive, spool, hop
-   (Keychain), caritos-com (networking, Keychain), pusoy-dos and AoW (storage).
+The first plan ends when the package exists, its tests pass, lotus's layout guard allows it and `new-ios-app`
+scaffolds an app that depends on it (the skill's full tier proves it builds and tests). No existing app is
+changed.
+
+Later, per app and only when the author is working on it. Stark is expected to be first; it has no SQLite, so
+it would take `CaritosLogging`, `CaritosSecurity` and `CaritosUI`. The other apps follow as they are touched.
+Suggested order of building the products: `CaritosDatabase` and `CaritosSecurity` (largest duplication, clearest
+tests), then `CaritosLogging` and `CaritosNetworking`, then `CaritosUI` and `CaritosStorage`.
 
 ## Testing
 
@@ -98,6 +106,5 @@ package, used by every app, means a bug is fixed once and a new app starts with 
 
 ## Open questions for the author
 
-1. Is `~/src/caritos-package` as a separate repo right, or should it live inside another repo?
-2. Is the name `CaritosPackage` final, with product names prefixed `Caritos…` as above?
-3. Which app adopts it first (my suggestion: fressh)?
+None blocking. Answered 2026-10-29: lives in lotus, not a separate repo; named Caritos; no app adopts it yet,
+Stark later.
