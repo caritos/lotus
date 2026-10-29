@@ -20,15 +20,20 @@ public struct ErrorBanner: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+                // The message is the one element VoiceOver reads ("Error: ..."); Retry stays separate.
+                .accessibilityLabel("Error: \(message)")
             if let retry {
-                Button("Retry", action: retry)
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.borderless)
+                Button(action: retry) {
+                    Text("Retry")
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.borderless)
             }
         }
         .padding(12)
         .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Error: \(message)")
     }
 }
