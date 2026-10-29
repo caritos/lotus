@@ -262,7 +262,7 @@ var pageFiles = func() []string {
 }()
 
 func TestEveryEmbeddedPageSourceHasTheFooterPlaceholderOnce(t *testing.T) {
-	entries, err := content.ReadDir("pages")
+	entries, err := content.ReadDir("public/pages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestEveryEmbeddedPageSourceHasTheFooterPlaceholderOnce(t *testing.T) {
 		routed[f] = true
 	}
 	for _, e := range entries {
-		name := "pages/" + e.Name()
+		name := "public/pages/" + e.Name()
 		if !routed[name] {
 			t.Errorf("%s is embedded but has no route in pageRoutes", name)
 		}
@@ -452,6 +452,32 @@ func TestStaticServesNestedFiles(t *testing.T) {
 		if rec := get(h, http.MethodGet, target); rec.Code == 200 {
 			t.Errorf("%s: got 200, want 404 or a redirect", target)
 		}
+	}
+}
+
+func TestCheckPublicNamesTheSyncScriptWhenEmpty(t *testing.T) {
+	err := checkPublic(fstest.MapFS{"public/.gitkeep": {}})
+	if err == nil || !strings.Contains(err.Error(), "web/scripts/sync-public.sh") {
+		t.Fatalf("checkPublic(empty) = %v, want an error naming web/scripts/sync-public.sh", err)
+	}
+	if err := checkPublic(fstest.MapFS{"public/pages/index.html": {Data: []byte("x")}}); err != nil {
+		t.Fatalf("checkPublic(with pages) = %v", err)
+	}
+}
+
+func TestStaticSkipsHiddenFiles(t *testing.T) {
+	h := newHandler(builtApp, fstest.MapFS{
+		"style.css":   {Data: []byte("body{}")},
+		".DS_Store":   {Data: []byte("junk")},
+		"fonts/.nope": {Data: []byte("junk")},
+	})
+	for _, target := range []string{"/static/.DS_Store", "/static/fonts/.nope"} {
+		if rec := get(h, http.MethodGet, target); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: got %d, want 404", target, rec.Code)
+		}
+	}
+	if rec := get(h, http.MethodGet, "/static/style.css"); rec.Code != http.StatusOK {
+		t.Errorf("style.css: got %d", rec.Code)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"html"
 	"io/fs"
 	"mime"
@@ -18,7 +19,7 @@ import (
 	"app/internal/version"
 )
 
-//go:embed pages/*.html static/* all:app
+//go:embed all:public all:app
 var content embed.FS
 
 const (
@@ -26,17 +27,17 @@ const (
 	cacheImmutable  = "public, max-age=31536000, immutable"
 )
 
-// pageRoutes maps public URL paths to files in pages/.
+// pageRoutes maps public URL paths to files in the embedded public/pages/.
 var pageRoutes = map[string]string{
-	"/":        "pages/index.html",
-	"/faq":     "pages/faq.html",
-	"/privacy": "pages/privacy.html",
-	"/terms":   "pages/terms.html",
-	"/support": "pages/support.html",
+	"/":        "public/pages/index.html",
+	"/faq":     "public/pages/faq.html",
+	"/privacy": "public/pages/privacy.html",
+	"/terms":   "public/pages/terms.html",
+	"/support": "public/pages/support.html",
 }
 
 const (
-	// pagePlaceholder marks where the build id goes in every page source under pages/
+	// pagePlaceholder marks where the build id goes in every page source under public/pages/
 	// and in the generated 404 and 503 pages. It is replaced once, at startup.
 	pagePlaceholder = "@@BUILD_ID@@"
 	// appPlaceholder is the build id in web/index.html (the React app's meta tag).
@@ -110,7 +111,7 @@ func NewHandler(app fs.FS) http.Handler { return NewHandlerWithBuildID(app, vers
 // NewHandlerWithBuildID is NewHandler with an explicit build id, which is substituted once
 // (before ETags and lengths are computed) into the page footers and the app's index.html.
 func NewHandlerWithBuildID(app fs.FS, buildID string) http.Handler {
-	static, err := fs.Sub(content, "static")
+	static, err := fs.Sub(content, "public/static")
 	if err != nil {
 		panic(err) // the embed directive guarantees static/ exists
 	}
@@ -127,6 +128,9 @@ func newHandler(app, static fs.FS) http.Handler {
 // byte for byte; only the pages, the generated 404 and 503 pages and the app's index.html
 // get the build id.
 func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
+	if err := checkPublic(content); err != nil {
+		panic(err)
+	}
 	h := &handler{app: app, pages: map[string]asset{}, static: map[string]asset{}}
 	for route, file := range pageRoutes {
 		h.pages[route] = mustLoad(file, buildID)
@@ -138,8 +142,17 @@ func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
 		h.index = &a
 	}
 	err := fs.WalkDir(static, ".", func(name string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if strings.HasPrefix(d.Name(), ".") && name != "." { // .DS_Store and friends are never served
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
 		}
 		b, err := fs.ReadFile(static, name)
 		if err != nil {
@@ -154,7 +167,18 @@ func newHandlerWithBuildID(app, static fs.FS, buildID string) http.Handler {
 	return h
 }
 
-// mustLoad reads an embedded page from pages/ and fills in the footer build id.
+// checkPublic fails when the embedded public/ tree holds no pages. The tree is a generated
+// copy of web/public (go:embed cannot reach outside the Go module), so an empty one means
+// the sync was skipped; serving a site with nothing in it would hide that.
+func checkPublic(fsys fs.FS) error {
+	pages, err := fs.Glob(fsys, "public/pages/*.html")
+	if err != nil || len(pages) == 0 {
+		return errors.New("web: the embedded public/ folder has no pages; run `bash web/scripts/sync-public.sh` (web/scripts/sync-public.sh copies web/public into the binary's embed folder; every make target does it)")
+	}
+	return nil
+}
+
+// mustLoad reads an embedded page from public/pages/ and fills in the footer build id.
 func mustLoad(name, buildID string) asset {
 	b, err := content.ReadFile(name)
 	if err != nil {

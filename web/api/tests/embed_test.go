@@ -77,6 +77,27 @@ func withBuildID(index []byte) string {
 	return strings.ReplaceAll(string(index), "__BUILD_ID__", html.EscapeString(version.BuildID))
 }
 
+// The frontend files live in web/public; the binary embeds the synced copy under
+// internal/web/public. A stale copy (sync-public.sh not run) must fail here, not ship.
+func TestEmbeddedPublicFilesMatchWebPublic(t *testing.T) {
+	a := apptest.NewServer(t)
+	css, err := os.ReadFile(filepath.Join("..", "..", "public", "static", "style.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _, body := req(t, a.Client, http.MethodGet, a.URL+"/static/style.css", nil, nil); st != http.StatusOK || string(body) != string(css) {
+		t.Fatalf("GET /static/style.css = %d, bytes equal web/public/static/style.css: %v (run web/scripts/sync-public.sh)", st, string(body) == string(css))
+	}
+	src, err := os.ReadFile(filepath.Join("..", "..", "public", "pages", "privacy.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.ReplaceAll(string(src), "@@BUILD_ID@@", html.EscapeString(version.BuildID))
+	if st, _, body := req(t, a.Client, http.MethodGet, a.URL+"/privacy", nil, nil); st != http.StatusOK || string(body) != want {
+		t.Fatalf("GET /privacy = %d, equals web/public/pages/privacy.html plus build id: %v (run web/scripts/sync-public.sh)", st, string(body) == want)
+	}
+}
+
 func TestEmbeddedAppPresentWhenBuilt(t *testing.T) {
 	index := builtIndex(t)
 	if !web.AppBuilt() {

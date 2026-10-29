@@ -11,6 +11,9 @@ web/dist/
 web/api/app
 web/api/internal/web/app/*
 !web/api/internal/web/app/.gitkeep
+# generated copy of web/public (go:embed source); see web/scripts/sync-public.sh
+web/api/internal/web/public/*
+!web/api/internal/web/public/.gitkeep
 
 # runtime data
 web/db/*
