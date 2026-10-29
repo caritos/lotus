@@ -22,15 +22,34 @@ while [ -L "$SELF" ]; do   # follow symlinks (the skill is linked into ~/.claude
 done
 SKILL_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"   # the script file may be reached through a linked skill dir
 T="$SKILL_DIR/templates"
-# .claude/skills/new-ios-app -> the lotus root is 3 levels up
-CARITOS_SRC="$(cd "$SKILL_DIR/../../.." && pwd -P)/ios/Caritos"
-[ -f "$CARITOS_SRC/Package.swift" ] || { echo "error: shared package not found at $CARITOS_SRC" >&2; exit 1; }
+# .claude/skills/new-ios-app -> the lotus root is 3 levels up. The shared package is copied from lotus's
+# committed HEAD (git archive), so uncommitted edits, untracked files and build products never reach an app.
+LOTUS="$(cd "$SKILL_DIR/../../.." && pwd -P)"
+CARITOS_SRC="$LOTUS/ios/Caritos"
+top="$(git -C "$LOTUS" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$top" ] || [ "$(cd "$top" && pwd -P)" != "$LOTUS" ]; then
+  echo "error: $LOTUS is not a git repository; the shared package is copied from its committed HEAD" >&2; exit 1
+fi
+git -C "$LOTUS" cat-file -e "HEAD:ios/Caritos/Package.swift" 2>/dev/null \
+  || { echo "error: shared package not found at $CARITOS_SRC in the committed HEAD of $LOTUS" >&2; exit 1; }
 IOS="$REPO/ios"
 APPDIR="$IOS/App"
 XPROJ="$APPDIR/$APP"
 
 if [ -e "$IOS/Package.swift" ] || [ -e "$XPROJ" ]; then
   echo "error: $IOS already looks scaffolded; refusing to overwrite." >&2; exit 1
+fi
+
+# Extract the snapshot before anything is created, so a failure leaves no partial scaffold.
+# The target is lotus itself when its ios/Caritos is the source: then nothing is copied.
+SELF_TARGET=0
+if [ -d "$IOS/Caritos" ] && [ "$(cd "$IOS/Caritos" && pwd -P)" = "$CARITOS_SRC" ]; then SELF_TARGET=1; fi
+CARITOS_TMP=""
+if [ "$SELF_TARGET" = 0 ]; then
+  CARITOS_TMP="$(mktemp -d "${TMPDIR:-/tmp}/nia-caritos.XXXXXX")"
+  trap 'rm -rf "$CARITOS_TMP"' EXIT
+  git -C "$LOTUS" archive HEAD:ios/Caritos | tar -x -C "$CARITOS_TMP" \
+    || { echo "error: could not extract ios/Caritos from the committed HEAD of $LOTUS" >&2; exit 1; }
 fi
 
 fill() {  # fill <template> <dest>
@@ -43,9 +62,11 @@ fill "$T/Package.swift"               "$IOS/Package.swift"
 fill "$T/kit/Greeting.swift"          "$IOS/Sources/${APP}Kit/Greeting.swift"
 fill "$T/kit/GreetingTests.swift"     "$IOS/Tests/${APP}KitTests/GreetingTests.swift"
 fill "$T/kit/CaritosLinkTests.swift"  "$IOS/Tests/${APP}KitTests/CaritosLinkTests.swift"
-# Snapshot of the shared package (no build products); fixes go to lotus first.
-mkdir -p "$IOS/Caritos"
-(cd "$CARITOS_SRC" && tar --exclude=.build --exclude=.swiftpm -cf - .) | tar -xf - -C "$IOS/Caritos"
+# Snapshot of the shared package from lotus's committed HEAD; fixes go to lotus first.
+if [ "$SELF_TARGET" = 0 ]; then
+  mkdir -p "$IOS/Caritos"
+  (cd "$CARITOS_TMP" && tar -cf - .) | tar -xf - -C "$IOS/Caritos"
+fi
 fill "$T/project.yml"                "$XPROJ/project.yml"
 fill "$T/app/App.swift"               "$XPROJ/$APP/${APP}App.swift"
 fill "$T/app/ContentView.swift"       "$XPROJ/$APP/ContentView.swift"

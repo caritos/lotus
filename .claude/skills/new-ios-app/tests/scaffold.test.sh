@@ -1,5 +1,6 @@
 #!/bin/bash
-# Tests for scripts/scaffold.sh: it copies the shared Caritos package into the app and depends on it.
+# Tests for scripts/scaffold.sh: it copies the shared Caritos package from lotus's committed HEAD into the
+# app and depends on it. The HEAD-only cases run against throwaway git copies, never this checkout.
 # Usage: scaffold.test.sh [--fast]   (--fast skips the `swift test` step in a scaffolded app)
 # Prints PASS/FAIL lines and "passed: N failed: M"; exits non-zero on any failure.
 export PATH="/usr/bin:/bin:/opt/homebrew/bin:$PATH"
@@ -8,6 +9,7 @@ case "${1:-}" in "") ;; --fast) FAST=1 ;; *) echo "usage: scaffold.test.sh [--fa
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SKILL_DIR="$(cd "$HERE/.." && pwd -P)"
+LOTUS="$(cd "$SKILL_DIR/../../.." && pwd -P)"
 T_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nia-scaffold.XXXXXX")"
 trap 'rm -rf "$T_ROOT"' EXIT
 
@@ -40,6 +42,64 @@ for kind in direct linked; do
   check "$kind: CaritosLinkTests is generated" t_link_test
   check "$kind: no placeholder is left" t_no_placeholders
 done
+
+# ---- copies from the committed HEAD, in a throwaway git copy: this skill as it is now + ios/Caritos as committed
+qgit() { git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
+mk_src() {  # mk_src <dir> [with-caritos]: a minimal lotus holding this skill, optionally with ios/Caritos
+  mkdir -p "$1/.claude/skills/new-ios-app"
+  (cd "$SKILL_DIR" && tar -cf - .) | tar -xf - -C "$1/.claude/skills/new-ios-app"
+  if [ "${2:-}" = with-caritos ]; then git -C "$LOTUS" archive HEAD ios/Caritos | tar -x -C "$1"; fi
+}
+SRC="$T_ROOT/src"
+mk_src "$SRC" with-caritos
+qgit -C "$SRC" init -q
+qgit -C "$SRC" add -A
+qgit -C "$SRC" commit -q -m src
+COMMITTED_README="$(cat "$SRC/ios/Caritos/README.md")"
+echo "UNCOMMITTED-EDIT" >> "$SRC/ios/Caritos/README.md"
+echo scratch > "$SRC/ios/Caritos/UNTRACKED-SCRATCH.txt"
+: > "$SRC/ios/Caritos/.DS_Store"
+mkdir -p "$SRC/ios/Caritos/.build" "$SRC/ios/Caritos/.swiftpm"
+: > "$SRC/ios/Caritos/.build/junk"
+: > "$SRC/ios/Caritos/.swiftpm/junk"
+bash "$SRC/.claude/skills/new-ios-app/scripts/scaffold.sh" "$T_ROOT/fromhead" Demo demo >"$T_ROOT/fromhead.log" 2>&1
+HEAD_RC=$?
+H="$T_ROOT/fromhead/ios/Caritos"
+t_head_ok() { [ "$HEAD_RC" = 0 ] && [ -f "$H/Package.swift" ] || { cat "$T_ROOT/fromhead.log"; false; }; }
+t_head_no_edit() { [ "$(cat "$H/README.md")" = "$COMMITTED_README" ]; }
+t_head_no_untracked() { [ ! -e "$H/UNTRACKED-SCRATCH.txt" ] && [ ! -e "$H/.DS_Store" ]; }
+t_head_no_build() { [ ! -e "$H/.build" ] && [ ! -e "$H/.swiftpm" ]; }
+check "from HEAD: the scaffold succeeds" t_head_ok
+check "from HEAD: an uncommitted edit under ios/Caritos does not reach the app" t_head_no_edit
+check "from HEAD: untracked files (.DS_Store, scratch) do not reach the app" t_head_no_untracked
+check "from HEAD: .build and .swiftpm do not reach the app" t_head_no_build
+
+# the target is lotus itself: ios/Caritos is the source, so it is left alone (no copy onto itself)
+bash "$SRC/.claude/skills/new-ios-app/scripts/scaffold.sh" "$SRC" Demo demo >"$T_ROOT/self.log" 2>&1
+SELF_RC=$?
+t_self() { [ "$SELF_RC" = 0 ] && [ -f "$SRC/ios/Caritos/UNTRACKED-SCRATCH.txt" ] && grep -q UNCOMMITTED-EDIT "$SRC/ios/Caritos/README.md" \
+  && [ -f "$SRC/ios/Package.swift" ] || { echo "rc=$SELF_RC"; cat "$T_ROOT/self.log"; false; }; }
+check "into lotus itself: the scaffold succeeds and leaves ios/Caritos untouched" t_self
+
+# the lotus root is not a git repository: refuse, create nothing
+NOGIT="$T_ROOT/nogit"
+mk_src "$NOGIT" with-caritos
+bash "$NOGIT/.claude/skills/new-ios-app/scripts/scaffold.sh" "$T_ROOT/nogit-app" Demo demo >"$T_ROOT/nogit.log" 2>&1
+NOGIT_RC=$?
+t_nogit() { [ "$NOGIT_RC" = 1 ] && grep -q 'is not a git repository' "$T_ROOT/nogit.log" && [ ! -e "$T_ROOT/nogit-app" ] || { echo "rc=$NOGIT_RC"; cat "$T_ROOT/nogit.log"; false; }; }
+check "lotus is not a git repo: exit 1, a clear message, nothing created" t_nogit
+
+# HEAD has no ios/Caritos (only an uncommitted copy in the working tree): refuse, create nothing
+NOPKG="$T_ROOT/nopkg"
+mk_src "$NOPKG"
+qgit -C "$NOPKG" init -q
+qgit -C "$NOPKG" add -A
+qgit -C "$NOPKG" commit -q -m nopkg
+git -C "$LOTUS" archive HEAD ios/Caritos | tar -x -C "$NOPKG"
+bash "$NOPKG/.claude/skills/new-ios-app/scripts/scaffold.sh" "$T_ROOT/nopkg-app" Demo demo >"$T_ROOT/nopkg.log" 2>&1
+NOPKG_RC=$?
+t_nopkg() { [ "$NOPKG_RC" = 1 ] && grep -q 'shared package not found' "$T_ROOT/nopkg.log" && [ ! -e "$T_ROOT/nopkg-app" ] || { echo "rc=$NOPKG_RC"; cat "$T_ROOT/nopkg.log"; false; }; }
+check "HEAD lacks ios/Caritos: exit 1, \"shared package not found\", nothing created" t_nopkg
 
 if [ "$FAST" = 0 ]; then
   t_swift_test() { (cd "$T_ROOT/linked/ios" && swift test); }
