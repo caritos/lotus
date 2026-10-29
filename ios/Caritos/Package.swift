@@ -1,6 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
+let strict: [SwiftSetting] = [.enableExperimentalFeature("StrictConcurrency")]
+
 let package = Package(
     name: "Caritos",
     platforms: [.iOS(.v17), .macOS(.v14)],
@@ -13,17 +15,17 @@ let package = Package(
         .library(name: "CaritosStorage", targets: ["CaritosStorage"]),
     ],
     targets: [
-        .target(name: "CaritosDatabase", linkerSettings: [.linkedLibrary("sqlite3")]),
-        .target(name: "CaritosSecurity"),
-        .target(name: "CaritosNetworking"),
-        .target(name: "CaritosLogging"),
-        .target(name: "CaritosUI"),
-        .target(name: "CaritosStorage"),
-        .testTarget(name: "CaritosDatabaseTests", dependencies: ["CaritosDatabase"]),
-        .testTarget(name: "CaritosSecurityTests", dependencies: ["CaritosSecurity"]),
-        .testTarget(name: "CaritosNetworkingTests", dependencies: ["CaritosNetworking"]),
-        .testTarget(name: "CaritosLoggingTests", dependencies: ["CaritosLogging"]),
-        .testTarget(name: "CaritosUITests", dependencies: ["CaritosUI"]),
-        .testTarget(name: "CaritosStorageTests", dependencies: ["CaritosStorage"]),
+        .target(name: "CaritosDatabase", swiftSettings: strict, linkerSettings: [.linkedLibrary("sqlite3")]),
+        .target(name: "CaritosSecurity", swiftSettings: strict),
+        .target(name: "CaritosNetworking", swiftSettings: strict),
+        .target(name: "CaritosLogging", swiftSettings: strict),
+        .target(name: "CaritosUI", swiftSettings: strict),
+        .target(name: "CaritosStorage", swiftSettings: strict),
+        .testTarget(name: "CaritosDatabaseTests", dependencies: ["CaritosDatabase"], swiftSettings: strict),
+        .testTarget(name: "CaritosSecurityTests", dependencies: ["CaritosSecurity"], swiftSettings: strict),
+        .testTarget(name: "CaritosNetworkingTests", dependencies: ["CaritosNetworking"], swiftSettings: strict),
+        .testTarget(name: "CaritosLoggingTests", dependencies: ["CaritosLogging"], swiftSettings: strict),
+        .testTarget(name: "CaritosUITests", dependencies: ["CaritosUI"], swiftSettings: strict),
+        .testTarget(name: "CaritosStorageTests", dependencies: ["CaritosStorage"], swiftSettings: strict),
     ]
 )
