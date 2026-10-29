@@ -41,6 +41,10 @@ for kind in direct linked; do
   check "$kind: the Kit depends on CaritosLogging" t_product_dep
   check "$kind: CaritosLinkTests is generated" t_link_test
   check "$kind: no placeholder is left" t_no_placeholders
+  t_claude_snapshot() { grep -q 'ios/Caritos.*read-only snapshot' "$R/CLAUDE.md" && grep -q 'fix .*in lotus first' "$R/CLAUDE.md"; }
+  check "$kind: CLAUDE.md says ios/Caritos is a read-only snapshot fixed in lotus first" t_claude_snapshot
+  t_gitignore() { grep -qx '\.build/' "$R/ios/.gitignore" && grep -qx '\.swiftpm/' "$R/ios/.gitignore"; }
+  check "$kind: ios/.gitignore ignores .build/ and .swiftpm/" t_gitignore
 done
 
 # ---- copies from the committed HEAD, in a throwaway git copy: this skill as it is now + ios/Caritos as committed
