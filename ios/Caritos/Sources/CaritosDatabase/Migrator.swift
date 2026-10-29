@@ -3,6 +3,12 @@ public struct Migration: Sendable {
     public let version: Int
     /// A script of one or more statements. It must not contain BEGIN, COMMIT or ROLLBACK: the Migrator
     /// wraps each migration in its own transaction.
+    ///
+    /// Foreign keys are off while it runs (the Migrator turns them off before the first migration, since
+    /// `PRAGMA foreign_keys` is a no-op inside a transaction, and back on after the last), so SQLite's
+    /// table rebuild (create new, copy, drop old, rename) does not cascade-delete child rows. Do not set
+    /// `PRAGMA foreign_keys` here. Each migration must leave every reference valid: `PRAGMA
+    /// foreign_key_check` runs inside its transaction before the version bump, and a violation fails it.
     public let sql: String
 
     /// `version` is the `PRAGMA user_version` the database has after this migration runs.
@@ -23,7 +29,8 @@ public enum MigrationError: Error, Equatable {
 
 /// Brings a database up to the latest schema using `PRAGMA user_version`. Each pending migration runs
 /// in its own transaction together with its version bump, so a failure leaves the database at the last
-/// version that fully applied.
+/// version that fully applied. The whole run holds the `Database` actor with foreign keys off (see
+/// `Migration.sql`) and restores them afterwards, also on failure.
 public struct Migrator: Sendable {
     private let migrations: [Migration]
 
@@ -42,28 +49,40 @@ public struct Migrator: Sendable {
     }
 
     public func migrate(_ database: Database) async throws {
-        let current = try await database.execute("PRAGMA user_version").first?.integer("user_version") ?? 0
+        try await database.withForeignKeysOff { db in try self.migrateAll(db) }
+    }
+
+    private func migrateAll(_ database: isolated Database) throws {
+        let current = try database.execute("PRAGMA user_version").first?.integer("user_version") ?? 0
         let latest = migrations[migrations.count - 1].version
         if current > Int64(latest) {
             throw MigrationError.databaseIsNewer(found: Int(current), supported: latest)
         }
         for migration in migrations where Int64(migration.version) > current {
-            try await applyIfPending(migration, to: database)
+            try applyIfPending(migration, to: database)
         }
     }
 
-    /// Runs one migration and its version bump in a single transaction. The version is re-read inside
-    /// the transaction (which holds the write lock), so a migration that another Migrator on the same
-    /// file applied after our first read is skipped instead of run twice.
-    func applyIfPending(_ migration: Migration, to database: Database) async throws {
+    /// Runs one migration, a foreign key check and its version bump in a single transaction. The version
+    /// is re-read inside the transaction (which holds the write lock), so a migration that another
+    /// Migrator on the same file applied after our first read is skipped instead of run twice.
+    func applyIfPending(_ migration: Migration, to database: isolated Database) throws {
         do {
-            try await database.transaction { tx in
+            try database.transaction { tx in
                 let applied = try tx.execute("PRAGMA user_version").first?.integer("user_version") ?? 0
                 if applied >= Int64(migration.version) { return }
                 try tx.execute(migration.sql)
+                let violations = try tx.execute("PRAGMA foreign_key_check")
+                if let first = violations.first {
+                    throw MigrationError.failed(version: migration.version, message:
+                        "foreign key check failed: \(violations.count) row(s), the first in "
+                        + "\(first.text("table") ?? "?") referencing a missing \(first.text("parent") ?? "?") row")
+                }
                 // PRAGMA cannot take bound values; the number is a validated Int, not user text.
                 try tx.execute("PRAGMA user_version = \(migration.version)")
             }
+        } catch let error as MigrationError {
+            throw error
         } catch {
             throw MigrationError.failed(version: migration.version, message: String(describing: error))
         }

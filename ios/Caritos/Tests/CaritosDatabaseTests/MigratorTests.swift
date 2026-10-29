@@ -156,6 +156,66 @@ struct MigratorTests {
         }
     }
 
+    // A parent with a cascading child, the shape of fressh's feeds and articles.
+    private static let parentChild = Migration(version: 1, sql: """
+        CREATE TABLE feeds (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+        CREATE TABLE articles (id TEXT PRIMARY KEY, feed_id TEXT NOT NULL REFERENCES feeds(id) ON DELETE CASCADE);
+        """)
+
+    private func foreignKeys(_ database: Database) async throws -> Int64? {
+        try await database.execute("PRAGMA foreign_keys").first?.integer("foreign_keys")
+    }
+
+    @Test("SQLite's table rebuild of a parent keeps its cascading child rows, and foreign keys come back on")
+    func rebuildKeepsChildRows() async throws {
+        let path = tempPath()
+        defer { removeFiles(path) }
+        do {
+            let old = try Database(path: path)
+            try await Migrator([Self.parentChild]).migrate(old)
+            try await old.execute("INSERT INTO feeds (id, title) VALUES ('f', 'Feed')")
+            try await old.execute("INSERT INTO articles (id, feed_id) VALUES ('a1', 'f'), ('a2', 'f')")
+        }
+        // https://sqlite.org/lang_altertable.html#otheralter: create new, copy, drop old, rename.
+        let rebuild = Migration(version: 2, sql: """
+            CREATE TABLE feeds_new (id TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT);
+            INSERT INTO feeds_new (id, title) SELECT id, title FROM feeds;
+            DROP TABLE feeds;
+            ALTER TABLE feeds_new RENAME TO feeds;
+            """)
+
+        let upgraded = try Database(path: path)
+        try await Migrator([Self.parentChild, rebuild]).migrate(upgraded)
+
+        #expect(try await version(upgraded) == 2)
+        #expect(try await upgraded.execute("SELECT id FROM articles").count == 2)
+        #expect(try await foreignKeys(upgraded) == 1)
+        // The cascade still works on the rebuilt parent.
+        try await upgraded.execute("DELETE FROM feeds WHERE id = 'f'")
+        #expect(try await upgraded.execute("SELECT id FROM articles").isEmpty)
+    }
+
+    @Test("a migration that leaves a dangling reference fails, rolls back, and foreign keys come back on")
+    func danglingReferenceFails() async throws {
+        let database = try Database.inMemory()
+        let dangling = Migration(version: 2, sql: """
+            CREATE TABLE marker (n INTEGER);
+            INSERT INTO articles (id, feed_id) VALUES ('orphan', 'no-such-feed');
+            """)
+
+        await #expect {
+            try await Migrator([Self.parentChild, dangling]).migrate(database)
+        } throws: { error in
+            guard case MigrationError.failed(let version, let message) = error else { return false }
+            return version == 2 && message.contains("articles")
+        }
+
+        #expect(try await version(database) == 1)
+        #expect(try await database.execute("SELECT id FROM articles").isEmpty)
+        #expect(try await database.execute("SELECT name FROM sqlite_master WHERE name = 'marker'").isEmpty)
+        #expect(try await foreignKeys(database) == 1)
+    }
+
     @Test("gaps in the version numbers are allowed")
     func gapsAllowed() async throws {
         let database = try Database.inMemory()

@@ -38,6 +38,16 @@ public actor Database {
         }
         return result
     }
+
+    /// Runs `body` on this actor with foreign key enforcement off, then restores the previous setting,
+    /// also when `body` throws. `PRAGMA foreign_keys` is a no-op inside a transaction, so this is called
+    /// with none open; the Migrator wraps a whole run in it.
+    func withForeignKeysOff<T: Sendable>(_ body: @Sendable (isolated Database) throws -> T) throws -> T {
+        let wasOn = try connection.execute("PRAGMA foreign_keys", []).first?.integer("foreign_keys") == 1
+        if wasOn { try connection.execute("PRAGMA foreign_keys = OFF", []) }
+        defer { if wasOn { _ = try? connection.execute("PRAGMA foreign_keys = ON", []) } }
+        return try body(self)
+    }
 }
 
 /// The handle a `Database.transaction` body uses to run statements inside the transaction.
