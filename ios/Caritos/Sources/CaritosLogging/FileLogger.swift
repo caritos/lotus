@@ -9,6 +9,8 @@ public final class FileLogger: @unchecked Sendable {
     private let minimumLevel: LogLevel
     private let now: @Sendable () -> Date
     private let osLogger: Logger
+    /// The `os.Logger` subsystem (internal, for tests).
+    let subsystem: String
     private let lock = NSLock()
     private let sessionFile: URL
     private var ready: Bool
@@ -16,12 +18,13 @@ public final class FileLogger: @unchecked Sendable {
     public init(
         directory: URL,
         minimumLevel: LogLevel = .info,
-        subsystem: String = "com.caritos",
+        subsystem: String = Bundle.main.bundleIdentifier ?? "com.caritos",
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.directory = directory
         self.minimumLevel = minimumLevel
         self.now = now
+        self.subsystem = subsystem
         self.osLogger = Logger(subsystem: subsystem, category: "app")
         // Timestamp sorts chronologically; the UUID suffix keeps same-second sessions apart.
         let stamp = Self.fileStamp(now())

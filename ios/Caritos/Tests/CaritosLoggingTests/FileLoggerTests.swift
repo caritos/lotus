@@ -65,3 +65,15 @@ private func clock(_ seconds: TimeInterval) -> @Sendable () -> Date {
     #expect(LogLevel.info < .warning)
     #expect(LogLevel.warning < .error)
 }
+
+@Test func subsystemDefaultsToTheMainBundleIdentifier() {
+    let logger = FileLogger(directory: tempDir())
+    // Under `swift test` on macOS the main bundle has no identifier, so this sees the fallback; in an
+    // app it is the app's bundle id.
+    #expect(logger.subsystem == (Bundle.main.bundleIdentifier ?? "com.caritos"))
+}
+
+@Test func anExplicitSubsystemIsHonored() {
+    let logger = FileLogger(directory: tempDir(), subsystem: "com.caritos.demo")
+    #expect(logger.subsystem == "com.caritos.demo")
+}
