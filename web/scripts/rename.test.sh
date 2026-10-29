@@ -162,8 +162,8 @@ if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && 
 # word (prose, internal/app, web/api/embed, the /app/ mount, APP_ENV) is NOT such a context.
 name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
-  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!web/scripts/rename.sh' ':!web/scripts/rename.test.sh' | grep -v 'new-web-app')
-}   # a path to the new-web-app skill ("new-web-app/tests/...") is a fixed name, not the project name
+  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!web/scripts/rename.sh' ':!web/scripts/rename.test.sh' | grep -vE 'new-(web|ios)-app')
+}   # a path to the new-web-app or new-ios-app skill ("new-ios-app/tests/...") is a fixed name, not the project name
 
 # Module-path-only change (same name): used to die in git mv onto itself after rewriting files.
 for mode in starter renamed; do
