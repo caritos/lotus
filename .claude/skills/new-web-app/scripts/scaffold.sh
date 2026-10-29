@@ -149,7 +149,7 @@ if [ -f "$WEB_INDEX" ]; then
   replace_in 's{(<title>[^<]*?)'"$WORDRE"'}{$1\@\@WRAP_NAME\@\@};
               s{'"$WORDRE"'}{\@\@WRAP_APP\@\@}g' "$WEB_INDEX"
 fi
-[ ! -f "$README_FILE" ] || replace_in 's/\A# app\n/# \@\@WRAP_NAME\@\@\n\n\@\@WRAP_DESC\@\@\n/' "$README_FILE"
+[ ! -f "$README_FILE" ] || replace_in 's/\A(?:# app\n)?/# \@\@WRAP_NAME\@\@\n\n\@\@WRAP_DESC\@\@\n/' "$README_FILE"
 gitc add -A; gitc commit -q --allow-empty -m "mark display name"
 
 # ---- 3. rename the module, binary, units and paths

@@ -55,7 +55,7 @@ ADDR=127.0.0.1:8080
 TRUSTED_PROXY=127.0.0.1/32
 EOS
   printf 'node_modules/\n*.log\n' > "$d/.gitignore"
-  printf '# app\n\n<p align="center"><img src="docs/logo.jpg" alt="logo" width="360"></p>\n\nA starter. The app serves /app/. Binary: dist/app\n' > "$d/README.md"
+  printf '<p align="center"><img src="docs/logo.jpg" alt="logo" width="360"></p>\n\nA starter. The app serves /app/. Binary: dist/app\n' > "$d/README.md"
   printf 'jpegbytes' > "$d/docs/logo.jpg"
   printf '# app CLAUDE\nbinary dist/app\n' > "$d/CLAUDE.md"
   printf '# app AGENTS\n' > "$d/AGENTS.md"
