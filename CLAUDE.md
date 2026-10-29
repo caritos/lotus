@@ -137,6 +137,21 @@ If the full suite is slow, run it in the background and wait for the result.
 - Housekeeping: `serve` purges expired sessions at start and hourly (`app.RunMaintenance`); `app.New`
   removes `storage/.upload-*` temp files older than an hour.
 
+## Layout rule: frontend in `web/src` and `web/public`, one binary out
+
+- Target (decided 2026-10-29): frontend source lives in `web/src` (React and TypeScript) or `web/public`
+  (HTML templates and public pages, CSS, fonts, images, icons and Markdown content that Go renders). Nothing
+  frontend goes in `web/api`, which is Go code only.
+- `pnpm build` compiles `web/src` and copies `web/public` into one generated, gitignored folder inside
+  `web/api` (the embed folder).
+- `go build` embeds only that folder with `go:embed`. `go:embed` cannot reach outside the Go module, so the
+  frontend is built first and Go embeds the result.
+- The output is one static Go binary with no files beside it except the server `.env`. Build the frontend
+  before `go test` or `go build`.
+- To do: the public pages, CSS and fonts still live in `web/api/internal/web/pages` and
+  `web/api/internal/web/static`, and must move to `web/public` (test-first, with the layout guard, `rename.sh`
+  and the `new-web-app` wrapper updated). Until that lands, don't add new frontend files to `web/api`.
+
 ## Known properties
 
 - Sign-in lockout is a denial-of-service lever, by design of a simple in-memory throttle: 20 failed
