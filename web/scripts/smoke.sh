@@ -19,7 +19,7 @@
 # Environment:
 #   APP_NAME   name that the home page's <title> or first <h1> must contain as a whole word,
 #              default app (the display name; web/scripts/rename.sh sets the project name there)
-#   CSS_FILE   local stylesheet to compare, default <repo>/web/api/internal/web/static/style.css
+#   CSS_FILE   local stylesheet to compare, default <repo>/web/public/static/style.css
 #              (the check is skipped with a note when the file is absent)
 #   CURL       curl binary, default curl
 #   EXPECTED_BUILD_ID   the build id that was just deployed (deploy.sh sets it)
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 APP_NAME="${APP_NAME:-app}"
-CSS_FILE="${CSS_FILE:-$REPO_ROOT/web/api/internal/web/static/style.css}"
+CSS_FILE="${CSS_FILE:-$REPO_ROOT/web/public/static/style.css}"
 CURL="${CURL:-curl}"
 
 if [ $# -ne 2 ] || [ -z "$1" ] || [ -z "$2" ]; then

@@ -19,6 +19,8 @@ make_copy() {
   local dest="$1"
   mkdir -p "$dest"
   (cd "$REPO" && git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf -) | tar -xf - -C "$dest" || return 1
+  # The embed copy of web/public is generated and ignored, so the tar above lacks it; go build/test in the copy need it.
+  bash "$dest/web/scripts/sync-public.sh" >/dev/null || return 1
   (cd "$dest" && git init -q && git add -A && git -c gc.auto=0 -c maintenance.auto=false -c user.email=t@example.com -c user.name=t commit -q -m base) || return 1
 }
 
@@ -212,7 +214,7 @@ grep -q "dist/$NEW" "$R/web/Makefile" && grep -q "dist/$NEW" "$R/README.md" && o
 grep -q "${NEW}_session" "$R/web/api/internal/auth/middleware.go" && grep -q "\"$NEW.db\"" "$R/web/api/internal/backup/backup.go" && ok "cookie and database names renamed" || bad "cookie or db name"
 grep -q "${NEW_UP}_BIN" "$R/web/scripts/restore.sh" && ! grep -q "${CUR_UP}_BIN" "$R/web/scripts/restore.sh" && ok "env var ${NEW_UP}_BIN renamed" || bad "${NEW_UP}_BIN missing"
 grep -q "com.$NEW.backup-pull" "$R/web/scripts/install-backup-agent.sh" && grep -q "Logs/$NEW/" "$R/web/scripts/install-backup-agent.sh" && grep -q ".config/$NEW/" "$R/web/scripts/backup-pull.env.example" && grep -q "users:((\"$NEW\"" "$R/web/scripts/deploy.test.sh" && ok "launchd label, log dir, env file path and ss process name renamed" || bad "launchd/ss contexts"
-grep -q "<title>$NEW - " "$R/web/api/internal/web/pages/index.html" && grep -q "<h1>$NEW</h1>" "$R/web/api/internal/web/pages/index.html" && ok "page title and h1 carry the new name" || bad "index.html title/h1"
+grep -q "<title>$NEW - " "$R/web/public/pages/index.html" && grep -q "<h1>$NEW</h1>" "$R/web/public/pages/index.html" && ok "page title and h1 carry the new name" || bad "index.html title/h1"
 
 # The generic word "app" must survive: package app, the composition-root directory, the embed
 # directory, the /app/ URL mount, APP_ENV and the shared log file name.
@@ -247,7 +249,7 @@ for W in acme zebra application; do
   if (cd "$X" && bash web/scripts/layout.test.sh) >"$ROOT/layout-$W.log" 2>&1; then ok "layout.test.sh passes after renaming to $W"; else bad "layout.test.sh after renaming to $W: $(grep FAIL "$ROOT/layout-$W.log" | head -5)"; fi
   if [ "${RENAME_TEST_FULL:-}" = 1 ]; then only=""; else only='test_smoke_*'; fi
   if (cd "$X" && ONLY="$only" bash web/scripts/deploy.test.sh) >"$ROOT/deploy-$W.log" 2>&1; then ok "deploy.test.sh ${only:-(all)} passes after renaming to $W"; else bad "deploy.test.sh after renaming to $W: $(grep FAIL "$ROOT/deploy-$W.log" | head -5)"; fi
-  if (cd "$X/web/api" && env -u CI go test -short ./... ) >"$ROOT/go-$W.log" 2>&1; then ok "go test -short passes after renaming to $W"; else bad "go test after renaming to $W: $(tail -8 "$ROOT/go-$W.log")"; fi
+  if (cd "$X/web/api" && bash ../scripts/sync-public.sh >/dev/null && env -u CI go test -short ./... ) >"$ROOT/go-$W.log" 2>&1; then ok "go test -short passes after renaming to $W"; else bad "go test after renaming to $W: $(tail -8 "$ROOT/go-$W.log")"; fi
   # and back, byte for byte
   (cd "$X" && git add -A && git -c user.email=t@example.com -c user.name=t commit -q -m renamed && bash web/scripts/rename.sh "$CUR_MODULE" "$CUR" >/dev/null 2>&1; git add -A)
   back="$(cd "$X" && git diff --cached --stat "$(git rev-list --max-parents=0 HEAD | head -1)" 2>&1)"
@@ -267,7 +269,7 @@ fi
 if command -v go >/dev/null 2>&1; then
   # The copy has no frontend build (it is gitignored), so the embed tests must skip
   # here even on a CI runner, where CI=true would turn the skip into a failure.
-  if (cd "$R/web/api" && go build ./... && go vet ./... && env -u CI go test -short ./... ) >"$ROOT/go.log" 2>&1; then ok "go build, vet and test -short pass in the copy"; else bad "go checks in the copy: $(tail -20 "$ROOT/go.log")"; fi
+  if (cd "$R/web/api" && bash ../scripts/sync-public.sh >/dev/null && go build ./... && go vet ./... && env -u CI go test -short ./... ) >"$ROOT/go.log" 2>&1; then ok "go build, vet and test -short pass in the copy"; else bad "go checks in the copy: $(tail -20 "$ROOT/go.log")"; fi
 else skip "go not on PATH"; fi
 
 if command -v pnpm >/dev/null 2>&1; then

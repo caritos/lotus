@@ -126,6 +126,15 @@ nm="$(git ls-files | grep -E '(^|/)node_modules(/|$)')"
 tracked_ignored="$(git ls-files -ci --exclude-standard)"
 [ -z "$tracked_ignored" ] && ok "no tracked file is ignored" || bad "tracked but ignored: $tracked_ignored"
 
+# web/api is Go only: frontend files live in web/src or web/public. The generated, ignored embed copies
+# (internal/web/app, internal/web/public) are not tracked, so they pass.
+fe="$(git ls-files web/api | grep -iE '\.(html|css|woff2?|svg|png|ico|js|ts|tsx)$')"
+[ -z "$fe" ] && ok "no tracked frontend file under web/api (it lives in web/src or web/public)" || bad "frontend files tracked under web/api: $fe"
+[ -f web/public/pages/index.html ] && [ -f web/public/static/style.css ] && ok "web/public holds pages/ and static/" || bad "web/public/pages/index.html or web/public/static/style.css missing"
+
+# smoke.sh compares the served CSS with the source file; its default must be the one in web/public.
+grep -qF 'web/public/static/style.css' web/scripts/smoke.sh && ok "smoke.sh compares the served CSS with web/public/static/style.css" || bad "smoke.sh CSS_FILE default is not web/public/static/style.css"
+
 # The compiled binary goes to dist/ (ignored); nothing named like the binary is tracked at the root.
 git check-ignore -q "web/dist/$NAME" && ok ".gitignore ignores web/dist/$NAME" || bad ".gitignore does not ignore web/dist/$NAME"
 [ -z "$(git ls-files "$NAME" "web/$NAME")" ] && ok "no tracked file named $NAME at the root or in web/" || bad "a file named $NAME is tracked at the root or in web/"
@@ -249,6 +258,10 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     git -C "$WORK/c" add -A
     if out="$(inner_out)"; then bad "guard did not flag $1"; elif printf '%s\n' "$out" | grep -qF "FAIL - $2"; then ok "guard flags $1"; else bad "$1 failed for another reason"; fi
   }
+  for fe_file in web/api/internal/web/pages/x.html web/api/internal/web/static/x.css web/api/internal/web/static/fonts/x.woff2 web/api/x.svg web/api/x.png web/api/x.ico web/api/x.js web/api/x.ts web/api/x.tsx; do
+    expect_set_fail "a tracked frontend file ($fe_file) under web/api" "frontend files tracked under web/api" extra "$fe_file"
+  done
+  expect_set_fail "a missing web/public/static/style.css" "web/public/pages/index.html or" missing web/public/static/style.css
   expect_set_fail "an extra file in web/deploy/" "web/deploy/ is" extra web/deploy/extra.txt
   expect_set_fail "a missing file in web/deploy/" "web/deploy/ is" missing web/deploy/nginx.conf.example
   expect_set_fail "a missing web/deploy/.env.example" "web/deploy/ is" missing web/deploy/.env.example
