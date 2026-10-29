@@ -77,7 +77,9 @@ $h
 <p>The name in the header is a placeholder. Replace this footer with your own.</p>
 EOS
   done
-  printf 'test-fast:\n\t@test ! -f FAIL_TEST_FAST\n' > "$d/web/Makefile"
+  printf 'test-fast:\n\t@test ! -f FAIL_TEST_FAST\n\ntest-scripts:\n\tbash scripts/deploy.test.sh\n\tbash scripts/rename.test.sh\n\tbash scripts/build-id.test.sh\n' > "$d/web/Makefile"
+  printf '#!/bin/bash\n# rename self-test\n' > "$d/web/scripts/rename.test.sh"
+  printf '#!/bin/bash\nWS=(deploy.sh layout.test.sh rename.sh rename.test.sh restore.sh)\n' > "$d/web/scripts/layout.test.sh"
   git -C "$d" init -q
   git -C "$d" add -A
   git -C "$d" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m fixture
@@ -290,6 +292,16 @@ test_the_skills_directory_is_not_copied_into_the_app() {
   [ ! -e "$TARGET/.claude/skills" ]
   [ -f "$GW/.claude/skills/new-web-app/SKILL.md" ]   # still in the starter
   ! grep -rq "caritos.com" "$TARGET/.claude" 2>/dev/null
+}
+
+test_the_rename_self_test_is_not_copied_into_the_app() {
+  new_env
+  [ -f "$GW/web/scripts/rename.test.sh" ]
+  run_scaffold "$TARGET" shop "Shop" "desc" >/dev/null
+  [ ! -e "$TARGET/web/scripts/rename.test.sh" ]
+  ! grep -rq "rename.test.sh" "$TARGET/web/Makefile" "$TARGET/web/scripts/layout.test.sh"
+  grep -q "bash scripts/build-id.test.sh" "$TARGET/web/Makefile"   # neighbours survive
+  grep -q "rename.sh restore.sh" "$TARGET/web/scripts/layout.test.sh"
 }
 
 test_the_starters_logo_is_not_copied_into_the_app() {

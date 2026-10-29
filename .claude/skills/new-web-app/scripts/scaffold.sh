@@ -4,6 +4,7 @@
 # Exit: 0 done; 1 refusal (starter missing or dirty, file collision, fast tier failed); 2 bad input (incl. a slug the starter's rename.sh refuses).
 # The starter is read-only here: LOTUS_DIR (default: the repo this script lives in), `git archive HEAD` only.
 # The skills under .claude/skills/ never go into the new app.
+# Neither does the starter's rename self-test (web/scripts/rename.test.sh), which cannot pass in a renamed app.
 # Everything is built in a temp git repo first and copied into <repo-dir> only at the end, so a
 # failure at any point leaves <repo-dir> untouched. The script does not commit.
 set -euo pipefail
@@ -109,6 +110,14 @@ LOGO="docs/logo.jpg"
 if [ -f "$W/$LOGO" ]; then
   rm -f "${W:?}/$LOGO"
   [ ! -f "$W/$README_FILE" ] || { grep -v "$LOGO" "$W/$README_FILE" > "$W/$README_FILE.tmp" || true; mv "$W/$README_FILE.tmp" "$W/$README_FILE"; }
+fi
+# the starter's rename self-test checks rename.sh against the starter itself and cannot pass in a renamed app
+RENAME_TEST="$SCRIPTS_DIR/rename.test.sh"
+if [ -f "$W/$RENAME_TEST" ]; then
+  rm -f "${W:?}/$RENAME_TEST"
+  for f in web/Makefile "$SCRIPTS_DIR/layout.test.sh"; do
+    [ ! -f "$W/$f" ] || { sed -e '/scripts\/rename\.test\.sh/d' -e 's/ rename\.test\.sh / /' "$W/$f" > "$W/$f.tmp"; cat "$W/$f.tmp" > "$W/$f"; rm -f "$W/$f.tmp"; }
+  done
 fi
 gitc init -q; gitc add -A; gitc commit -q --allow-empty -m "starter $ORIGIN"
 cd "$W"
