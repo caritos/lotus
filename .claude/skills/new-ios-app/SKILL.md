@@ -23,6 +23,10 @@ Creates (never overwrites an existing `ios/`): `ios/Package.swift` (`<App>Kit`, 
 
 Then: `cd <repo>/ios && swift test`, `ios/App/ship.sh --check`, `ios/App/deploy.sh`.
 
+## Caritos package
+
+The scaffold copies the shared Swift package `<lotus>/ios/Caritos` (no `.build`) into `ios/Caritos` and makes the Kit depend on it (`.package(path: "Caritos")`, product `CaritosLogging`; `CaritosLinkTests` proves the link). It holds six libraries: `CaritosLogging`, `CaritosDatabase` (SQLite), `CaritosNetworking`, `CaritosSecurity` (Keychain), `CaritosStorage` (JSON file store) and `CaritosUI` (shared views, `Color(hex:)`). Add the other products to the Kit target as needed. The copy is a snapshot: do not edit it in the app; fix lotus first (test-first), then re-copy. Tests: `bash .claude/skills/new-ios-app/tests/scaffold.test.sh [--fast]`.
+
 ## One-time setup
 
 | Where | What |

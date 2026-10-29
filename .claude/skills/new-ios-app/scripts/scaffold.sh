@@ -16,8 +16,15 @@ REPO="$1"; APP="$2"; SLUG="$3"; DISPLAY="${4:-$APP}"
 [[ "$SLUG" =~ ^[a-z][a-z0-9-]*$ ]]    || { echo "error: bundle-slug must be lowercase-with-hyphens: $SLUG" >&2; exit 2; }
 command -v xcodegen >/dev/null        || { echo "error: xcodegen not installed (brew install xcodegen)" >&2; exit 1; }
 
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do   # follow symlinks (the skill is linked into ~/.claude/skills)
+  d="$(cd "$(dirname "$SELF")" && pwd)"; SELF="$(readlink "$SELF")"; case "$SELF" in /*) ;; *) SELF="$d/$SELF" ;; esac
+done
+SKILL_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"   # the script file may be reached through a linked skill dir
 T="$SKILL_DIR/templates"
+# .claude/skills/new-ios-app -> the lotus root is 3 levels up
+CARITOS_SRC="$(cd "$SKILL_DIR/../../.." && pwd -P)/ios/Caritos"
+[ -f "$CARITOS_SRC/Package.swift" ] || { echo "error: shared package not found at $CARITOS_SRC" >&2; exit 1; }
 IOS="$REPO/ios"
 APPDIR="$IOS/App"
 XPROJ="$APPDIR/$APP"
@@ -35,7 +42,11 @@ mkdir -p "$REPO"
 fill "$T/Package.swift"               "$IOS/Package.swift"
 fill "$T/kit/Greeting.swift"          "$IOS/Sources/${APP}Kit/Greeting.swift"
 fill "$T/kit/GreetingTests.swift"     "$IOS/Tests/${APP}KitTests/GreetingTests.swift"
-fill "$T/project.yml"                 "$XPROJ/project.yml"
+fill "$T/kit/CaritosLinkTests.swift"  "$IOS/Tests/${APP}KitTests/CaritosLinkTests.swift"
+# Snapshot of the shared package (no build products); fixes go to lotus first.
+mkdir -p "$IOS/Caritos"
+(cd "$CARITOS_SRC" && tar --exclude=.build --exclude=.swiftpm -cf - .) | tar -xf - -C "$IOS/Caritos"
+fill "$T/project.yml"                "$XPROJ/project.yml"
 fill "$T/app/App.swift"               "$XPROJ/$APP/${APP}App.swift"
 fill "$T/app/ContentView.swift"       "$XPROJ/$APP/ContentView.swift"
 fill "$T/gitignore"                   "$IOS/.gitignore"
