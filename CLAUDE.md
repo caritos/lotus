@@ -18,7 +18,7 @@ Repo root:  README.md  CLAUDE.md  AGENTS.md  .gitignore  .gitattributes
 .claude/skills/     the new-web-app and new-ios-app skills; excluded from what a new app copies, ignored by rename.sh and layout.test.sh
 docs/superpowers/   design history (specs and plans), the only thing at the root docs/
 ios/                reserved for the native iOS app; no app yet, only a README (scaffold an app with the new-ios-app skill)
-  Caritos/          in lotus only: shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
+  Caritos/          in the starter repo only: shared Swift package, six products (CaritosDatabase, Logging, Networking, Security, Storage, UI); new-ios-app copies it into a new iOS app; the web wrapper leaves it out
 web/                everything for the web platform; run its commands from here or with `make -C web`
   Makefile          test-fast, test, test-skills, test-ios, e2e-install, e2e, api, build, dev
   .nvmrc            Node pin
@@ -216,10 +216,10 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   Final-review fixes (2026-10-29): `make -C web test-ios` runs `swift test --package-path ../ios/Caritos` and is part of
   `make -C web test` (not `test-fast`); it prints "skipped ios/Caritos tests: swift not installed" without `swift` and does
   nothing where `ios/Caritos` is absent (a new web app); `makefile-skip.test.sh` covers it. `new-ios-app` copies the package
-  from lotus's committed `HEAD` (`git archive`), so uncommitted edits, untracked files and `.build`/`.swiftpm` never reach
-  an app; it refuses, creating nothing, when lotus is not a git repo or `HEAD` has no `ios/Caritos`, and leaves
-  `ios/Caritos` alone when the target is lotus itself (all tested against throwaway git copies). The generated app's
-  `CLAUDE.md` calls `ios/Caritos` a read-only snapshot (fix lotus first, then re-copy) and its `ios/.gitignore` ignores
+  from the starter's committed `HEAD` (`git archive`), so uncommitted edits, untracked files and `.build`/`.swiftpm` never reach
+  an app; it refuses, creating nothing, when the starter is not a git repo or `HEAD` has no `ios/Caritos`, and leaves
+  `ios/Caritos` alone when the target is the starter itself (all tested against throwaway git copies). The generated app's
+  `CLAUDE.md` calls `ios/Caritos` a read-only snapshot (fix the starter first, then re-copy) and its `ios/.gitignore` ignores
   `.swiftpm/`. `Migrator` turns foreign keys off around a whole run (outside any transaction, restored also on failure) and
   runs `PRAGMA foreign_key_check` inside each migration's transaction before the version bump, so SQLite's table rebuild of
   a parent keeps its cascading child rows and a migration that leaves a dangling reference fails with `.failed` and rolls
@@ -337,7 +337,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Caritos `KeychainStore` on a simulator and a device (access groups, entitlements); only the Mac Keychain path is tested, and only with `CARITOS_REAL_KEYCHAIN=1`.
 - Caritos `HTTPTransport`, `Database`, `FileLogger`, `JSONFileStore` and the UI pieces are used by no app yet.
 - An Xcode build of a scaffolded app that resolves the nested Caritos package (xcodebuild / `deploy.sh`) has not been run;
-  only `swift test` on macOS has (plus an iOS Simulator `xcodebuild` of the `CaritosUI` scheme in lotus itself).
+  only `swift test` on macOS has (plus an iOS Simulator `xcodebuild` of the `CaritosUI` scheme in the starter itself).
 - `ErrorBanner` with VoiceOver on a device.
 
 ### Deferred

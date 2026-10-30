@@ -3,8 +3,8 @@
 Reserved for the native iOS app (Swift, SwiftUI, iOS 17+). No app is built here yet.
 
 The shared Caritos Swift package (database, logging, networking, Keychain, storage and common UI) lives in
-lotus at `ios/Caritos/` (see its README; test it there with `cd ios/Caritos && swift test`). A web app started
-from lotus does not carry it: the `new-ios-app` scaffold copies it from lotus's committed `HEAD` into the app.
+the starter repo at `ios/Caritos/` (see its README; test it there with `cd ios/Caritos && swift test`). A web app started
+from the starter does not carry it: the `new-ios-app` scaffold copies it from the starter's committed `HEAD` into the app.
 
 ## Starting it
 
