@@ -57,6 +57,7 @@ test-scripts:
 	bash scripts/build-id.test.sh
 	bash scripts/sync-public.test.sh
 	bash scripts/layout.test.sh
+	bash scripts/units.test.sh
 
 # Fast tier of the new-web-app skill tests (a fixture stands in for the starter). A project started from
 # this repo has no .claude/skills, so the target does nothing there. Full tier: see docs/testing.md.

@@ -137,9 +137,11 @@ scp web/deploy/app.service web/deploy/app-backup.service web/deploy/app-backup.t
 ssh deploy@host.example.com 'systemctl --user daemon-reload && systemctl --user enable app && systemctl --user enable --now app-backup.timer'
 ```
 
-The units assume the layout above. If your host rejects the sandboxing lines in a user
-unit (`status=226/NAMESPACE`), delete `NoNewPrivileges`, `ProtectSystem`,
-`ReadWritePaths` and `PrivateTmp` from the units, as the comment in `app.service` says.
+The units assume the layout above. They ship with `ProtectSystem`, `ReadWritePaths` and
+`PrivateTmp` commented out, because a host that refuses unprivileged mount namespaces (or starts
+refusing after a reboot) makes the unit exit with `status=226/NAMESPACE` and the proxy answers
+502. `NoNewPrivileges` stays on. To turn the rest on, uncomment those lines in both units,
+`daemon-reload`, restart, and check `systemctl --user is-active app` and the public `/healthz`.
 The service is enabled but not started yet: it starts on the first deploy.
 
 ## 4. Check, then deploy

@@ -13,10 +13,13 @@
 # WorkingDirectory. deploy.sh resolves it the same way for the pre-deploy backup.
 # Simplest: do not set DATA_DIR in .env at all.
 #
-# The sandboxing lines (NoNewPrivileges, ProtectSystem, ReadWritePaths, PrivateTmp)
-# need unprivileged user namespaces on some hosts. If `systemctl --user status app`
-# shows status=226/NAMESPACE or similar, delete those lines and restart; the app
-# still runs, just with less isolation.
+# Sandboxing: NoNewPrivileges is on. ProtectSystem, ReadWritePaths and PrivateTmp are
+# shipped commented out because they need unprivileged mount namespaces, which a shared
+# host can refuse, or start refusing after a reboot; the unit then exits with
+# status=226/NAMESPACE, restarts forever and the proxy answers 502. Without them the app
+# runs with less isolation. To switch them on, uncomment the three lines below, then
+# `systemctl --user daemon-reload && systemctl --user restart app`, and confirm with
+# `systemctl --user is-active app` and the public /healthz.
 [Unit]
 Description=app web service
 After=network.target
@@ -32,9 +35,9 @@ Restart=on-failure
 RestartSec=2
 
 NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=%h/app/data
-PrivateTmp=yes
+#ProtectSystem=strict
+#ReadWritePaths=%h/app/data
+#PrivateTmp=yes
 
 [Install]
 WantedBy=default.target

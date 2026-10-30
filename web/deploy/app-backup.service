@@ -5,6 +5,9 @@
 # DATA_DIR: a DATA_DIR in app/.env overrides the Environment= line below (systemd
 # applies EnvironmentFile= last; a relative value is relative to WorkingDirectory).
 # Keep one value, or leave DATA_DIR out of .env.
+#
+# ProtectSystem, ReadWritePaths and PrivateTmp are commented out for the same reason as in
+# app.service: they can fail with status=226/NAMESPACE, and then no backup runs.
 [Unit]
 Description=app daily backup
 
@@ -16,6 +19,6 @@ EnvironmentFile=-%h/app/.env
 Environment=DATA_DIR=%h/app/data
 UMask=0077
 NoNewPrivileges=yes
-ProtectSystem=strict
-ReadWritePaths=%h/app/data
-PrivateTmp=yes
+#ProtectSystem=strict
+#ReadWritePaths=%h/app/data
+#PrivateTmp=yes
