@@ -212,7 +212,9 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
   `new-web-app` wrapper leaves `ios/Caritos` out; `web/scripts/layout.test.sh` checks it. `make -C web test-skills` skips
   the new-ios-app tier with "skipped new-ios-app tests: xcodegen or swift not installed" when either tool is missing (CI
   is Linux; see Not yet verified); `.claude/skills/new-ios-app/tests/makefile-skip.test.sh` tests the skip (simulated by hiding the tools from PATH) and that the tier runs when both exist.
-  No app uses it yet.
+  First adopter (2026-10-31): Peony (the book reader) copied the package as a snapshot of `81f0265` and uses `CaritosLogging` and
+  `CaritosUI` only. It needed a light-impact haptic, so `Haptics.impact(_ style:)` with `Haptics.ImpactStyle` (`light`, `medium`,
+  `heavy`) was added here first, test first, for Peony to re-copy.
   Final-review fixes (2026-10-29): `make -C web test-ios` runs `swift test --package-path ../ios/Caritos` and is part of
   `make -C web test` (not `test-fast`); it prints "skipped ios/Caritos tests: swift not installed" without `swift` and does
   nothing where `ios/Caritos` is absent (a new web app); `makefile-skip.test.sh` covers it. `new-ios-app` copies the package
@@ -335,7 +337,7 @@ pins `packageManager`. Commit `pnpm-lock.yaml`. `typescript` is pinned to 5.9.x 
 - Windows.
 - The new-ios-app skip on the real ubuntu CI runner is simulated with a restricted PATH, not seen in CI.
 - Caritos `KeychainStore` on a simulator and a device (access groups, entitlements); only the Mac Keychain path is tested, and only with `CARITOS_REAL_KEYCHAIN=1`.
-- Caritos `HTTPTransport`, `Database`, `FileLogger`, `JSONFileStore` and the UI pieces are used by no app yet.
+- Caritos `HTTPTransport`, `Database` and `JSONFileStore` are used by no app yet. `FileLogger` and the `CaritosUI` pieces Peony uses (`SettingsRow`; `Haptics.impact` once it is wired in) are covered by unit tests only; not yet seen in a simulator or on a device.
 - An Xcode build of a scaffolded app that resolves the nested Caritos package (xcodebuild / `deploy.sh`) has not been run;
   only `swift test` on macOS has (plus an iOS Simulator `xcodebuild` of the `CaritosUI` scheme in the starter itself).
 - `ErrorBanner` with VoiceOver on a device.
