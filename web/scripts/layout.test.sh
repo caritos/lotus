@@ -172,15 +172,15 @@ EXCL=(':!docs/superpowers' ':!.claude/skills' ':!web/scripts/layout.test.sh' ':!
 if [ "$HOST" -eq 1 ]; then EXCL+=(':!ios' ':!android'); fi
 stale_report() {
   {
-    git grep -nE 'web/e2e' -- . "${EXCL[@]}"
+    git grep -I -nE 'web/e2e' -- . "${EXCL[@]}"
     # scripts, deploy files, docs and the binary written without web/ in front of them
-    git grep -nE "${NOPFX}scripts/(deploy|deploy-app|smoke|restore|pull-backups|install-backup-agent|gen-api|gen-api-preflight|rename|build-id|layout|backup-pull|clean-app)[.a-z-]*" -- . "${EXCL[@]}"
-    git grep -nE "${NOPFX}deploy/(\\.env|nginx|[A-Za-z0-9_-]+\\.(service|timer))" -- . "${EXCL[@]}"
-    git grep -nE "${NOPFX}dist/(app|$NAME)([^A-Za-z0-9_]|\$)|[ \`(=:]\\.(/deploy|/scripts/|/dist/)|(cd|bash|sh) +(deploy|scripts)( |/|\$)" -- . "${EXCL[@]}"
-    git grep -nE "${NOPFX}docs/(deploy|https|backups|testing)\\.md" -- . "${EXCL[@]}"
-    git grep -nE "${NOPFX}\\.env\\.example" -- . "${EXCL[@]}"
+    git grep -I -nE "${NOPFX}scripts/(deploy|deploy-app|smoke|restore|pull-backups|install-backup-agent|gen-api|gen-api-preflight|rename|build-id|layout|backup-pull|clean-app)[.a-z-]*" -- . "${EXCL[@]}"
+    git grep -I -nE "${NOPFX}deploy/(\\.env|nginx|[A-Za-z0-9_-]+\\.(service|timer))" -- . "${EXCL[@]}"
+    git grep -I -nE "${NOPFX}dist/(app|$NAME)([^A-Za-z0-9_]|\$)|[ \`(=:]\\.(/deploy|/scripts/|/dist/)|(cd|bash|sh) +(deploy|scripts)( |/|\$)" -- . "${EXCL[@]}"
+    git grep -I -nE "${NOPFX}docs/(deploy|https|backups|testing)\\.md" -- . "${EXCL[@]}"
+    git grep -I -nE "${NOPFX}\\.env\\.example" -- . "${EXCL[@]}"
     # the binary now lives in dist/: a root binary reference such as `./<name> serve`
-    git grep -nE "(^|[^A-Za-z0-9_./-])\\./$NAME(\$|[^A-Za-z0-9_/.-]|\\.([^A-Za-z]|\$))" -- README.md AGENTS.md CLAUDE.md 'web/docs/*.md' ':!docs/superpowers'
+    git grep -I -nE "(^|[^A-Za-z0-9_./-])\\./$NAME(\$|[^A-Za-z0-9_/.-]|\\.([^A-Za-z]|\$))" -- README.md AGENTS.md CLAUDE.md 'web/docs/*.md' ':!docs/superpowers'
   } 2>/dev/null | sort -u | awk -F: -v ranges="$DONE_RANGES" 'BEGIN { n = split(ranges, r, " ") }
       { for (i = 1; i <= n; i++) { split(r[i], x, ","); if ($1 == x[1] && $2 > x[2] && $2 < x[3]) next } print }'
 }
@@ -265,6 +265,11 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   expect_pass "link from web/docs to web/deploy" README.md 'see [x](../deploy/nginx.conf.example)'
   expect_pass "a /home/deploy/ path" README.md "DIR=/home/deploy/$NAME/data/backups"
   expect_pass "a file named like node_modules_notes" web/src/node_modules_notes.md 'x'
+  # git grep must skip binary files (-I): a tracked PNG that merely contains an old-style path is not a stale
+  # reference, and without -I git grep reads every tracked blob into memory (1-2 GB per call on an app with
+  # screenshots; several concurrent runs exhausted an 8 GB Mac and crashed it).
+  make_copy && mkdir -p "$WORK/c/web/src" && printf '\211PNG\r\n\032\n\0\0\0 see scripts/deploy.sh web/e2e/x deploy/app.service dist/app docs/deploy.md .env.example\0' > "$WORK/c/web/src/shot.png" && git -C "$WORK/c" add -A
+  if inner; then ok "guard ignores old-style paths inside a tracked binary file"; else bad "guard flags a tracked binary file (git grep without -I)"; fi
   make_copy && mkdir -p "$WORK/c/web/node_modules" && echo x > "$WORK/c/web/node_modules/x" && git -C "$WORK/c" add -f web/node_modules/x
   inner && bad "guard did not flag a tracked node_modules file" || ok "guard flags a tracked node_modules file"
   # Each directory set must hold exactly the expected files: an extra and a missing one both fail, and the

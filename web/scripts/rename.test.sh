@@ -70,7 +70,7 @@ rm -rf "$d"
 # The list must not drift: every tool the scripts probe with `command -v` or the CI workflow runs
 # is a word the context rules could corrupt ("command -v go", "web/api/go.mod"), so it is reserved.
 drift=""
-for w in $(cd "$REPO" && { git grep -ohE 'command -v [a-z0-9]+' -- web/scripts web/Makefile .github .claude ':!.claude/skills' | sed 's/command -v //'; git grep -ohE 'run: [a-z0-9]+' -- .github | sed 's/run: //'; } | sort -u); do
+for w in $(cd "$REPO" && { git grep -I -ohE 'command -v [a-z0-9]+' -- web/scripts web/Makefile .github .claude ':!.claude/skills' | sed 's/command -v //'; git grep -I -ohE 'run: [a-z0-9]+' -- .github | sed 's/run: //'; } | sort -u); do
   [ "$w" = "$CUR" ] && continue
   case " $RESERVED_LIST " in *" $w "*) ;; *) drift="$drift $w" ;; esac
 done
@@ -78,7 +78,7 @@ done
 # Fixture words: $VAR/<word> targets in the shell tests (for example "$T/notify") are rewritten
 # by the $VAR/ prefix rule when the name equals them.
 fix=""
-for w in $(cd "$REPO" && git grep -ohE '\$\{?[A-Za-z_]+\}?/[a-z][a-z0-9]*' -- 'web/scripts/*.test.sh' .claude/hooks | sed 's#.*/##' | sort -u); do
+for w in $(cd "$REPO" && git grep -I -ohE '\$\{?[A-Za-z_]+\}?/[a-z][a-z0-9]*' -- 'web/scripts/*.test.sh' .claude/hooks | sed 's#.*/##' | sort -u); do
   [ "$w" = "$CUR" ] && continue
   case " $RESERVED_LIST " in *" $w "*) ;; *) fix="$fix $w" ;; esac
 done
@@ -162,7 +162,7 @@ if [ $rc -eq 0 ] && echo "$out" | grep -q "nothing to do" && [ -z "$(cd "$D" && 
 # word (prose, internal/app, web/api/embed, the /app/ mount, APP_ENV) is NOT such a context.
 name_tokens() {
   local n="$2" N; N="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
-  (cd "$1" && git grep -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!web/scripts/rename.sh' ':!web/scripts/rename.test.sh' | grep -vE 'new-(web|ios)-app')
+  (cd "$1" && git grep -I -nE "(^|[^A-Za-z0-9_])${n}(_session|\.db|\.service|-backup|-pull|-e2e|-web|-development-only)|${n}/(internal|cmd|tests)([^A-Za-z0-9_]|$)|(cmd|dist|current|~|HOME|%h|config|Logs|backups)/${n}([^A-Za-z0-9_/]|$)|(^|[^A-Za-z0-9_])com\\.${n}\\.|users:\\(\\(\"${n}\"|(^|[^A-Za-z0-9])${N}_(BIN|AUTH_PANIC_CHILD)" -- . ':!docs/superpowers' ':!.claude/skills' ':!web/scripts/rename.sh' ':!web/scripts/rename.test.sh' | grep -vE 'new-(web|ios)-app')
 }   # a path to the new-web-app or new-ios-app skill ("new-ios-app/tests/...") is a fixed name, not the project name
 
 # Module-path-only change (same name): used to die in git mv onto itself after rewriting files.
@@ -210,7 +210,7 @@ for f in web/Makefile web/scripts/deploy.sh web/test/e2e/global-setup.ts; do
   grep -q "$NEW_MODULE/internal/version.BuildID" "$R/$f" && ok "build id ldflag renamed in $f" || bad "BuildID ldflag in $f"
 done
 grep -q "dist/$NEW" "$R/web/Makefile" && grep -q "dist/$NEW" "$R/README.md" && ok "binary path dist/$NEW in Makefile and README" || bad "dist/$NEW missing"
-[ -z "$(cd "$R" && git grep -n "dist/$CUR" -- . ':!.claude/skills')" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
+[ -z "$(cd "$R" && git grep -I -n "dist/$CUR" -- . ':!.claude/skills')" ] && ok "old binary path dist/$CUR gone" || bad "dist/$CUR remains"
 grep -q "${NEW}_session" "$R/web/api/internal/auth/middleware.go" && grep -q "\"$NEW.db\"" "$R/web/api/internal/backup/backup.go" && ok "cookie and database names renamed" || bad "cookie or db name"
 grep -q "${NEW_UP}_BIN" "$R/web/scripts/restore.sh" && ! grep -q "${CUR_UP}_BIN" "$R/web/scripts/restore.sh" && ok "env var ${NEW_UP}_BIN renamed" || bad "${NEW_UP}_BIN missing"
 grep -q "com.$NEW.backup-pull" "$R/web/scripts/install-backup-agent.sh" && grep -q "Logs/$NEW/" "$R/web/scripts/install-backup-agent.sh" && grep -q ".config/$NEW/" "$R/web/scripts/backup-pull.env.example" && grep -q "users:((\"$NEW\"" "$R/web/scripts/deploy.test.sh" && ok "launchd label, log dir, env file path and ss process name renamed" || bad "launchd/ss contexts"
@@ -222,14 +222,14 @@ grep -q "<title>$NEW - " "$R/web/public/pages/index.html" && grep -q "<h1>$NEW</
 [ -f "$R/web/api/embed/.gitkeep" ] && [ -f "$R/web/api/embed/embed.go" ] && ok "web/api/embed (embed directory) untouched" || bad "embed directory moved"
 grep -q "^package app$" "$R/web/api/internal/app/app.go" && grep -q "\"$NEW_MODULE/internal/app\"" "$R/web/api/cmd/$NEW/main.go" && ok "package app and its import path" || bad "package app"
 grep -q 'HasPrefix(p, "/app/")' "$R/web/api/internal/web/web.go" && grep -q "go:embed all:" "$R/web/api/embed/embed.go" && ok "/app/ mount and the go:embed pattern untouched" || bad "/app/ mount or embed pattern"
-grep -q 'APP_ENV' "$R/web/api/internal/config/config.go" && [ -z "$(cd "$R" && git grep -n "${NEW_UP}_ENV" -- . ':!web/scripts/rename.test.sh')" ] && ok "APP_ENV is not renamed" || bad "APP_ENV was renamed"
+grep -q 'APP_ENV' "$R/web/api/internal/config/config.go" && [ -z "$(cd "$R" && git grep -I -n "${NEW_UP}_ENV" -- . ':!web/scripts/rename.test.sh')" ] && ok "APP_ENV is not renamed" || bad "APP_ENV was renamed"
 grep -q '"logs", "app.log"' "$R/web/api/internal/config/config.go" && ok "shared app.log name untouched" || bad "app.log"
 grep -q 'web/api/embed' "$R/.gitignore" && ok ".gitignore embed path untouched" || bad ".gitignore embed path"
 [ -x "$R/web/scripts/build-id.sh" ] && printf '%s' "$(cd "$R" && BUILD_DATE=20261027 bash web/scripts/build-id.sh)" | grep -Eq '^20261027-([0-9a-f]{7}|unknown)(-dirty)?$' && ok "build-id.sh works in the renamed copy" || bad "build-id.sh in the renamed copy"
 [ -z "$(cd "$R" && git status --porcelain | grep -v '^R \|^RM\|^ M\|^M \|^A ')" ] || bad "unexpected status entries"
 
 # The "generic name" warnings must not turn false: no line that calls things generic may name the new name.
-gen="$(cd "$R" && git grep -n -i 'generic' -- README.md CLAUDE.md web/docs | grep -E "(^|[^A-Za-z0-9_])$NEW([^A-Za-z0-9_]|$)"; grep -n -i 'default name is generic' "$R/web/docs/deploy.md")"
+gen="$(cd "$R" && git grep -I -n -i 'generic' -- README.md CLAUDE.md web/docs | grep -E "(^|[^A-Za-z0-9_])$NEW([^A-Za-z0-9_]|$)"; grep -n -i 'default name is generic' "$R/web/docs/deploy.md")"
 [ -z "$gen" ] && ok "no renamed doc still calls its own name generic" || bad "a doc calls the new name generic: $gen"
 
 # Renaming back must restore the starter byte for byte: the contexts are symmetric and nothing
