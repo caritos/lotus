@@ -71,8 +71,11 @@ if [ "$HOST" -eq 0 ]; then
     [ ! -e "$old" ] && ok "no root $old (it lives under web/)" || bad "root $old still exists"
   done
 fi
-if [ -d docs ]; then
-  have_docs="$(ls -A docs | sorted_set)"
+if [ "$HOST" -eq 1 ]; then
+  ok "host mode ($MARKER): docs/ belongs to the host and is not checked"
+elif [ -d docs ]; then
+  # tracked entries only: untracked files (stray screenshots) are not part of the repo
+  have_docs="$(git ls-files docs | cut -d/ -f2 | sort -u | sorted_set)"
   { [ "$have_docs" = "superpowers" ] || [ "$have_docs" = "logo.jpg superpowers" ]; } \
     && ok "docs/ holds only superpowers/ (design history) and the starter's logo.jpg" \
     || bad "docs/ is '$have_docs', want 'superpowers' (optionally with logo.jpg)"
@@ -169,7 +172,8 @@ NOPFX='(^|[^A-Za-z0-9_./-])'
 # they are scanned like everything else.
 # web/Makefile and web/package.json run inside web/, so they legitimately say scripts/ and dist/.
 EXCL=(':!docs/superpowers' ':!.claude/skills' ':!web/scripts/layout.test.sh' ':!web/Makefile' ':!web/package.json')
-if [ "$HOST" -eq 1 ]; then EXCL+=(':!ios' ':!android'); fi
+# The host's own trees (ios/, android/, Expo-era mobile/, docs/) are not scanned for the starter's old paths.
+if [ "$HOST" -eq 1 ]; then EXCL+=(':!ios' ':!android' ':!mobile' ':!docs'); fi
 stale_report() {
   {
     git grep -I -nE 'web/e2e' -- . "${EXCL[@]}"
@@ -307,12 +311,18 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
     make_copy && sed -i.bak '/"CaritosStorage"/d' "$WORK/c/ios/Caritos/Package.swift" && rm -f "$WORK/c/ios/Caritos/Package.swift.bak" && git -C "$WORK/c" add -A
     if out="$(inner_out)"; then bad "guard did not flag a missing product line"; elif printf '%s\n' "$out" | grep -qF "FAIL - ios/Caritos/Package.swift lacks products: CaritosStorage"; then ok "guard flags a missing product in Package.swift"; else bad "missing product failed for another reason"; fi
   fi
+  # docs/ is policed in the starter only; in host mode it belongs to the host (see the docs/ check above).
+  if [ "$HOST" -eq 0 ]; then
   expect_set_fail "an extra file in docs/" "docs/ is" extra docs/deploy.md
   make_copy && mkdir -p "$WORK/c/docs/superpowers" && echo x > "$WORK/c/docs/superpowers/y.md" && git -C "$WORK/c" add -A
   inner && ok "guard allows docs/superpowers/" || bad "guard flags docs/superpowers/"
   make_copy && mkdir -p "$WORK/c/docs" && echo x > "$WORK/c/docs/logo.jpg" && git -C "$WORK/c" add -A
   inner && ok "guard allows docs/logo.jpg (the starter's logo)" || bad "guard flags docs/logo.jpg"
   expect_set_fail "another image in docs/" "docs/ is" extra docs/banner.png
+  # Untracked files (screenshots a session left in docs/) are not part of the repo and must not fail the guard.
+  make_copy && mkdir -p "$WORK/c/docs" && echo x > "$WORK/c/docs/screenshot.png"
+  inner && ok "guard ignores an untracked file in docs/" || bad "guard counts an untracked file in docs/"
+  fi
   make_copy && rm "$WORK/c/.gitattributes" && git -C "$WORK/c" add -A
   if out="$(inner_out)"; then bad "guard did not flag a missing .gitattributes"; elif printf '%s\n' "$out" | grep -q 'FAIL - \*.sql is not marked -text'; then ok "guard flags a missing .gitattributes"; else bad "missing .gitattributes failed for another reason"; fi
   # Host mode: the app lives inside a host repo (the wrapper writes the marker file, and moves the starter's
@@ -374,6 +384,13 @@ if [ -z "${LAYOUT_TEST_INNER:-}" ]; then
   done
   if must "host with marker" make_host with-origin; then
     if out="$(inner_out)"; then ok "host layout with $MARKER passes (no ios README, host CLAUDE.md, the starter's log at web/CLAUDE.md)"; else bad "host layout with $MARKER fails: $(printf '%s\n' "$out" | grep FAIL)"; fi
+  fi
+  # The host owns its docs/ and its mobile/ tree (Expo-era notes and the like): extra files there are not
+  # the starter's business, and old-style paths in them are not stale references. Found migrating Spool.
+  if must "host docs and mobile" make_host with-origin && mkdir -p "$WORK/c/docs" "$WORK/c/mobile" \
+      && echo 'run scripts/deploy.sh then see dist/app' > "$WORK/c/docs/IPHONE_DEPLOYMENT.md" \
+      && echo 'see deploy/app.service' > "$WORK/c/mobile/README.md" && git -C "$WORK/c" add -A; then
+    if out="$(inner_out)"; then ok "host mode leaves the host's docs/ and mobile/ alone"; else bad "host mode polices the host's docs/ or mobile/: $(printf '%s\n' "$out" | grep FAIL)"; fi
   fi
   if must "host without marker" make_host; then
     if out="$(inner_out)"; then bad "host layout WITHOUT $MARKER passed (the starter itself must stay guarded)"
